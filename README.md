@@ -6,7 +6,7 @@ PoleLine is a mobile web game set on 24 real Formula 1 circuits. You draw your r
 
 ## How it plays
 
-- **Draw.** Start on the chequered line and drag along the track. The map is zoomed to a comfortable finger width and turns so the road ahead points up. When you near the edge of the screen your stroke ends and the map glides on; lift and carry on from the purple tip. Prefer one long stroke? Settings has a continuous mode where the map scrolls under your finger, with a speed slider. Cross the white line and your stroke stops at the edge; undo that stroke and try the corner again. Only a line that stays inside the limits can be raced.
+- **Draw.** Start on the chequered line and drag along the track. The map is zoomed to a comfortable finger width and turns so the road ahead points up. When you near the edge of the screen your stroke ends and the map glides on; lift and carry on from the purple tip. Swipe on the grass to look around at any time; a button glides you back to the tip. Prefer one long stroke? Settings has a continuous mode where the map scrolls under your finger, with a speed slider (0.35x by default). Cross the white line and your stroke stops at the edge; undo that stroke and try the corner again. Only a line that stays inside the limits can be raced.
 - **Race.** The screen stays awake (Screen Wake Lock) while you play. The car runs your line in real time: flying lap, live sector colours, delta to your personal best ghost, gear, revs, DRS and tyre temperature.
 - **Learn.** The results sheet shows a speed trace of the whole lap, your sectors, a grid slot (P1 to P20, or outside 107%) and a race engineer's note on what to try next.
 

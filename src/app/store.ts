@@ -111,28 +111,47 @@ export interface Settings {
 
 export const SCROLL_SPEED_MIN = 0.25;
 export const SCROLL_SPEED_MAX = 2;
+export const SCROLL_SPEED_DEFAULT = 0.35;
+
+/**
+ * Stored settings only hold what the player actually changed, so a new default
+ * reaches everyone who never touched that setting. Version 2 dropped the
+ * scroll speeds that version 1 saved implicitly alongside other settings.
+ */
+const SETTINGS_VERSION = 2;
+
+function storedSettings(): Partial<Settings> & { v?: number } {
+  const raw = read<Partial<Settings> & { v?: number }>('settings', {});
+  if ((raw.v ?? 1) < SETTINGS_VERSION) {
+    delete raw.scrollSpeed;
+    raw.v = SETTINGS_VERSION;
+    write('settings', raw);
+  }
+  return raw;
+}
 
 export function getSettings(): Settings {
+  const { v: _v, ...stored } = storedSettings();
+  void _v;
   const s: Settings = {
     sound: true,
     tutorialDone: false,
     lastTrack: 'spielberg',
     attempts: 0,
     scrollMode: 'pause',
-    scrollSpeed: 1,
+    scrollSpeed: SCROLL_SPEED_DEFAULT,
     keepAwake: true,
-    ...read<Partial<Settings>>('settings', {}),
+    ...stored,
   };
   if (s.scrollMode !== 'pause' && s.scrollMode !== 'continuous') s.scrollMode = 'pause';
   const sp = Number(s.scrollSpeed);
-  s.scrollSpeed = Number.isFinite(sp) ? Math.min(SCROLL_SPEED_MAX, Math.max(SCROLL_SPEED_MIN, sp)) : 1;
+  s.scrollSpeed = Number.isFinite(sp) ? Math.min(SCROLL_SPEED_MAX, Math.max(SCROLL_SPEED_MIN, sp)) : SCROLL_SPEED_DEFAULT;
   return s;
 }
 
 export function saveSettings(patch: Partial<Settings>): Settings {
-  const next = { ...getSettings(), ...patch };
-  write('settings', next);
-  return next;
+  write('settings', { ...storedSettings(), ...patch, v: SETTINGS_VERSION });
+  return getSettings();
 }
 
 export function getTyre(slug: string): Compound {

@@ -5,7 +5,9 @@
 //     next section, and the player lifts and carries on from the tip.
 //   continuous mode: the map feeds forward under the finger while it moves,
 //     at a player-chosen speed.
-// Lifting the finger always glides the camera on. A stroke that crosses the
+// Lifting the finger always glides the camera on. Dragging on the grass pans
+// the map at any time (with a little momentum); a button glides back to the
+// tip when it is off screen. A stroke that crosses the
 // white line stops at the edge; the player undoes that stroke (or carries on
 // from the tip). Only a line that stays inside the limits can be raced.
 
@@ -18,7 +20,7 @@ import { INK, polyPath, strokeInk } from '../render/line-art';
 import type { TrackArt } from '../render/track-art';
 import { LineBuilder, START_TOUCH_RANGE } from '../sim/builder';
 import { UNITS_PER_METRE } from '../sim/path';
-import { frameAt, projectNear, type Track } from '../sim/track';
+import { frameAt, projectGlobal, projectNear, type Track } from '../sim/track';
 import type { Compound } from '../sim/types';
 import { ICONS, h, setText, tyreBadge } from '../ui/dom';
 
@@ -36,6 +38,12 @@ interface CamState {
 }
 
 const TIP_GRAB_RADIUS = 58;
+/** A touch this far outside the white line (metres) counts as grass and pans the map. */
+const GRASS_MARGIN = 0.6;
+/** Help tips stay up this long (plus a little per character), then fade. */
+const HINT_BASE_MS = 1800;
+const HINT_PER_CHAR_MS = 35;
+const HINT_MAX_MS = 4800;
 /** In pause mode, end the stroke when the tip gets this close (px) to the edge of the drawing area ahead. */
 const ADVANCE_ROOM = 64;
 /** A stroke always gets at least this many metres before the map may move on. */
@@ -50,6 +58,7 @@ const HINTS = {
   advance: 'The map moved on. Lift your finger, then carry on from the purple tip.',
   resume: 'Carry on from the purple tip.',
   limits: 'Undo the stroke, or carry on from the purple tip.',
+  pan: 'Swipe on the grass to look around.',
   width: 'Use the whole width: wide on entry, clip the apex, wide on exit.',
   closing: 'Cross the line where you started for a clean flying lap.',
   backward: 'The line only flows forward.',
@@ -98,6 +107,14 @@ export class DrawScreen implements Screen {
   private bottomStrip!: HTMLElement;
   private safe = { top: 96, bottom: 700, left: 14, right: 376 };
   private miniRect = { x: 0, y: 0, w: 0, h: 0 };
+  private panning = false;
+  private panLast = { x: 0, y: 0, t: 0 };
+  private panVel = { x: 0, y: 0 };
+  private momentum: { x: number; y: number } | null = null;
+  private recenterBtn!: HTMLButtonElement;
+  private recenterLabel!: HTMLElement;
+  private recenterShown = false;
+  private hintTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     private app: App,
@@ -138,10 +155,13 @@ export class DrawScreen implements Screen {
       this.pct,
       h('button', { class: 'icon-btn', 'aria-label': 'Start the lap again', html: ICONS.restart, onclick: () => this.restart() }),
     );
+    this.recenterLabel = h('span', null, 'Back to the start');
+    this.recenterBtn = h('button', { class: 'recenter is-hidden', onclick: () => this.recenter() }, h('span', { class: 'recenter-dot', 'aria-hidden': 'true' }), this.recenterLabel) as HTMLButtonElement;
     this.el = h(
       'div',
       { class: 'draw-hud' },
       this.topStrip,
+      this.recenterBtn,
       h('div', { class: 'draw-progress', role: 'progressbar', 'aria-label': 'Lap drawn' }, this.bar),
       this.mini,
       this.hint,
@@ -149,6 +169,7 @@ export class DrawScreen implements Screen {
     );
     app.root.append(this.el);
     this.resize();
+    this.showHint(HINTS.start);
     this.setCam(this.frameFor(0, this.startPoint()));
     this.updateHud();
 
@@ -305,6 +326,11 @@ export class DrawScreen implements Screen {
     return this.builder.status;
   }
 
+  /** True while the map is being dragged (test hook). */
+  get isPanning(): boolean {
+    return this.panning || this.momentum !== null;
+  }
+
   /** True while a stroke is accepting finger movement. */
   get penDown(): boolean {
     return this.drawing;
@@ -332,36 +358,44 @@ export class DrawScreen implements Screen {
 
   private onDown(e: PointerEvent): void {
     if (this.pointerId !== null || this.builder.status === 'done') return;
-    this.awaitLift = false;
     unlockAudio();
+    this.momentum = null;
     const p = this.local(e);
-    this.glide = null;
     const w = this.cam.toWorld(p.x, p.y);
     if (this.builder.status === 'idle') {
-      if (!this.builder.start(w.x, w.y)) {
-        this.flashHint(HINTS.start);
+      if (this.builder.canStartAt(w.x, w.y)) {
+        this.glide = null;
+        this.builder.start(w.x, w.y);
+        sfx.penDown();
+        buzz(8);
+        this.pointerId = e.pointerId;
+        this.drawing = true;
+        this.strokes = 1;
+        this.strokeFrom = 0;
+        this.rebuildInk();
+        this.app.canvas.setPointerCapture(e.pointerId);
+        this.showHint(HINTS.drawing);
         return;
       }
-      sfx.penDown();
-      buzz(8);
-      this.pointerId = e.pointerId;
-      this.drawing = true;
-      this.strokes = 1;
-      this.strokeFrom = 0;
-      this.rebuildInk();
-      this.app.canvas.setPointerCapture(e.pointerId);
-      setText(this.hint, HINTS.drawing);
+      if (this.isGrass(w.x, w.y)) this.beginPan(e, p);
+      else this.flashHint(HINTS.start);
       return;
     }
     if (this.builder.status !== 'drawing') return;
     const tip = this.builder.lastPoint!;
     const ts = this.cam.toScreen(tip.x, tip.y);
     if (Math.hypot(ts.x - p.x, ts.y - p.y) > TIP_GRAB_RADIUS) {
+      if (this.isGrass(w.x, w.y)) {
+        this.beginPan(e, p);
+        return;
+      }
       this.tipPulse = performance.now();
       this.flashHint(HINTS.grab);
       buzz([10, 40, 10]);
       return;
     }
+    this.glide = null;
+    this.awaitLift = false;
     this.closeLimits();
     this.builder.beginStroke();
     this.strokes++;
@@ -375,8 +409,43 @@ export class DrawScreen implements Screen {
     this.pickup = { ox: w.x - tip.x, oy: w.y - tip.y, sx: p.x, sy: p.y };
   }
 
+  /** Grass, run-off, walls: anywhere clearly outside the white lines. */
+  private isGrass(x: number, y: number): boolean {
+    return projectGlobal(this.track, x, y).dist > this.track.limit + GRASS_MARGIN;
+  }
+
+  private beginPan(e: PointerEvent, p: { x: number; y: number }): void {
+    this.glide = null;
+    this.shiftX = this.shiftY = 0;
+    this.panning = true;
+    this.pointerId = e.pointerId;
+    this.panLast = { x: p.x, y: p.y, t: performance.now() };
+    this.panVel = { x: 0, y: 0 };
+    this.app.canvas.setPointerCapture(e.pointerId);
+  }
+
+  /** Move the camera so the world point under the finger stays under it. */
+  private panBy(fromX: number, fromY: number, toX: number, toY: number): void {
+    const a = this.cam.toWorld(fromX, fromY);
+    const b = this.cam.toWorld(toX, toY);
+    this.cam.cx += a.x - b.x;
+    this.cam.cy += a.y - b.y;
+  }
+
   private onMove(e: PointerEvent): void {
-    if (!this.drawing || e.pointerId !== this.pointerId) return;
+    if (e.pointerId !== this.pointerId) return;
+    if (this.panning) {
+      const p = this.local(e);
+      const now = performance.now();
+      const dt = Math.max(1, now - this.panLast.t) / 1000;
+      this.panBy(this.panLast.x, this.panLast.y, p.x, p.y);
+      const vx = (p.x - this.panLast.x) / dt;
+      const vy = (p.y - this.panLast.y) / dt;
+      this.panVel = { x: this.panVel.x * 0.6 + vx * 0.4, y: this.panVel.y * 0.6 + vy * 0.4 };
+      this.panLast = { x: p.x, y: p.y, t: now };
+      return;
+    }
+    if (!this.drawing) return;
     const events = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : [];
     const list = events.length ? events : [e];
     for (const ev of list) {
@@ -397,9 +466,19 @@ export class DrawScreen implements Screen {
     if (e.pointerId !== this.pointerId) return;
     this.pointerId = null;
     this.pickup = null;
+    if (this.panning) {
+      this.panning = false;
+      // A flick keeps the map gliding briefly; a slow drag stops where it is.
+      const idle = performance.now() - this.panLast.t;
+      const v = this.panVel;
+      const speed = Math.hypot(v.x, v.y);
+      const cap = speed > 1800 ? 1800 / speed : 1;
+      if (idle < 80 && speed > 250) this.momentum = { x: v.x * cap, y: v.y * cap };
+      return;
+    }
     if (this.awaitLift) {
       this.awaitLift = false;
-      if (this.builder.status === 'drawing' && !this.limitsCard) setText(this.hint, HINTS.resume);
+      if (this.builder.status === 'drawing' && !this.limitsCard) this.showHint(HINTS.resume);
       return;
     }
     if (!this.drawing) return;
@@ -407,10 +486,43 @@ export class DrawScreen implements Screen {
     if (this.builder.status === 'drawing') {
       sfx.lift();
       this.glideToTip();
-      if (this.strokes === 1 && !getSettings().tutorialDone) setText(this.hint, HINTS.lifted);
-      else if (this.builder.progress > this.track.length * 0.82) setText(this.hint, HINTS.closing);
-      else setText(this.hint, this.strokes % 3 === 2 ? HINTS.width : HINTS.lifted);
+      if (this.strokes === 1 && !getSettings().tutorialDone) this.showHint(HINTS.lifted);
+      else if (this.builder.progress > this.track.length * 0.82) this.showHint(HINTS.closing);
+      else if (this.strokes === 2) this.showHint(HINTS.pan);
+      else if (this.strokes % 4 === 3) this.showHint(HINTS.width);
     }
+  }
+
+  /** Glide back to the tip (or the start line before the lap begins). */
+  private recenter(): void {
+    sfx.tap();
+    this.momentum = null;
+    if (this.builder.status === 'idle') this.glideTo(this.frameFor(0, this.startPoint()));
+    else this.glideToTip();
+  }
+
+  /** Show the recenter button whenever the tip has been panned out of view. */
+  private updateRecenter(): void {
+    if (this.builder.status === 'done') return;
+    const anchor = this.builder.lastPoint ?? this.startPoint();
+    const s = this.cam.toScreen(anchor.x, anchor.y);
+    const { top, bottom, left, right } = this.safe;
+    const off = s.x < left || s.x > right || s.y < top - 20 || s.y > bottom + 40;
+    const show = off && !this.glide;
+    if (show !== this.recenterShown) {
+      this.recenterShown = show;
+      this.recenterBtn.classList.toggle('is-hidden', !show);
+      if (show) setText(this.recenterLabel, this.builder.status === 'idle' ? 'Back to the start' : 'Back to the tip');
+    }
+  }
+
+  /** Show a help tip, then fade it out after a moment. */
+  private showHint(text: string): void {
+    setText(this.hint, text);
+    this.hint.classList.remove('is-hidden');
+    if (this.hintTimer) clearTimeout(this.hintTimer);
+    const ms = Math.min(HINT_MAX_MS, HINT_BASE_MS + text.length * HINT_PER_CHAR_MS);
+    this.hintTimer = setTimeout(() => this.hint.classList.add('is-hidden'), ms);
   }
 
   private feed(x: number, y: number): void {
@@ -489,7 +601,7 @@ export class DrawScreen implements Screen {
     if (!this.builder.canUndo) {
       // Nothing drawn yet beyond the start: just clear the off-track marker.
       this.builder.offTrack = null;
-      if (hadCard) setText(this.hint, HINTS.resume);
+      if (hadCard) this.showHint(HINTS.resume);
       return;
     }
     sfx.tap();
@@ -497,7 +609,7 @@ export class DrawScreen implements Screen {
       this.rebuildInk();
       this.glideToTip();
       this.updateHud();
-      setText(this.hint, HINTS.resume);
+      this.showHint(HINTS.resume);
     }
   }
 
@@ -511,7 +623,7 @@ export class DrawScreen implements Screen {
     this.inkFrom = 0;
     this.strokes = 0;
     this.glideTo(this.frameFor(0, this.startPoint()), 600);
-    setText(this.hint, HINTS.start);
+    this.showHint(HINTS.start);
     this.updateHud();
   }
 
@@ -539,7 +651,7 @@ export class DrawScreen implements Screen {
       this.el.append(this.limitsCard);
       this.el.classList.add('has-limits');
     }
-    setText(this.hint, HINTS.limits);
+    this.showHint(HINTS.limits);
     this.updateHud();
   }
 
@@ -564,7 +676,7 @@ export class DrawScreen implements Screen {
 
   private flashHint(text: string): void {
     this.flashUntil = performance.now();
-    setText(this.hint, text);
+    this.showHint(text);
     this.hint.classList.remove('is-flash');
     void this.hint.offsetWidth;
     this.hint.classList.add('is-flash');
@@ -662,7 +774,16 @@ export class DrawScreen implements Screen {
     }
   }
 
-  frame(now: number): void {
+  frame(now: number, dt = 0.016): void {
+    if (this.momentum) {
+      const m = this.momentum;
+      const cx = this.app.w / 2, cy = this.app.h / 2;
+      this.panBy(cx, cy, cx + m.x * dt, cy + m.y * dt);
+      const k = Math.exp(-dt * 4.5);
+      m.x *= k;
+      m.y *= k;
+      if (Math.hypot(m.x, m.y) < 25) this.momentum = null;
+    }
     if (this.shiftX || this.shiftY) {
       this.cam.cx += this.shiftX;
       this.cam.cy += this.shiftY;
@@ -712,6 +833,7 @@ export class DrawScreen implements Screen {
     if (status === 'drawing' && this.builder.offTrack) this.drawOffTrack(ctx, now);
     if (status === 'done') this.drawDone(ctx, now);
     this.drawMini();
+    this.updateRecenter();
   }
 
   private drawStartCue(ctx: CanvasRenderingContext2D, now: number): void {
@@ -861,6 +983,7 @@ export class DrawScreen implements Screen {
   }
 
   destroy(): void {
+    if (this.hintTimer) clearTimeout(this.hintTimer);
     for (const [type, fn] of this.listeners) this.app.canvas.removeEventListener(type, fn);
     this.el.remove();
   }
