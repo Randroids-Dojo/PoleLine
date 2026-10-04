@@ -16,13 +16,21 @@ import { ICONS, h, setText, tyreBadge } from '../ui/dom';
 
 export type SectorColour = 'purple' | 'green' | 'yellow';
 
+export interface CamSnapshot {
+  cx: number;
+  cy: number;
+  zoom: number;
+  angle: number;
+  ay: number;
+}
+
 export interface RaceActions {
-  finished(): void;
+  finished(from: CamSnapshot): void;
   exit(): void;
 }
 
 const RUN_UP = 2.6;
-const RUN_OUT = 1.8;
+const RUN_OUT = 2.2;
 
 interface Sample {
   x: number;
@@ -162,16 +170,26 @@ export class RaceScreen implements Screen {
     return Math.max(4.6, Math.min(9, z)) * this.zoomBase;
   }
 
+  /** Jump to just before the line so the finish still lands; a second tap goes straight to results. */
   private skip(): void {
     if (this.done) return;
-    this.finishNow();
+    const T = this.lap.t[this.lap.n];
+    const elapsed = (performance.now() - this.start) / 1000 - RUN_UP;
+    if (this.finishedFlag || elapsed > T - 1.6) {
+      this.finishNow();
+      return;
+    }
+    this.start = performance.now() - (T - 1.3 + RUN_UP) * 1000;
+    // Fill in the sectors we jumped over without replaying their sounds.
+    this.trail.length = 0;
   }
 
   private finishNow(): void {
     if (this.done) return;
     this.done = true;
     stopEngine();
-    this.actions.finished();
+    const c = this.cam;
+    this.actions.finished({ cx: c.cx, cy: c.cy, zoom: c.zoom, angle: c.angle, ay: c.ay });
   }
 
   resize(): void {
@@ -245,7 +263,7 @@ export class RaceScreen implements Screen {
 
     if (elapsed > 0.6 && !this.banner.classList.contains('is-gone')) this.banner.classList.add('is-gone');
 
-    if (this.ghost && elapsed > 0.2 && elapsed < T) {
+    if (this.ghost && elapsed > 0.2 && elapsed < T && !this.finishedFlag) {
       const gt = timeAtProgress(this.ghost, smp.s);
       const d = (elapsed - gt) * 1000;
       setText(this.delta, formatDelta(d));
@@ -272,6 +290,16 @@ export class RaceScreen implements Screen {
       setText(this.timer, formatLap(lap.timeMs));
       this.el.classList.add('is-finished');
       sfx.finish(false);
+      const g = this.ghost;
+      const d = g ? lap.timeMs - g.timeMs : 0;
+      if (g) {
+        setText(this.delta, formatDelta(d));
+        this.delta.dataset.sign = d <= 0 ? 'up' : 'down';
+      }
+      const sub = !g ? 'First timed lap' : d < 0 ? `Personal best ${formatDelta(d)}` : `${formatDelta(d)} to your best`;
+      this.el.append(
+        h('div', { class: `race-finish${!g || d < 0 ? ' is-pb' : ''}`, role: 'status' }, h('b', null, formatLap(lap.timeMs)), h('span', null, sub)),
+      );
     }
     if (elapsed >= T + RUN_OUT) this.finishNow();
   }

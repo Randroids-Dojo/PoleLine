@@ -70,6 +70,8 @@ export class DrawScreen implements Screen {
   private strokes = 0;
   private finishedAt = 0;
   private backwardRun = 0;
+  private shiftX = 0;
+  private shiftY = 0;
   private pickup: { ox: number; oy: number; sx: number; sy: number } | null = null;
   private guidePath: Path2D | null = null;
   private warned = false;
@@ -184,6 +186,7 @@ export class DrawScreen implements Screen {
   }
 
   private glideTo(to: CamState, dur = 460): void {
+    this.shiftX = this.shiftY = 0;
     this.glide = { from: this.camState(), to, t0: performance.now(), dur };
   }
 
@@ -323,8 +326,10 @@ export class DrawScreen implements Screen {
     const r0 = Math.min(this.app.w, this.app.h) * 0.42;
     if (room >= r0) return;
     const gain = 1.6 * (1 - Math.max(0, room) / r0);
-    this.cam.cx += f.tx * ds * gain;
-    this.cam.cy += f.ty * ds * gain;
+    // Applied at the next frame, never mid-batch: every finger sample in a
+    // batch was taken against the frame the player was looking at.
+    this.shiftX += f.tx * ds * gain;
+    this.shiftY += f.ty * ds * gain;
   }
 
   // Line state -------------------------------------------------------------
@@ -505,6 +510,11 @@ export class DrawScreen implements Screen {
   }
 
   frame(now: number): void {
+    if (this.shiftX || this.shiftY) {
+      this.cam.cx += this.shiftX;
+      this.cam.cy += this.shiftY;
+      this.shiftX = this.shiftY = 0;
+    }
     if (this.glide) {
       const g = this.glide;
       const t = Math.min(1, (now - g.t0) / g.dur);

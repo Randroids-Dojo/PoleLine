@@ -8,14 +8,14 @@ import { sfx } from '../app/audio';
 import { engineerNotes } from '../app/engineer';
 import { formatDelta, formatLap, formatSector, gridSlot, kmh } from '../app/format';
 import { getPlayer, markSubmitted, setPlayerName, type PersonalBest } from '../app/store';
-import { Camera } from '../render/camera';
+import { Camera, easeInOutCubic, lerpAngle } from '../render/camera';
 import { speedPaths } from '../render/line-art';
 import type { TrackArt } from '../render/track-art';
 import { COMPOUND_SPECS } from '../sim/car';
 import type { LapResult } from '../sim/lapsim';
 import { frameAt, type Track } from '../sim/track';
 import { h, setText, tyreBadge } from '../ui/dom';
-import { sectorColour } from './race';
+import { sectorColour, type CamSnapshot } from './race';
 
 export interface ResultsActions {
   again(): void;
@@ -44,6 +44,7 @@ export class ResultsScreen implements Screen {
   private opened = performance.now();
   private bounds: { minX: number; minY: number; maxX: number; maxY: number };
   private confetti: Particle[] | null = null;
+  private fit: CamSnapshot = { cx: 0, cy: 0, zoom: 1, angle: 0, ay: 0.5 };
 
   constructor(
     private app: App,
@@ -51,6 +52,7 @@ export class ResultsScreen implements Screen {
     private art: TrackArt,
     private input: ResultsInput,
     private actions: ResultsActions,
+    private from: CamSnapshot | null = null,
   ) {
     app.setCanvasVisible(true);
     const { lap } = input;
@@ -208,21 +210,41 @@ export class ResultsScreen implements Screen {
     const pad = 28;
     const zx = (this.app.w - pad * 2) / (b.maxX - b.minX);
     const zy = (visibleH - pad * 2) / (b.maxY - b.minY);
-    this.cam.zoom = Math.min(zx, zy);
-    this.cam.angle = 0;
-    this.cam.cx = (b.minX + b.maxX) / 2;
-    this.cam.cy = (b.minY + b.maxY) / 2;
+    this.fit = { cx: (b.minX + b.maxX) / 2, cy: (b.minY + b.maxY) / 2, zoom: Math.min(zx, zy), angle: 0, ay: visibleH / 2 / this.app.h };
     this.cam.ax = 0.5;
-    this.cam.ay = visibleH / 2 / this.app.h;
+    this.placeCamera(performance.now());
+  }
+
+  /** Pull back from the car to the whole circuit as the sheet arrives. */
+  private placeCamera(now: number): void {
+    const to = this.fit;
+    const f = this.from;
+    const t = f ? Math.min(1, (now - this.opened) / 1300) : 1;
+    const e = easeInOutCubic(t);
+    if (!f || t >= 1) {
+      this.cam.cx = to.cx;
+      this.cam.cy = to.cy;
+      this.cam.zoom = to.zoom;
+      this.cam.angle = to.angle;
+      this.cam.ay = to.ay;
+      return;
+    }
+    // Interpolate zoom in log space so the pull-back feels even.
+    this.cam.zoom = Math.exp(Math.log(f.zoom) + (Math.log(to.zoom) - Math.log(f.zoom)) * e);
+    this.cam.cx = f.cx + (to.cx - f.cx) * e;
+    this.cam.cy = f.cy + (to.cy - f.cy) * e;
+    this.cam.angle = lerpAngle(f.angle, to.angle, e);
+    this.cam.ay = f.ay + (to.ay - f.ay) * e;
   }
 
   frame(now: number, dt: number): void {
     const { ctx } = this.app;
     const dpr = this.app.dpr;
+    this.placeCamera(now);
     this.cam.apply(ctx, dpr);
     this.art.draw(ctx, this.cam);
     const z = this.cam.zoom;
-    const t = Math.min(1, (now - this.opened) / 900);
+    const t = Math.min(1, Math.max(0, (now - this.opened - 500) / 900));
     ctx.save();
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';

@@ -988,6 +988,53 @@ button:disabled {
   color: var(--red);
 }
 
+.race-finish {
+  position: absolute;
+  top: 34%;
+  left: 50%;
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  padding: 10px 18px 12px;
+  border: 2px solid var(--ink);
+  border-radius: 10px;
+  background: var(--sheet);
+  transform: translate(-50%, -50%) rotate(-2deg);
+  animation: finish-in 0.38s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+
+.race-finish b {
+  font-size: clamp(34px, 11vw, 56px);
+  line-height: 1;
+  font-weight: 900;
+  font-stretch: 125%;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+}
+
+.race-finish span {
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+}
+
+.race-finish.is-pb {
+  border-color: var(--purple);
+  box-shadow: 0 0 0 4px var(--purple-tint);
+}
+
+.race-finish.is-pb span {
+  color: var(--purple-ink);
+}
+
+@keyframes finish-in {
+  from {
+    transform: translate(-50%, -50%) rotate(-2deg) scale(1.6);
+    opacity: 0;
+  }
+}
+
 .race-hud.is-finished .race-time {
   color: var(--purple-ink);
   animation: pop 0.4s ease;

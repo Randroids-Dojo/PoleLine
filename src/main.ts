@@ -5,7 +5,7 @@ import { setSoundEnabled } from './app/audio';
 import { bumpAttempts, getBest, getBestSectors, getSettings, saveSettings, setBest, updateBestSectors } from './app/store';
 import { HomeScreen } from './screens/home';
 import { DrawScreen } from './screens/draw';
-import { RaceScreen } from './screens/race';
+import { RaceScreen, type CamSnapshot } from './screens/race';
 import { ResultsScreen } from './screens/results';
 import { openLeaderboard } from './screens/leaderboard';
 import { simulateLap } from './sim/lapsim';
@@ -54,13 +54,13 @@ function race(track: Track, compound: Compound, pts: number[]): void {
     setBest(slug, { timeMs: lap.timeMs, compound, sectorsMs: lap.sectorsMs, code, date: new Date().toISOString(), submitted: false });
   }
   updateBestSectors(slug, lap.sectorsMs);
-  const showResults = () =>
+  const showResults = (from: CamSnapshot) =>
     app.show(
       new ResultsScreen(app, track, art, { lap, points, code, previous, bestSectorsBefore, isPb, attempt }, {
         again: () => void draw(slug, compound),
         leaderboard: () => openLeaderboard(app, slug),
         home: () => home(slug),
-      }),
+      }, from),
     );
   app.show(new RaceScreen(app, track, art, lap, ghost, bestSectorsBefore, { finished: showResults, exit: () => home(slug) }));
 }
