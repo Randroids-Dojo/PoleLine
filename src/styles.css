@@ -168,6 +168,25 @@ button:disabled {
   padding: calc(10px + var(--safe-top)) 14px 0 20px;
 }
 
+.head-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.poles {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.poles b {
+  font-size: 16px;
+  font-weight: 900;
+  font-stretch: 125%;
+  color: var(--purple-ink);
+}
+
 .wordmark {
   position: relative;
   margin: 0;
@@ -388,11 +407,7 @@ button:disabled {
 }
 
 .slot,
-.tier-pole.round-pb,
-.tier-q3.round-pb,
-.tier-q2.round-pb,
-.tier-q1.round-pb,
-.tier-dnq.round-pb {
+.round-pb {
   font-size: 12px;
   font-weight: 800;
   font-stretch: 112%;
@@ -428,10 +443,21 @@ button:disabled {
   color: #000;
 }
 
-.tier-dnq.slot,
-.tier-dnq.round-pb {
-  background: var(--red);
+.tier-f1.slot,
+.tier-f1.round-pb {
+  background: #2b2f35;
   color: #fff;
+}
+
+.tier-f2.slot,
+.tier-f2.round-pb,
+.tier-f3.slot,
+.tier-f3.round-pb,
+.tier-club.slot,
+.tier-club.round-pb {
+  background: transparent;
+  color: var(--ink-2);
+  box-shadow: inset 0 0 0 1.5px var(--ink-3);
 }
 
 .facts {
@@ -1003,15 +1029,15 @@ button:disabled {
 }
 
 .res-headline {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
 }
 
 .res-time {
   margin: 0;
-  font-size: clamp(42px, 13.5vw, 70px);
+  font-size: clamp(34px, 10.6vw, 66px);
   line-height: 1;
   font-weight: 900;
   font-stretch: 125%;
@@ -1029,19 +1055,22 @@ button:disabled {
 }
 
 .res-slot b {
-  padding: 0 9px;
+  padding: 0 8px;
   border: 3px solid currentColor;
   border-radius: 6px;
-  font-size: 32px;
+  font-size: clamp(20px, 6.6vw, 32px);
+  white-space: nowrap;
   line-height: 1.15;
   font-weight: 900;
   font-stretch: 125%;
 }
 
 .res-slot span {
+  max-width: 96px;
   font-size: 11px;
   font-weight: 700;
-  white-space: nowrap;
+  line-height: 1.15;
+  text-align: center;
 }
 
 @keyframes stamp-slot {
@@ -1067,8 +1096,14 @@ button:disabled {
   color: var(--ink-2);
 }
 
-.tier-dnq .res-slot {
-  color: var(--red);
+.tier-f1 .res-slot {
+  color: var(--ink);
+}
+
+.tier-f2 .res-slot,
+.tier-f3 .res-slot,
+.tier-club .res-slot {
+  color: var(--ink-2);
 }
 
 .res-delta {

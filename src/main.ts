@@ -28,7 +28,9 @@ async function draw(slug: string, compound: Compound): Promise<void> {
   if (history.state?.screen !== 'session') history.pushState({ screen: 'session' }, '');
   const track = await app.track(slug);
   const art = app.art(track);
-  app.show(new DrawScreen(app, track, art, compound, { complete: (pts) => race(track, compound, pts), exit: () => home(slug) }));
+  const best = getBest(slug);
+  const guide = best ? decodePath(best.code) : null;
+  app.show(new DrawScreen(app, track, art, compound, { complete: (pts) => race(track, compound, pts), exit: () => home(slug) }, guide));
 }
 
 function race(track: Track, compound: Compound, pts: number[]): void {
@@ -63,7 +65,15 @@ function race(track: Track, compound: Compound, pts: number[]): void {
   app.show(new RaceScreen(app, track, art, lap, ghost, bestSectorsBefore, { finished: showResults, exit: () => home(slug) }));
 }
 
-window.addEventListener('popstate', () => home());
+window.addEventListener('popstate', () => {
+  // A stray back swipe must not throw away a half-drawn lap.
+  const cur = app.current;
+  if (cur instanceof DrawScreen && cur.status === 'drawing') {
+    history.pushState({ screen: 'session' }, '');
+    return;
+  }
+  home();
+});
 
 if (import.meta.env.DEV || new URLSearchParams(location.search).has('debug')) {
   (window as unknown as { __pl: unknown }).__pl = { app };

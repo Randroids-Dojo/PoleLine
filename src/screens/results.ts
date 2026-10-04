@@ -43,6 +43,7 @@ export class ResultsScreen implements Screen {
   private world: HTMLElement;
   private opened = performance.now();
   private bounds: { minX: number; minY: number; maxX: number; maxY: number };
+  private confetti: Particle[] | null = null;
 
   constructor(
     private app: App,
@@ -86,7 +87,7 @@ export class ResultsScreen implements Screen {
     const notes = engineerNotes(track, lap, input.points);
     this.world = h('div', { class: 'res-world' });
 
-    const slotText = slot.position ? `P${slot.position}` : '107%';
+    const slotText = slot.stamp;
     this.sheet = h(
       'section',
       { class: `sheet res-sheet tier-${slot.tier}`, 'aria-labelledby': 'res-time' },
@@ -106,14 +107,43 @@ export class ResultsScreen implements Screen {
         'div',
         { class: 'res-actions' },
         h('button', { class: 'btn-primary', onclick: () => this.actions.again() }, 'Draw again'),
-        h('div', { class: 'res-secondary' }, h('button', { class: 'btn-quiet', onclick: () => this.actions.leaderboard() }, 'Leaderboard'), h('button', { class: 'btn-quiet', onclick: () => this.actions.home() }, 'Circuits')),
+        h(
+          'div',
+          { class: 'res-secondary' },
+          h('button', { class: 'btn-quiet', onclick: () => this.actions.leaderboard() }, 'Leaderboard'),
+          h('button', { class: 'btn-quiet', onclick: (e: Event) => this.share(e.currentTarget as HTMLButtonElement, slot.stamp) }, 'Share'),
+          h('button', { class: 'btn-quiet', onclick: () => this.actions.home() }, 'Circuits'),
+        ),
       ),
     );
     this.el = h('div', { class: 'results' }, this.sheet);
     app.root.append(this.el);
     this.resize();
-    if (input.isPb) sfx.finish(true);
+    if (input.isPb) {
+      sfx.finish(true);
+      this.confetti = makeConfetti(app.w, slot.tier === 'pole' ? 170 : 90);
+    }
     this.leaderboardBlock();
+  }
+
+  private share(btn: HTMLButtonElement, stamp: string): void {
+    const { lap } = this.input;
+    const m = this.track.meta;
+    const tyre = COMPOUND_SPECS[lap.compound].label.toLowerCase() + 's';
+    const text = `${formatLap(lap.timeMs)} around ${m.short} on ${tyre}. That is ${stamp === 'P1' ? 'pole position' : stamp} against real pole pace. Draw a quicker line?`;
+    const url = location.origin;
+    const nav = navigator as Navigator & { share?: (d: ShareData) => Promise<void> };
+    if (nav.share) {
+      nav.share({ title: 'PoleLine', text, url }).catch(() => {});
+      return;
+    }
+    navigator.clipboard
+      ?.writeText(`${text} ${url}`)
+      .then(() => {
+        btn.textContent = 'Copied';
+        setTimeout(() => (btn.textContent = 'Share'), 1600);
+      })
+      .catch(() => {});
   }
 
   private leaderboardBlock(): void {
@@ -186,7 +216,7 @@ export class ResultsScreen implements Screen {
     this.cam.ay = visibleH / 2 / this.app.h;
   }
 
-  frame(now: number): void {
+  frame(now: number, dt: number): void {
     const { ctx } = this.app;
     const dpr = this.app.dpr;
     this.cam.apply(ctx, dpr);
@@ -218,9 +248,64 @@ export class ResultsScreen implements Screen {
       ctx.lineTo(fr.x - fr.nx * s, fr.y - fr.ny * s);
       ctx.stroke();
     }
+    if (this.confetti) {
+      ctx.setTransform(this.app.dpr, 0, 0, this.app.dpr, 0, 0);
+      if (!drawConfetti(ctx, this.confetti, dt, this.app.h)) this.confetti = null;
+    }
   }
 
   destroy(): void {
     this.el.remove();
   }
+}
+
+interface Particle {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  r: number;
+  vr: number;
+  w: number;
+  h: number;
+  c: string;
+}
+
+const CONFETTI = ['#9b30ff', '#12b35f', '#f5c400', '#ffffff', '#000000'];
+
+function makeConfetti(width: number, count: number): Particle[] {
+  const out: Particle[] = [];
+  for (let i = 0; i < count; i++) {
+    out.push({
+      x: width / 2 + (Math.random() - 0.5) * width * 0.5,
+      y: -20 - Math.random() * 120,
+      vx: (Math.random() - 0.5) * 260,
+      vy: 120 + Math.random() * 260,
+      r: Math.random() * Math.PI,
+      vr: (Math.random() - 0.5) * 12,
+      w: 6 + Math.random() * 6,
+      h: 3 + Math.random() * 4,
+      c: CONFETTI[i % CONFETTI.length],
+    });
+  }
+  return out;
+}
+
+export function drawConfetti(ctx: CanvasRenderingContext2D, ps: Particle[], dt: number, h: number): boolean {
+  let alive = false;
+  for (const p of ps) {
+    p.vy += 420 * dt;
+    p.vx *= 0.99;
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.r += p.vr * dt;
+    if (p.y < h + 20) alive = true;
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.r);
+    ctx.fillStyle = p.c;
+    ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h * Math.abs(Math.cos(p.r * 1.7)));
+    ctx.restore();
+  }
+  return alive;
 }

@@ -9,11 +9,11 @@ import type { App, Screen } from '../app/app';
 import { buzz, sfx, unlockAudio } from '../app/audio';
 import { getSettings, saveSettings } from '../app/store';
 import { Camera, angleForHeading, easeInOutCubic, lerpAngle } from '../render/camera';
-import { INK, strokeInk } from '../render/line-art';
+import { INK, polyPath, strokeInk } from '../render/line-art';
 import type { TrackArt } from '../render/track-art';
 import { LineBuilder, START_TOUCH_RANGE } from '../sim/builder';
 import { UNITS_PER_METRE } from '../sim/path';
-import { frameAt, type Track } from '../sim/track';
+import { frameAt, projectNear, type Track } from '../sim/track';
 import type { Compound } from '../sim/types';
 import { ICONS, h, setText, tyreBadge } from '../ui/dom';
 
@@ -31,6 +31,9 @@ interface CamState {
 }
 
 const TIP_GRAB_RADIUS = 58;
+const PICKUP_EASE = 70;
+/** Start warning when the line is this close (metres) to the edge of the track. */
+const EDGE_WARN = 1.2;
 const HINTS = {
   start: 'Put your finger on the chequered line and drag along the track.',
   drawing: 'Stay inside the white lines.',
@@ -67,6 +70,9 @@ export class DrawScreen implements Screen {
   private strokes = 0;
   private finishedAt = 0;
   private backwardRun = 0;
+  private pickup: { ox: number; oy: number; sx: number; sy: number } | null = null;
+  private guidePath: Path2D | null = null;
+  private warned = false;
   private listeners: [string, EventListener][] = [];
 
   constructor(
@@ -75,8 +81,10 @@ export class DrawScreen implements Screen {
     private art: TrackArt,
     compound: Compound,
     private actions: DrawActions,
+    guide: Float64Array | null = null,
   ) {
     this.builder = new LineBuilder(track);
+    if (guide) this.guidePath = polyPath(guide);
     app.setCanvasVisible(true);
     this.zoom = this.drawZoom();
 
@@ -244,7 +252,9 @@ export class DrawScreen implements Screen {
     this.drawing = true;
     this.app.canvas.setPointerCapture(e.pointerId);
     sfx.penDown();
-    this.feed(w.x, w.y);
+    // Magnetic pickup: the line carries on from the tip and eases onto the
+    // finger over the first few dozen pixels instead of jumping to it.
+    this.pickup = { ox: w.x - tip.x, oy: w.y - tip.y, sx: p.x, sy: p.y };
   }
 
   private onMove(e: PointerEvent): void {
@@ -255,6 +265,12 @@ export class DrawScreen implements Screen {
       if (!this.drawing) break;
       const p = this.local(ev);
       const w = this.cam.toWorld(p.x, p.y);
+      if (this.pickup) {
+        const k = Math.max(0, 1 - Math.hypot(p.x - this.pickup.sx, p.y - this.pickup.sy) / PICKUP_EASE);
+        w.x -= this.pickup.ox * k;
+        w.y -= this.pickup.oy * k;
+        if (k === 0) this.pickup = null;
+      }
       this.feed(w.x, w.y);
     }
   }
@@ -262,6 +278,7 @@ export class DrawScreen implements Screen {
   private onUp(e: PointerEvent): void {
     if (e.pointerId !== this.pointerId) return;
     this.pointerId = null;
+    this.pickup = null;
     if (!this.drawing) return;
     this.drawing = false;
     if (this.builder.status === 'drawing') {
@@ -506,7 +523,22 @@ export class DrawScreen implements Screen {
     this.art.draw(ctx, this.cam);
 
     const status = this.builder.status;
+    if (this.guidePath && status !== 'failed') {
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      const z = this.cam.zoom;
+      ctx.setLineDash([7 / z, 6 / z]);
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+      ctx.lineWidth = 4.5 / z;
+      ctx.stroke(this.guidePath);
+      ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+      ctx.lineWidth = 2.2 / z;
+      ctx.stroke(this.guidePath);
+      ctx.restore();
+    }
     if (status === 'idle') this.drawStartCue(ctx, now);
+    if (status === 'drawing') this.drawEdgeWarning(ctx);
     if (status !== 'idle') {
       strokeInk(ctx, this.ink, this.cam.zoom, status === 'failed' ? '#e10600' : INK);
     }
@@ -567,6 +599,39 @@ export class DrawScreen implements Screen {
     ctx.lineWidth = 3 / this.cam.zoom;
     ctx.stroke();
     ctx.globalAlpha = 1;
+  }
+
+  /** Glow the edge in red as the line gets close to leaving the track. */
+  private drawEdgeWarning(ctx: CanvasRenderingContext2D): void {
+    const tip = this.builder.lastPoint;
+    if (!tip) return;
+    const t = this.track;
+    const p = projectNear(t, tip.x, tip.y, this.builder.hint, 4);
+    const margin = t.limit - p.dist;
+    if (margin >= EDGE_WARN) {
+      this.warned = false;
+      return;
+    }
+    const k = 1 - Math.max(0, margin) / EDGE_WARN;
+    if (k > 0.5 && !this.warned) {
+      this.warned = true;
+      buzz(12);
+    }
+    const side = p.d >= 0 ? 1 : -1;
+    ctx.save();
+    ctx.beginPath();
+    for (let ds = -14; ds <= 14; ds += 2) {
+      const f = frameAt(t, p.s + ds);
+      const x = f.x + f.nx * side * t.limit;
+      const y = f.y + f.ny * side * t.limit;
+      if (ds === -14) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = `rgba(225,6,0,${0.25 + 0.6 * k})`;
+    ctx.lineWidth = Math.max(0.8, 7 / this.cam.zoom);
+    ctx.stroke();
+    ctx.restore();
   }
 
   private drawStartMarker(ctx: CanvasRenderingContext2D, now: number): void {

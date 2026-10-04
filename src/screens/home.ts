@@ -4,7 +4,7 @@ import type { App, Screen } from '../app/app';
 import { fetchRecords, type Records } from '../app/api';
 import { setSoundEnabled, sfx, unlockAudio } from '../app/audio';
 import { downforceLabel, gripLabel, outlinePath, outlineViewBox, tyreHint, windText } from '../app/describe';
-import { formatLap, gridSlot } from '../app/format';
+import { formatLap, gridSlot, type GridSlot } from '../app/format';
 import { getBest, getSettings, getTyre, saveSettings, setTyre } from '../app/store';
 import { CATALOG } from '../data/catalog';
 import { COMPOUND_SPECS } from '../sim/car';
@@ -57,7 +57,13 @@ export class HomeScreen implements Screen {
         }
       },
     });
-    const header = h('header', { class: 'home-head' }, h('h1', { class: 'wordmark' }, 'PoleLine'), soundBtn);
+    const poles = polesTaken();
+    const header = h(
+      'header',
+      { class: 'home-head' },
+      h('h1', { class: 'wordmark' }, 'PoleLine'),
+      h('div', { class: 'head-right' }, h('span', { class: 'poles', title: 'Circuits where you beat real pole pace' }, h('b', null, String(poles)), ` of ${CATALOG.length} poles`), soundBtn),
+    );
     this.strip = h('nav', { class: 'rounds', 'aria-label': 'Circuits' });
     CATALOG.forEach((m, i) => {
       const pb = getBest(m.slug);
@@ -67,7 +73,7 @@ export class HomeScreen implements Screen {
         h('span', { class: 'round-n' }, `R${i + 1}`),
         svg(`<svg class="round-map" viewBox="${outlineViewBox(m, 90)}" aria-hidden="true"><path d="${outlinePath(m)}"/></svg>`),
         h('span', { class: 'round-name' }, m.short),
-        pb ? h('span', { class: `round-pb tier-${gridSlot(pb.timeMs, m.poleRef).tier}` }, gridSlot(pb.timeMs, m.poleRef).position ? `P${gridSlot(pb.timeMs, m.poleRef).position}` : '107') : null,
+        pb ? badge(gridSlot(pb.timeMs, m.poleRef)) : null,
       );
       this.strip.append(btn);
     });
@@ -117,7 +123,7 @@ export class HomeScreen implements Screen {
         'div',
         { class: pb ? '' : 'is-empty' },
         h('dt', null, 'Your best'),
-        h('dd', null, pb ? formatLap(pb.timeMs) : 'No lap yet', slot ? h('span', { class: `slot tier-${slot.tier}` }, slot.position ? `P${slot.position}` : '107%') : null),
+        h('dd', null, pb ? formatLap(pb.timeMs) : 'No lap yet', slot ? h('span', { class: `slot tier-${slot.tier}` }, slot.stamp) : null),
       ),
       h('div', null, h('dt', null, 'World record'), h('dd', null, rec ? formatLap(rec.timeMs) : 'Open', rec ? h('span', { class: 'holder' }, rec.name) : null)),
     );
@@ -188,6 +194,18 @@ export class HomeScreen implements Screen {
   destroy(): void {
     this.el.remove();
   }
+}
+
+function badge(slot: GridSlot): HTMLElement {
+  const f1 = slot.tier === 'pole' || slot.tier === 'q3' || slot.tier === 'q2' || slot.tier === 'q1';
+  return h('span', { class: `round-pb tier-${slot.tier}` }, f1 ? slot.stamp : slot.stamp.split(' ')[0]);
+}
+
+function polesTaken(): number {
+  return CATALOG.filter((m) => {
+    const pb = getBest(m.slug);
+    return pb && pb.timeMs <= m.poleRef * 1000;
+  }).length;
 }
 
 function fact(label: string, value: string, extra?: Node): HTMLElement {

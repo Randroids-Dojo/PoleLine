@@ -82,7 +82,7 @@ export class App {
     const vv = window.visualViewport;
     this.w = Math.round(vv?.width ?? window.innerWidth);
     this.h = Math.round(vv?.height ?? window.innerHeight);
-    this.dpr = Math.min(3, window.devicePixelRatio || 1);
+    this.dpr = Math.min(2, window.devicePixelRatio || 1);
     this.canvas.width = Math.round(this.w * this.dpr);
     this.canvas.height = Math.round(this.h * this.dpr);
     this.canvas.style.width = `${this.w}px`;

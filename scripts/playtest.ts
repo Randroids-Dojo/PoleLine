@@ -11,7 +11,7 @@ import { buildTrack } from '../src/sim/track.js';
 import { minCurvatureOffsets, wobble } from './optimal.js';
 
 const slug = process.argv[2] ?? 'spielberg';
-const quality = process.argv[3] ?? 'ideal';
+const qualities = (process.argv[3] ?? 'ideal').split(',');
 const out = process.argv[4] ?? '/tmp/poleline-play';
 const url = process.argv[5] ?? 'http://localhost:5199/';
 mkdirSync(out, { recursive: true });
@@ -19,15 +19,20 @@ mkdirSync(out, { recursive: true });
 const meta = CATALOG.find((m) => m.slug === slug)!;
 const geom = (await import(`../src/data/geometry/${slug}.ts`)).default as number[];
 const track = buildTrack(meta, geom);
-let alpha = minCurvatureOffsets(track);
-if (quality === 'wobbly') alpha = wobble(track, alpha, 3, 0.7, 50, 0.15);
-if (quality === 'centre') alpha = new Float64Array(track.n);
-const pts: { x: number; y: number }[] = [];
-for (let i = 0; i <= track.n + 3; i += 2) {
-  const k = i % track.n;
-  let a = alpha[k];
-  if (quality === 'offtrack' && i > 140 && i < 150) a = track.limit + 4;
-  pts.push({ x: track.x[k] + a * track.nx[k], y: track.y[k] + a * track.ny[k] });
+const ideal = minCurvatureOffsets(track);
+function linePoints(quality: string): { x: number; y: number }[] {
+  let alpha = ideal;
+  if (quality === 'wobbly') alpha = wobble(track, ideal, 3, 0.7, 50, 0.15);
+  if (quality === 'good') alpha = wobble(track, ideal, 5, 0.25, 50, 0.08);
+  if (quality === 'centre') alpha = new Float64Array(track.n);
+  const pts: { x: number; y: number }[] = [];
+  for (let i = 0; i <= track.n + 3; i += 1) {
+    const k = i % track.n;
+    let a = alpha[k];
+    if (quality === "offtrack" && i > 280 && i < 300) a = track.limit + 4;
+    pts.push({ x: track.x[k] + a * track.nx[k], y: track.y[k] + a * track.ny[k] });
+  }
+  return pts;
 }
 
 const browser = await chromium.launch();
@@ -43,15 +48,20 @@ await page.addInitScript((s) => {
 await page.goto(url);
 await page.waitForTimeout(900);
 await page.screenshot({ path: join(out, '1-home.png') });
-await page.getByRole('button', { name: 'Draw a lap' }).click();
+for (let attempt = 1; attempt <= qualities.length; attempt++) {
+const quality = qualities[attempt - 1];
+if (attempt === 1) await page.getByRole('button', { name: 'Draw a lap' }).click();
+else await page.getByRole('button', { name: 'Draw again' }).click();
 await page.waitForTimeout(700);
-await page.screenshot({ path: join(out, '2-draw-idle.png') });
+await page.waitForTimeout(700);
+await page.screenshot({ path: join(out, `${attempt}-2-draw-idle.png`) });
 
 type Pl = { __pl: { app: { current: { worldToScreen(x: number, y: number): { x: number; y: number }; status: string; isGliding: boolean } } } };
 const toScreen = (p: { x: number; y: number }) => page.evaluate(([x, y]) => (window as unknown as Pl).__pl.app.current.worldToScreen(x, y), [p.x, p.y]);
 const status = () => page.evaluate(() => (window as unknown as Pl).__pl.app.current.status);
 const gliding = () => page.evaluate(() => (window as unknown as Pl).__pl.app.current.isGliding);
 
+const pts = linePoints(quality);
 let idx = 0;
 let strokes = 0;
 const safe = { top: 110, bottom: 844 - 130, left: 18, right: 390 - 18 };
@@ -67,13 +77,13 @@ while (true) {
   for (let k = idx + 1; k < pts.length; k++) {
     const sp = await toScreen(pts[k]);
     if (sp.y < safe.top || sp.y > safe.bottom || sp.x < safe.left || sp.x > safe.right) break;
-    await page.mouse.move(sp.x, sp.y, { steps: 2 });
+    await page.mouse.move(sp.x, sp.y);
     idx = k;
     moved++;
     if (moved % 25 === 0 && (await status()) !== 'drawing') break;
   }
   await page.mouse.up();
-  if (strokes === 3) await page.screenshot({ path: join(out, '3-draw-mid.png') });
+  if (strokes === 3) await page.screenshot({ path: join(out, `${attempt}-3-draw-mid.png`) });
   if (moved === 0) {
     console.log('stuck at', idx, await status());
     break;
@@ -81,18 +91,16 @@ while (true) {
   if (strokes > 120) break;
 }
 console.log(`strokes ${strokes}, status ${await status()}`);
-await page.screenshot({ path: join(out, '4-draw-end.png') });
-if ((await status()) === 'failed') {
-  await browser.close();
-  process.exit(0);
-}
+await page.screenshot({ path: join(out, `${attempt}-4-draw-end.png`) });
+if ((await status()) === 'failed') break;
 await page.waitForTimeout(1500);
-await page.screenshot({ path: join(out, '5-race-start.png') });
+await page.screenshot({ path: join(out, `${attempt}-5-race-start.png`) });
 await page.waitForTimeout(5000);
-await page.screenshot({ path: join(out, '6-race-mid.png') });
+await page.screenshot({ path: join(out, `${attempt}-6-race-mid.png`) });
 await page.getByRole('button', { name: /skip/i }).click();
 await page.waitForTimeout(1500);
-await page.screenshot({ path: join(out, '7-results.png') });
+await page.screenshot({ path: join(out, `${attempt}-7-results.png`) });
 const text = await page.locator('.res-sheet').innerText();
 console.log(text.replace(/\n+/g, ' | '));
+}
 await browser.close();
