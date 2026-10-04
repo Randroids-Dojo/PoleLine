@@ -8,6 +8,7 @@ import { sfx } from '../app/audio';
 import { engineerNotes } from '../app/engineer';
 import { formatDelta, formatLap, formatSector, gridSlot, kmh } from '../app/format';
 import { getPlayer, markSubmitted, setPlayerName, type PersonalBest } from '../app/store';
+import { flushUnsubmitted } from '../app/sync';
 import { Camera, easeInOutCubic, lerpAngle } from '../render/camera';
 import { speedPaths } from '../render/line-art';
 import type { TrackArt } from '../render/track-art';
@@ -159,6 +160,7 @@ export class ResultsScreen implements Screen {
       submitLap({ track: slug, compound: lap.compound, line: code, playerId: player.id, name })
         .then((r) => {
           markSubmitted(slug);
+          void flushUnsubmitted(slug);
           if (r.timeMs !== lap.timeMs) console.warn('server time differs', r.timeMs, lap.timeMs);
           setText(status, r.rank ? `World #${r.rank} of ${r.total} on ${this.track.meta.short}` : 'Posted.');
           status.classList.add('is-rank');

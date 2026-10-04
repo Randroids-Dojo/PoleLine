@@ -3,6 +3,7 @@
 // GET  /api/leaderboard?track=<slug>&player=<id>&limit=50  -> board for a circuit
 // GET  /api/leaderboard?summary=1                          -> fastest lap per circuit
 // POST /api/leaderboard {track, compound, line, playerId, name}
+// PATCH /api/leaderboard {playerId, name}                   -> rename everywhere
 //
 // A submission carries the drawn line itself (decimetre integer deltas), never
 // a claimed time. The server re-validates track limits and re-runs the same
@@ -217,14 +218,47 @@ async function post(req: Req, res: Res): Promise<Res> {
   return res.status(200).json({ timeMs, rank, total, improved, bestMs });
 }
 
+const renameSchema = z.object({ playerId: z.string().regex(/^[a-f0-9-]{16,40}$/), name: z.string().max(64) });
+
+async function rename(req: Req, res: Res): Promise<Res> {
+  const parsed = renameSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: 'bad request' });
+  const name = cleanName(parsed.data.name);
+  if (!name) return res.status(400).json({ error: 'choose a different name' });
+  const { playerId } = parsed.data;
+  const kv = redis();
+  const p = kv.pipeline();
+  for (const slug of SLUGS) p.hget(`${PREFIX}meta:${slug}`, playerId);
+  p.hgetall(`${PREFIX}records`);
+  const out = (await p.exec()) as unknown[];
+  const w = kv.pipeline();
+  let updated = 0;
+  SLUGS.forEach((slug, i) => {
+    const m = parseMeta(out[i]);
+    if (!m) return;
+    updated++;
+    w.hset(`${PREFIX}meta:${slug}`, { [playerId]: JSON.stringify({ ...m, name }) });
+  });
+  // Records hold a copy of the holder's name; refresh any this player owns.
+  const records = (out[SLUGS.length] as Record<string, unknown> | null) ?? {};
+  for (const slug of SLUGS) {
+    const rec = parseMeta(records[slug]);
+    const mine = parseMeta(out[SLUGS.indexOf(slug)]);
+    if (rec && mine && rec.timeMs === mine.timeMs && rec.date === mine.date) w.hset(`${PREFIX}records`, { [slug]: JSON.stringify({ ...rec, name }) });
+  }
+  if (updated) await w.exec();
+  return res.status(200).json({ name, updated });
+}
+
 export default async function handler(req: Req, res: Res): Promise<Res> {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.status(200).end();
   try {
     if (req.method === 'GET') return first(req.query.summary) ? await getSummary(res) : await getBoard(req, res);
     if (req.method === 'POST') return await post(req, res);
+    if (req.method === 'PATCH') return await rename(req, res);
     return res.status(405).json({ error: 'method not allowed' });
   } catch (err) {
     console.error('leaderboard error', err instanceof Error ? err.message : err);

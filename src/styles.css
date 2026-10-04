@@ -1392,6 +1392,28 @@ button:disabled {
   color: var(--ink-2);
 }
 
+.board-name-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px 12px 20px;
+  border-top: 2px solid var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.board-name-row .name-form {
+  flex: 1;
+}
+
+.board-name-status {
+  flex-basis: 100%;
+  font-size: 13px;
+  color: var(--red);
+}
+
 .board-status,
 .board-gapline {
   padding: 16px 20px;

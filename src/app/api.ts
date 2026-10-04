@@ -65,3 +65,8 @@ export function submitLap(payload: { track: string; compound: Compound; line: nu
     15000,
   );
 }
+
+export function renamePlayer(playerId: string, name: string): Promise<{ name: string; updated: number }> {
+  recordsCache = null;
+  return request('/api/leaderboard', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ playerId, name }) });
+}

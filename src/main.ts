@@ -8,6 +8,7 @@ import { DrawScreen } from './screens/draw';
 import { RaceScreen, type CamSnapshot } from './screens/race';
 import { ResultsScreen } from './screens/results';
 import { openLeaderboard } from './screens/leaderboard';
+import { flushUnsubmitted } from './app/sync';
 import { simulateLap } from './sim/lapsim';
 import { decodePath, encodePath, validatePath } from './sim/path';
 import type { Track } from './sim/track';
@@ -73,10 +74,12 @@ window.addEventListener('popstate', () => {
     return;
   }
   home();
+void flushUnsubmitted();
 });
 
 if (import.meta.env.DEV || new URLSearchParams(location.search).has('debug')) {
-  (window as unknown as { __pl: unknown }).__pl = { app };
+  (window as unknown as { __pl: unknown }).__pl = { app, race };
 }
 
 home();
+void flushUnsubmitted();

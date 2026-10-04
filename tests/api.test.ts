@@ -65,7 +65,7 @@ const fake = {
         return out;
       },
     };
-    for (const name of ['zrange', 'zcard', 'zrank', 'zscore', 'hset', 'hget']) {
+    for (const name of ['zrange', 'zcard', 'zrank', 'zscore', 'hset', 'hget', 'hgetall']) {
       p[name] = (...args: unknown[]) => {
         ops.push(() => (fake as unknown as Record<string, (...a: unknown[]) => Promise<unknown>>)[name](...args));
         return p;
@@ -157,6 +157,16 @@ describe('leaderboard api', () => {
     expect(board.json.you).toEqual({ rank: 2, timeMs: a.json.timeMs });
     const summary = await call('GET', { summary: '1' });
     expect((summary.json.records as Record<string, { name: string }>).monaco.name).toBe('Fast');
+  });
+
+  it('renames a player everywhere, including records', async () => {
+    await call('POST', {}, { track: 'monaco', compound: 'soft', line: ideal, playerId: P1, name: 'Typo' });
+    const r = await call('PATCH', {}, { playerId: P1, name: 'Fixed' });
+    expect(r.json.updated).toBe(1);
+    const board = await call('GET', { track: 'monaco' });
+    expect((board.json.entries as { name: string }[])[0].name).toBe('Fixed');
+    const summary = await call('GET', { summary: '1' });
+    expect((summary.json.records as Record<string, { name: string }>).monaco.name).toBe('Fixed');
   });
 
   it('rejects malformed submissions', async () => {

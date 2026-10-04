@@ -1,9 +1,10 @@
 // Per-circuit world leaderboard as a bottom sheet.
 
 import type { App } from '../app/app';
-import { fetchBoard } from '../app/api';
+import { fetchBoard, renamePlayer } from '../app/api';
 import { formatDelta, formatLap } from '../app/format';
-import { getPlayer } from '../app/store';
+import { getPlayer, setPlayerName } from '../app/store';
+import { flushUnsubmitted } from '../app/sync';
 import { ICONS, h, tyreBadge } from '../ui/dom';
 
 export function openLeaderboard(app: App, slug: string): void {
@@ -24,13 +25,15 @@ export function openLeaderboard(app: App, slug: string): void {
     { class: 'sheet board-sheet', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'board-title' },
     h('header', { class: 'board-head' }, h('div', null, h('h2', { id: 'board-title' }, `${meta.short} world times`), h('p', null, `Pole pace ${formatLap(meta.poleRef * 1000)}`)), closeBtn),
     list,
+    nameRow(() => load()),
   );
   const overlay = h('div', { class: 'overlay', onclick: (e: Event) => e.target === overlay && close() }, sheet);
   app.root.append(overlay);
   document.addEventListener('keydown', onKey);
   closeBtn.focus();
 
-  fetchBoard(slug, player.id, 100)
+  const load = () =>
+    fetchBoard(slug, getPlayer().id, 100)
     .then((b) => {
       list.innerHTML = '';
       if (!b.entries.length) {
@@ -72,4 +75,50 @@ export function openLeaderboard(app: App, slug: string): void {
       list.innerHTML = '';
       list.append(h('li', { class: 'board-status' }, 'The leaderboard is unreachable right now. Your times are saved on this device.'));
     });
+  void load();
+}
+
+/** "Posting as X" with an inline rename. */
+function nameRow(onChange: () => void): HTMLElement {
+  const row = h('div', { class: 'board-name-row' });
+  const render = () => {
+    row.innerHTML = '';
+    const p = getPlayer();
+    const label = h('span', null, p.name ? `Posting as ${p.name}` : 'Set a name to post your times');
+    const edit = h('button', { class: 'btn-quiet', onclick: () => openForm() }, p.name ? 'Change' : 'Set name');
+    row.append(label, edit);
+  };
+  const openForm = () => {
+    row.innerHTML = '';
+    const input = h('input', { class: 'name-input', type: 'text', maxlength: '14', value: getPlayer().name, 'aria-label': 'Your name', enterkeyhint: 'done' }) as HTMLInputElement;
+    const status = h('span', { class: 'board-name-status' });
+    const form = h(
+      'form',
+      {
+        class: 'name-form',
+        onsubmit: (e: Event) => {
+          e.preventDefault();
+          const name = input.value.trim().replace(/\s+/g, ' ');
+          if (!/^[A-Za-z0-9 _.-]{2,14}$/.test(name)) {
+            status.textContent = 'Use 2 to 14 letters or numbers.';
+            return;
+          }
+          const had = getPlayer().name;
+          setPlayerName(name);
+          const done = () => {
+            render();
+            onChange();
+          };
+          if (had) renamePlayer(getPlayer().id, name).then(done, done);
+          else flushUnsubmitted().then(done, done);
+        },
+      },
+      input,
+      h('button', { class: 'btn-ink', type: 'submit' }, 'Save'),
+    );
+    row.append(form, status);
+    input.focus();
+  };
+  render();
+  return row;
 }
