@@ -8,13 +8,20 @@
 //    depends on airspeed, so the locked track wind matters), with tyre load
 //    sensitivity. Forward/backward passes add power-, traction- and
 //    brake-limited acceleration with a friction ellipse.
-// 4. A tyre thermal model integrates sliding energy around the lap; the grip it
+// 4. 2026 rules: on designated straights the wings flatten into straight mode
+//    (less drag and downforce) and close into corner mode under braking. Drive
+//    power is the engine plus the MGU-K, whose output tapers above 290 km/h and
+//    is limited by a battery that starts the lap charged, drains on throttle and
+//    recharges under braking. Like a real energy-management map, the car
+//    deploys fully below a cut-off speed and clips above it; the cut-off is the
+//    highest one the battery can sustain for the whole lap, found by bisection.
+// 5. A tyre thermal model integrates sliding energy around the lap; the grip it
 //    implies feeds back into the speed profile for a few fixed iterations.
 //
 // Only + - * / and Math.sqrt are used on the timing path, so every JS engine
 // produces bit-identical lap times for the same quantised line.
 
-import { AERO, CAR, COMPOUND_SPECS, G, THERMAL, gearFor, tyreGrip } from './car.js';
+import { AERO, CAR, COMPOUND_SPECS, ERS, G, THERMAL, deployLimit, gearFor, tyreGrip } from './car.js';
 import { projectNear, type Projection, type Track } from './track.js';
 import type { Compound } from './types.js';
 
@@ -24,7 +31,12 @@ const SIGMA_PER_SPEED = 0.2;
 const SIGMA_MIN = 3;
 const SIGMA_MAX = 16;
 const BISECT_STEPS = 36;
-const THERMAL_ITERATIONS = 3;
+const FEEDBACK_ITERATIONS = 3;
+const DEPLOY_BISECT_STEPS = 12;
+const WARM_WINDOW = 4;
+const WARM_STEPS = 7;
+/** Deployment fades in over this speed band (m/s) below the cut-off. */
+const CLIP_BAND = 8;
 
 export interface LapStats {
   topSpeed: number;
@@ -35,6 +47,15 @@ export interface LapStats {
   tyreMax: number;
   tyreMin: number;
   distance: number;
+  /** Electrical energy deployed and recovered over the lap (joules). */
+  energyUsed: number;
+  energyRecovered: number;
+  /** Lap progress (m) where the battery first ran down to its reserve, or -1. */
+  flatAt: number;
+  /** Battery charge left when crossing the line (joules). */
+  energyLeft: number;
+  /** Speed (m/s) above which the car stops deploying to save energy, or Infinity. */
+  clipSpeed: number;
 }
 
 export interface LapResult {
@@ -54,7 +75,12 @@ export interface LapResult {
   latG: Float32Array;
   lonG: Float32Array;
   tyre: Float32Array;
-  drs: Uint8Array;
+  /** 1 while the wings are in straight mode. */
+  straight: Uint8Array;
+  /** Battery charge (joules), MGU-K deployment and regeneration (watts). */
+  soc: Float32Array;
+  deploy: Float32Array;
+  regen: Float32Array;
   throttle: Float32Array;
   brake: Float32Array;
   gear: Uint8Array;
@@ -74,11 +100,36 @@ interface Geo {
 
 interface Env {
   rho: number;
-  power: number;
+  /** Engine power at the wheels after the altitude correction. */
+  ice: number;
   mu: number;
-  cla: Float64Array;
-  cda: Float64Array;
+  /** Aero on throttle (straight mode where active) and under braking (always corner mode). */
+  claFwd: Float64Array;
+  cdaFwd: Float64Array;
+  claBrk: Float64Array;
+  cdaBrk: Float64Array;
   windPar: Float64Array;
+  /** Energy management: full deployment below this speed, none above (m/s). */
+  vCut: number;
+}
+
+const NO_CLIP = 1000;
+
+/** Share of full deployment at speed v under the current cut-off (1 below it, 0 above). */
+function deployShare(env: Env, v: number): number {
+  if (env.vCut >= NO_CLIP) return 1;
+  const f = (env.vCut + CLIP_BAND * 0.5 - v) / CLIP_BAND;
+  return f > 1 ? 1 : f < 0 ? 0 : f;
+}
+
+/** MGU-K power used at speed v under the current energy-management cut-off. */
+function electric(env: Env, v: number): number {
+  return deployLimit(v) * deployShare(env, v);
+}
+
+/** Engine power diverted into the battery above the cut-off (super clipping). */
+function superClip(env: Env, v: number): number {
+  return env.vCut >= NO_CLIP ? 0 : ERS.superClip * (1 - deployShare(env, v));
 }
 
 function resample(pts: Float64Array): { x: Float64Array; y: Float64Array; n: number } {
@@ -192,7 +243,7 @@ function airspeed(v: number, windPar: number): number {
 /** Lateral acceleration capacity (m/s^2) at sample i and speed v. */
 function lateralCapacity(env: Env, grip: number, i: number, v: number): number {
   const va = airspeed(v, env.windPar[i]);
-  const n = 1 + (0.5 * env.rho * env.cla[i] * va * va) / (CAR.mass * G);
+  const n = 1 + (0.5 * env.rho * env.claBrk[i] * va * va) / (CAR.mass * G);
   const mu = env.mu * grip * (1 - CAR.loadSensitivity * (n - 1));
   return mu * G * n;
 }
@@ -209,15 +260,21 @@ function cornerSpeed(env: Env, grip: number, i: number, kAbs: number): number {
   return lo;
 }
 
-function speedProfile(geo: Geo, env: Env, grip: Float64Array): Float64Array {
+/** Grip-limited speed at every sample (independent of power, so it is computed once per grip state). */
+function cornerLimits(geo: Geo, env: Env, grip: Float64Array): Float64Array {
   const n = geo.n;
   const vLat = new Float64Array(n);
-  let i0 = 0;
   for (let i = 0; i < n; i++) {
     const kAbs = geo.k[i] < 0 ? -geo.k[i] : geo.k[i];
     vLat[i] = cornerSpeed(env, grip[i], i, kAbs);
-    if (vLat[i] < vLat[i0]) i0 = i;
   }
+  return vLat;
+}
+
+function speedProfile(geo: Geo, env: Env, grip: Float64Array, vLat: Float64Array): Float64Array {
+  const n = geo.n;
+  let i0 = 0;
+  for (let i = 1; i < n; i++) if (vLat[i] < vLat[i0]) i0 = i;
   const m = CAR.mass;
   const vf = new Float64Array(n);
   vf[i0] = vLat[i0];
@@ -227,7 +284,7 @@ function speedProfile(geo: Geo, env: Env, grip: Float64Array): Float64Array {
     const j = i + 1 === n ? 0 : i + 1;
     const v = vf[i];
     const va = airspeed(v, env.windPar[i]);
-    const fz = m * G + 0.5 * env.rho * env.cla[i] * va * va;
+    const fz = m * G + 0.5 * env.rho * env.claFwd[i] * va * va;
     const nl = fz / (m * G);
     const mu = env.mu * grip[i] * (1 - CAR.loadSensitivity * (nl - 1));
     const cap = mu * G * nl;
@@ -236,9 +293,9 @@ function speedProfile(geo: Geo, env: Env, grip: Float64Array): Float64Array {
     if (u > 1) u = 1;
     const avail = Math.sqrt(1 - u * u);
     const fTrac = mu * CAR.tractionShare * fz * avail;
-    const fPow = env.power / (v > 10 ? v : 10);
+    const fPow = (env.ice + electric(env, v) - superClip(env, v)) / (v > 10 ? v : 10);
     const fDrive = fTrac < fPow ? fTrac : fPow;
-    const fDrag = 0.5 * env.rho * env.cda[i] * va * va;
+    const fDrag = 0.5 * env.rho * env.cdaFwd[i] * va * va;
     const fRoll = CAR.crr * fz;
     const a = (fDrive - fDrag - fRoll) / m;
     const v2 = v * v + 2 * a * geo.ds[i];
@@ -253,7 +310,7 @@ function speedProfile(geo: Geo, env: Env, grip: Float64Array): Float64Array {
     const i = j === 0 ? n - 1 : j - 1;
     const v = vb[j];
     const va = airspeed(v, env.windPar[j]);
-    const fz = m * G + 0.5 * env.rho * env.cla[j] * va * va;
+    const fz = m * G + 0.5 * env.rho * env.claBrk[j] * va * va;
     const nl = fz / (m * G);
     const mu = env.mu * grip[j] * (1 - CAR.loadSensitivity * (nl - 1));
     const cap = mu * G * nl;
@@ -262,7 +319,7 @@ function speedProfile(geo: Geo, env: Env, grip: Float64Array): Float64Array {
     if (u > 1) u = 1;
     const avail = Math.sqrt(1 - u * u);
     const fBrake = mu * CAR.brakeShare * fz * avail;
-    const fDrag = 0.5 * env.rho * env.cda[j] * va * va;
+    const fDrag = 0.5 * env.rho * env.cdaBrk[j] * va * va;
     const fRoll = CAR.crr * fz;
     const a = (fBrake + fDrag + fRoll) / m;
     const v2 = v * v + 2 * a * geo.ds[i];
@@ -305,6 +362,131 @@ function thermal(geo: Geo, env: Env, v: Float64Array, prevGrip: Float64Array, co
     T += dt * (THERMAL.gain * spec.heat * q - cool * (T - rest));
   }
   return { temp, grip };
+}
+
+interface Energy {
+  soc: Float64Array;
+  deploy: Float64Array;
+  regen: Float64Array;
+  used: number;
+  recovered: number;
+  flatAt: number;
+  left: number;
+  /** Lowest charge reached over the lap (negative means the plan is not sustainable). */
+  min: number;
+}
+
+/**
+ * Battery state around the lap for a speed profile. Deployment shares the load
+ * with the engine in proportion to their limits; braking beyond what drag and
+ * rolling resistance provide is recovered up to the MGU-K limit and the per-lap
+ * cap. Charge is allowed to go negative here so the caller can tell whether a
+ * deployment plan is sustainable.
+ */
+function energy(geo: Geo, env: Env, v: Float64Array, prog: Float64Array): Energy {
+  const n = geo.n;
+  const m = CAR.mass;
+  const soc = new Float64Array(n);
+  const deploy = new Float64Array(n);
+  const regen = new Float64Array(n);
+  let q = ERS.startCharge;
+  let recovered = 0;
+  let used = 0;
+  let flatAt = -1;
+  let min = q;
+  for (let i = 0; i < n; i++) {
+    const j = i + 1 === n ? 0 : i + 1;
+    soc[i] = q;
+    const vi = v[i];
+    const vj = v[j];
+    const dt = (2 * geo.ds[i]) / (vi + vj);
+    const aLon = (vj * vj - vi * vi) / (2 * geo.ds[i]);
+    const va = airspeed(vi, env.windPar[i]);
+    const fz = m * G + 0.5 * env.rho * env.claFwd[i] * va * va;
+    const fDrag = 0.5 * env.rho * env.cdaFwd[i] * va * va;
+    const fRoll = CAR.crr * fz;
+    const need = (m * aLon + fDrag + fRoll) * vi;
+    if (need > 0) {
+      const kCap = electric(env, vi);
+      let e = (need * kCap) / (env.ice + kCap || 1);
+      if (e > kCap) e = kCap;
+      if (e < 0) e = 0;
+      deploy[i] = e;
+      q -= e * dt;
+      used += e * dt;
+      // Super clipping recharges at full throttle above the cut-off.
+      let r = superClip(env, vi) * ERS.harvestEfficiency;
+      if (r > 0) {
+        let room = ERS.capacity - q;
+        const lapRoom = ERS.harvestPerLap - recovered;
+        if (lapRoom < room) room = lapRoom;
+        if (r * dt > room) r = room > 0 ? room / dt : 0;
+        regen[i] = r;
+        q += r * dt;
+        recovered += r * dt;
+      }
+    } else {
+      const vaB = airspeed(vi, env.windPar[i]);
+      const fzB = m * G + 0.5 * env.rho * env.claBrk[i] * vaB * vaB;
+      const fBrake = -m * aLon - 0.5 * env.rho * env.cdaBrk[i] * vaB * vaB - CAR.crr * fzB;
+      if (fBrake > 0) {
+        let r = fBrake * vi;
+        if (r > ERS.harvest) r = ERS.harvest;
+        r *= ERS.harvestEfficiency;
+        let room = ERS.capacity - q;
+        const lapRoom = ERS.harvestPerLap - recovered;
+        if (lapRoom < room) room = lapRoom;
+        if (r * dt > room) r = room > 0 ? room / dt : 0;
+        regen[i] = r;
+        q += r * dt;
+        recovered += r * dt;
+      }
+    }
+    if (q < min) min = q;
+    if (flatAt < 0 && q < ERS.reserve * 0.3) flatAt = prog[i];
+  }
+  return { soc, deploy, regen, used, recovered, flatAt, left: q, min };
+}
+
+/**
+ * Energy management: pick the highest deployment cut-off speed the battery can
+ * sustain for the whole lap (never dipping below empty), by bisection.
+ */
+function solveDeployment(geo: Geo, env: Env, grip: Float64Array, vLat: Float64Array, prog: Float64Array, hint = NO_CLIP): { v: Float64Array; en: Energy } {
+  const feasible = (cut: number): { v: Float64Array; en: Energy; ok: boolean } => {
+    env.vCut = cut;
+    const pv = speedProfile(geo, env, grip, vLat);
+    const pe = energy(geo, env, pv, prog);
+    return { v: pv, en: pe, ok: pe.min >= 0 };
+  };
+  const free = feasible(NO_CLIP);
+  if (free.ok) return free;
+  let lo = 0;
+  let hi = CAR.vMax;
+  let steps = DEPLOY_BISECT_STEPS;
+  // The cut-off barely moves between grip iterations: search near the last one.
+  if (hint < NO_CLIP) {
+    const a = hint - WARM_WINDOW;
+    const b = hint + WARM_WINDOW;
+    if (a > 0 && b < CAR.vMax && feasible(a).ok && !feasible(b).ok) {
+      lo = a;
+      hi = b;
+      steps = WARM_STEPS;
+    }
+  }
+  let v = free.v;
+  let en = free.en;
+  for (let it = 0; it < steps; it++) {
+    env.vCut = (lo + hi) * 0.5;
+    v = speedProfile(geo, env, grip, vLat);
+    en = energy(geo, env, v, prog);
+    if (en.min >= 0) lo = env.vCut;
+    else hi = env.vCut;
+  }
+  env.vCut = lo;
+  v = speedProfile(geo, env, grip, vLat);
+  en = energy(geo, env, v, prog);
+  return { v, en };
 }
 
 export interface SimOptions {
@@ -354,11 +536,14 @@ export function simulateLap(track: Track, pts: Float64Array, compound: Compound,
   const powerScale = 1 - CAR.altitudePowerLoss * (1 - meta.rho / CAR.rhoRef);
   const env: Env = {
     rho: meta.rho,
-    power: CAR.power * (powerScale < 1 ? powerScale : 1),
+    ice: CAR.icePower * (powerScale < 1 ? powerScale : 1),
     mu: CAR.mu,
-    cla: new Float64Array(n),
-    cda: new Float64Array(n),
+    claFwd: new Float64Array(n),
+    cdaFwd: new Float64Array(n),
+    claBrk: new Float64Array(n),
+    cdaBrk: new Float64Array(n),
     windPar: new Float64Array(n),
+    vCut: NO_CLIP,
   };
 
   // Pass 1: uniform smoothing to estimate speeds.
@@ -366,7 +551,7 @@ export function simulateLap(track: Track, pts: Float64Array, compound: Compound,
   sigma.fill(SIGMA_INITIAL);
   let path = smooth(raw.x, raw.y, sigma, spacing);
   let geo = geometry(path.x, path.y);
-  const drs = new Uint8Array(n);
+  const zone = new Uint8Array(n);
   const setAero = () => {
     for (let i = 0; i < n; i++) {
       env.windPar[i] = meta.wind[0] * geo.hx[i] + meta.wind[1] * geo.hy[i];
@@ -375,21 +560,23 @@ export function simulateLap(track: Track, pts: Float64Array, compound: Compound,
       if (kAbs < 1 / 700) {
         let s = prog[i] % track.length;
         if (s < 0) s += track.length;
-        for (const z of meta.drs) {
+        for (const z of meta.straights) {
           if (z[0] <= z[1] ? s >= z[0] && s <= z[1] : s >= z[0] || s <= z[1]) on = 1;
         }
       }
-      drs[i] = on;
-      env.cla[i] = on ? aero.cla * (1 - CAR.drsDownforce) : aero.cla;
-      env.cda[i] = on ? aero.cda * (1 - CAR.drsDrag) : aero.cda;
+      zone[i] = on;
+      env.claBrk[i] = aero.cla;
+      env.cdaBrk[i] = aero.cda;
+      env.claFwd[i] = on ? aero.cla * CAR.straightDownforce : aero.cla;
+      env.cdaFwd[i] = on ? aero.cda * CAR.straightDrag : aero.cda;
     }
   };
   setAero();
   let grip: Float64Array = new Float64Array(n);
   grip.fill(surface * spec.grip);
-  let v = speedProfile(geo, env, grip);
+  let v = speedProfile(geo, env, grip, cornerLimits(geo, env, grip));
 
-  // Pass 2: speed-dependent smoothing, then thermal iterations.
+  // Pass 2: speed-dependent smoothing, then tyre and battery feedback.
   for (let i = 0; i < n; i++) {
     const sg = SIGMA_PER_SPEED * v[i];
     sigma[i] = sg < SIGMA_MIN ? SIGMA_MIN : sg > SIGMA_MAX ? SIGMA_MAX : sg;
@@ -398,11 +585,14 @@ export function simulateLap(track: Track, pts: Float64Array, compound: Compound,
   geo = geometry(path.x, path.y);
   setAero();
   let th: Thermal = { temp: new Float64Array(n), grip };
-  for (let it = 0; it < THERMAL_ITERATIONS; it++) {
-    th = thermal(geo, env, v, grip, compound, track, surface);
+  let solved = solveDeployment(geo, env, grip, cornerLimits(geo, env, grip), prog);
+  for (let it = 0; it < FEEDBACK_ITERATIONS; it++) {
+    th = thermal(geo, env, solved.v, grip, compound, track, surface);
     grip = th.grip;
-    v = speedProfile(geo, env, grip);
+    solved = solveDeployment(geo, env, grip, cornerLimits(geo, env, grip), prog, env.vCut);
   }
+  v = solved.v;
+  const en = solved.en;
 
   // Time integration.
   const t = new Float64Array(n + 1);
@@ -439,12 +629,29 @@ export function simulateLap(track: Track, pts: Float64Array, compound: Compound,
     latG: new Float32Array(n),
     lonG: new Float32Array(n),
     tyre: new Float32Array(th.temp),
-    drs,
+    straight: new Uint8Array(n),
+    soc: new Float32Array(en.soc),
+    deploy: new Float32Array(en.deploy),
+    regen: new Float32Array(en.regen),
     throttle: new Float32Array(n),
     brake: new Float32Array(n),
     gear: new Uint8Array(n),
     rpm: new Float32Array(n),
-    stats: { topSpeed: 0, minSpeed: Infinity, avgSpeed: 0, maxLatG: 0, maxBrakeG: 0, tyreMax: -Infinity, tyreMin: Infinity, distance: 0 },
+    stats: {
+      topSpeed: 0,
+      minSpeed: Infinity,
+      avgSpeed: 0,
+      maxLatG: 0,
+      maxBrakeG: 0,
+      tyreMax: -Infinity,
+      tyreMin: Infinity,
+      distance: 0,
+      energyUsed: en.used,
+      energyRecovered: en.recovered,
+      flatAt: en.flatAt,
+      energyLeft: en.left,
+      clipSpeed: env.vCut >= NO_CLIP ? Infinity : env.vCut,
+    },
   };
   let dist = 0;
   for (let i = 0; i < n; i++) {
@@ -455,10 +662,12 @@ export function simulateLap(track: Track, pts: Float64Array, compound: Compound,
     out.latG[i] = aLat / G;
     out.lonG[i] = aLon / G;
     const va = airspeed(vi, env.windPar[i]);
-    const drag = (0.5 * env.rho * env.cda[i] * va * va) / CAR.mass;
+    const drag = (0.5 * env.rho * env.cdaFwd[i] * va * va) / CAR.mass;
     if (aLon > 0.3) out.throttle[i] = 1;
     else if (aLon > -drag - 1.5) out.throttle[i] = aLon > -1 ? 0.55 : 0.1;
     else out.brake[i] = Math.min(1, (-aLon - drag) / 35);
+    // The wings are flat only while the car is not braking.
+    out.straight[i] = zone[i] && out.brake[i] === 0 ? 1 : 0;
     const gr = gearFor(vi);
     out.gear[i] = gr.gear;
     out.rpm[i] = gr.rpm;

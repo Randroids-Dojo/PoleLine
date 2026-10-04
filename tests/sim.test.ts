@@ -20,8 +20,9 @@ describe('track catalog', () => {
     expect(CATALOG).toHaveLength(24);
     for (const m of CATALOG) {
       expect(Math.abs(m.length - m.officialLength) / m.officialLength).toBeLessThan(0.02);
+      // Energy-hungry circuits need more grip to match pre-2026 pole pace.
       expect(m.grip).toBeGreaterThan(0.75);
-      expect(m.grip).toBeLessThan(1.25);
+      expect(m.grip).toBeLessThan(1.45);
     }
   });
 });

@@ -20,7 +20,7 @@ const IDEAL_MARGIN = 0.985;
 const args = process.argv.slice(2);
 const reportOnly = args.includes('--report');
 const only = args.filter((a) => !a.startsWith('--'));
-interface Cal { grip: number; sectors: [number, number, number] }
+interface Cal { grip: number; sectors: [number, number, number]; clipRef?: number }
 const existing: Record<string, Cal> = existsSync(OUT) ? JSON.parse(readFileSync(OUT, 'utf8')) : {};
 const result: Record<string, Cal> = { ...existing };
 
@@ -59,7 +59,8 @@ for (const meta of CATALOG) {
   const soft = simulateLap(track, line, 'soft', { surfaceGrip: grip });
   if (!reportOnly) {
     const f = soft.sectorsMs.map((x) => Number((x / soft.timeMs).toFixed(5))) as [number, number, number];
-    result[meta.slug] = { grip, sectors: f };
+    const clip = Number.isFinite(soft.stats.clipSpeed) ? Number(soft.stats.clipSpeed.toFixed(2)) : undefined;
+    result[meta.slug] = { grip, sectors: f, clipRef: clip };
   }
   const med = simulateLap(track, line, 'medium', { surfaceGrip: grip });
   const hard = simulateLap(track, line, 'hard', { surfaceGrip: grip });
@@ -76,7 +77,9 @@ for (const meta of CATALOG) {
     `${meta.slug.padEnd(12)} grip ${grip.toFixed(3)} | S ${fmt(soft.timeMs)} M +${pct(med.timeMs)}% H +${pct(hard.timeMs)}% | ` +
       `wobbly +${noisy.map(pct).join('/')}% centre +${pct(ctr)}% | top ${(soft.stats.topSpeed * 3.6).toFixed(0)} ` +
       `min ${(soft.stats.minSpeed * 3.6).toFixed(0)} latG ${soft.stats.maxLatG.toFixed(1)} brkG ${soft.stats.maxBrakeG.toFixed(1)} ` +
-      `tyre S ${soft.stats.tyreMin.toFixed(0)}-${soft.stats.tyreMax.toFixed(0)} M ${med.stats.tyreMin.toFixed(0)}-${med.stats.tyreMax.toFixed(0)} H ${hard.stats.tyreMin.toFixed(0)}-${hard.stats.tyreMax.toFixed(0)}`,
+      `tyre S ${soft.stats.tyreMin.toFixed(0)}-${soft.stats.tyreMax.toFixed(0)} M ${med.stats.tyreMin.toFixed(0)}-${med.stats.tyreMax.toFixed(0)} H ${hard.stats.tyreMin.toFixed(0)}-${hard.stats.tyreMax.toFixed(0)} | ` +
+      `ERS used ${(soft.stats.energyUsed / 1e6).toFixed(1)} rec ${(soft.stats.energyRecovered / 1e6).toFixed(1)} left ${(soft.stats.energyLeft / 1e6).toFixed(1)} MJ` +
+      (Number.isFinite(soft.stats.clipSpeed) ? ` clip ${(soft.stats.clipSpeed * 3.6).toFixed(0)} km/h` : ' no clip'),
   );
 }
 

@@ -36,6 +36,17 @@ export function engineerNotes(track: Track, lap: LapResult, pts: Float64Array): 
     notes.push(`You crossed the line ${gap.toFixed(1)} m from where you started, so the car had to cut across the straight. Finish where you began.`);
   }
 
+  // Energy (2026 power units): clipping earlier than an ideal lap means the
+  // line spent more battery than it won back.
+  const clip = lap.stats.clipSpeed;
+  const ref = track.meta.clipRef;
+  if (notes.length < 2 && Number.isFinite(clip) && ref > 0 && clip < ref - 2.2) {
+    const early = Math.round((ref - clip) * 3.6);
+    notes.push(
+      `The battery only lasted by clipping at ${Math.round(clip * 3.6)} km/h, ${early} km/h earlier than an ideal lap. Carry more speed through the corners so exits need less deployment; every hard braking zone recharges it.`,
+    );
+  }
+
   // Width usage.
   if (notes.length < 2) {
     const proj: Projection = { seg: 0, s: 0, d: 0, dist: 0 };

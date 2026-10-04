@@ -122,7 +122,7 @@ export class HomeScreen implements Screen {
       fact('Air', `${m.airTemp}°C`),
       fact('Track', `${m.trackTemp}°C`),
       fact('Wind', windText(m), h('span', { class: 'wind-arrow', style: `transform: rotate(${m.windFrom + 180}deg)`, 'aria-hidden': 'true' }, '↑')),
-      fact('Session', m.night ? 'Under lights' : 'Daylight'),
+      fact('Straight mode', `${m.straights.length} ${m.straights.length === 1 ? 'zone' : 'zones'}`),
       fact('Downforce', downforceLabel(m)),
       fact('Grip', gripLabel(m)),
       fact('Length', `${(m.length / 1000).toFixed(3)} km`),

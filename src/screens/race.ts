@@ -11,7 +11,7 @@ import { liveryById } from '../render/liveries';
 import { getSettings } from '../app/store';
 import { polyPath, strokeInk } from '../render/line-art';
 import type { TrackArt } from '../render/track-art';
-import { COMPOUND_SPECS } from '../sim/car';
+import { COMPOUND_SPECS, ERS } from '../sim/car';
 import type { LapResult } from '../sim/lapsim';
 import type { Track } from '../sim/track';
 import { ICONS, h, setText, tyreBadge } from '../ui/dom';
@@ -106,7 +106,9 @@ export class RaceScreen implements Screen {
   private speed: HTMLElement;
   private gear: HTMLElement;
   private leds: HTMLElement[] = [];
-  private drs: HTMLElement;
+  private aero: HTMLElement;
+  private ersFill: HTMLElement;
+  private ersBox: HTMLElement;
   private tyreTemp: HTMLElement;
   private tyreChip: HTMLElement;
   private banner: HTMLElement;
@@ -142,7 +144,9 @@ export class RaceScreen implements Screen {
       this.leds.push(led);
       ledBox.append(led);
     }
-    this.drs = h('div', { class: 'drs' }, 'DRS');
+    this.aero = h('div', { class: 'aero-chip', title: 'Active aero: wings flat in straight mode' }, 'Straight');
+    this.ersFill = h('i');
+    this.ersBox = h('div', { class: 'ers', title: 'Battery' }, h('span', null, 'ERS'), h('div', { class: 'ers-bar' }, this.ersFill));
     this.tyreTemp = h('span', null, '');
     this.tyreChip = h('div', { class: 'tyre-chip', html: tyreBadge(lap.compound, 24) }, this.tyreTemp);
     this.banner = h('div', { class: 'race-banner' }, 'Flying lap');
@@ -153,7 +157,7 @@ export class RaceScreen implements Screen {
       h('div', { class: 'strip strip-top race-top' }, h('div', { class: 'race-clock' }, this.timer, this.delta), h('div', { class: 'sectors' }, ...this.sectors)),
       h('button', { class: 'skip', onclick: () => this.skip(), html: `<span>Skip</span>${ICONS.skip}` }),
       this.banner,
-      h('div', { class: 'strip strip-bottom race-bottom' }, h('div', { class: 'speedo' }, this.speed, h('small', null, 'km/h')), this.gear, ledBox, h('div', { class: 'race-chips' }, this.drs, this.tyreChip)),
+      h('div', { class: 'strip strip-bottom race-bottom' }, h('div', { class: 'speedo' }, this.speed, h('small', null, 'km/h')), this.gear, h('div', { class: 'race-power' }, ledBox, this.ersBox), h('div', { class: 'race-chips' }, this.aero, this.tyreChip)),
     );
     app.root.append(this.el);
     this.resize();
@@ -255,7 +259,12 @@ export class RaceScreen implements Screen {
     const rpm = lap.rpm[i];
     const lit = Math.round(Math.max(0, Math.min(1, (rpm - 10300) / 1800)) * 15);
     for (let k = 0; k < 15; k++) this.leds[k].classList.toggle('on', k < lit);
-    this.drs.classList.toggle('on', lap.drs[i] === 1);
+    this.aero.classList.toggle('on', lap.straight[i] === 1);
+    const charge = Math.max(0, Math.min(1, lap.soc[i] / ERS.capacity));
+    this.ersFill.style.transform = `scaleX(${charge.toFixed(3)})`;
+    const clipping = lap.throttle[i] === 1 && lap.deploy[i] < 1000 && smp.v > lap.stats.clipSpeed - 2;
+    const ersState = clipping ? 'clip' : lap.regen[i] > 1000 ? 'harvest' : lap.soc[i] < ERS.reserve * 0.3 ? 'flat' : lap.deploy[i] > 1000 ? 'deploy' : 'idle';
+    if (this.ersBox.dataset.state !== ersState) this.ersBox.dataset.state = ersState;
     const spec = COMPOUND_SPECS[lap.compound];
     const temp = lap.tyre[i];
     setText(this.tyreTemp, `${Math.round(temp)}°`);

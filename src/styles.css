@@ -1241,17 +1241,74 @@ button:disabled {
   justify-items: end;
 }
 
-.drs {
+.race-power {
+  display: grid;
+  gap: 5px;
+  flex: 1;
+  max-width: 180px;
+}
+
+.race-power .leds {
+  max-width: none;
+}
+
+.ers {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.ers span {
+  font-size: 10px;
+  font-weight: 850;
+  font-stretch: 112%;
+  color: var(--ink-2);
+}
+
+.ers-bar {
+  flex: 1;
+  height: 8px;
+  border-radius: 4px;
+  background: #e1e5ea;
+  overflow: hidden;
+}
+
+.ers-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  transform-origin: left;
+  background: var(--purple);
+  transition: background 0.15s ease;
+}
+
+.ers[data-state='harvest'] .ers-bar i {
+  background: #19c463;
+}
+
+.ers[data-state='flat'] .ers-bar i {
+  background: var(--red);
+}
+
+.ers[data-state='clip'] .ers-bar i {
+  background: #f59e0b;
+}
+
+.ers[data-state='idle'] .ers-bar i {
+  background: var(--ink-3);
+}
+
+.aero-chip {
   padding: 1px 7px;
   border-radius: 4px;
   border: 1.5px solid var(--rule);
   font-size: 12px;
   font-weight: 850;
-  font-stretch: 112%;
+  font-stretch: 100%;
   color: var(--ink-3);
 }
 
-.drs.on {
+.aero-chip.on {
   background: #19c463;
   border-color: #19c463;
   color: #000;
@@ -1486,7 +1543,7 @@ button:disabled {
 
 .res-facts {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 8px;
   margin: 12px 0 0;
   padding: 10px 0;

@@ -73,7 +73,7 @@ function airDensity(altitude: number, airTempC: number): number {
   return p / (287.05 * (airTempC + 273.15));
 }
 
-function drsZones(pts: Pt[], step: number): [number, number][] {
+function straightZones(pts: Pt[], step: number, maxCurv = 1 / 300, minLen = 320): [number, number][] {
   // Curvature measured over +-6 m.
   const n = pts.length;
   const straight = new Uint8Array(n);
@@ -85,9 +85,11 @@ function drsZones(pts: Pt[], step: number): [number, number][] {
     const ca = Math.hypot(a[0] - c[0], a[1] - c[1]);
     const cross = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
     const k = Math.abs((2 * cross) / (ab * bc * ca || 1));
-    straight[i] = k < 1 / 300 ? 1 : 0;
+    straight[i] = k < maxCurv ? 1 : 0;
   }
-  // Find runs (with wrap) of straight samples longer than 430 m.
+  // Find runs (with wrap) of straight samples longer than 320 m. Straight mode
+  // opens 50 m into a straight and the zone ends 30 m before the next corner
+  // (the simulation also closes the wings whenever the car brakes).
   const zones: [number, number][] = [];
   let start = -1;
   for (let i = 0; i < n; i++) if (!straight[i]) { start = i; break; }
@@ -98,23 +100,25 @@ function drsZones(pts: Pt[], step: number): [number, number][] {
     if (straight[i] && runStart < 0) runStart = j;
     if ((!straight[i] || j === n) && runStart >= 0) {
       const len = (j - runStart) * step;
-      if (len > 430) {
-        const s0 = ((start + runStart) * step + 90) % (n * step);
-        const s1 = ((start + j) * step - 60) % (n * step);
+      if (len > minLen) {
+        const s0 = ((start + runStart) * step + 50) % (n * step);
+        const s1 = ((start + j) * step - 30) % (n * step);
         zones.push([Math.round(s0), Math.round(s1)]);
       }
       runStart = -1;
     }
   }
-  // Keep the three longest straights, ordered along the lap.
+  // Twisty street circuits (Monaco) still get their straightest run.
+  if (!zones.length && minLen > 200) return straightZones(pts, step, 1 / 150, 200);
+  // Keep up to six of the longest straights, ordered along the lap.
   const lenOf = (z: [number, number]) => (z[1] - z[0] + n * step) % (n * step);
   return zones
     .sort((a, b) => lenOf(b) - lenOf(a))
-    .slice(0, 3)
+    .slice(0, 6)
     .sort((a, b) => a[0] - b[0]);
 }
 
-const calibration: Record<string, { grip: number; sectors: [number, number, number] }> = existsSync(CALIBRATION)
+const calibration: Record<string, { grip: number; sectors: [number, number, number]; clipRef?: number }> = existsSync(CALIBRATION)
   ? JSON.parse(readFileSync(CALIBRATION, 'utf8'))
   : {};
 
@@ -184,7 +188,8 @@ for (const cfg of TRACKS) {
     downforce: cfg.downforce,
     grip: calibration[cfg.slug]?.grip ?? 1,
     poleSectors: calibration[cfg.slug]?.sectors ?? [0.3333, 0.3333, 0.3334],
-    drs: drsZones(center, length / center.length),
+    clipRef: calibration[cfg.slug]?.clipRef ?? 0,
+    straights: straightZones(center, length / center.length),
     size: [Math.round(maxX - minX), Math.round(maxY - minY)],
     outline,
   };
@@ -192,7 +197,7 @@ for (const cfg of TRACKS) {
   console.log(
     `${cfg.slug.padEnd(12)} len ${length.toFixed(0).padStart(5)} (official ${raw.officialLength}) ` +
       `minR ${minR.toFixed(1).padStart(5)} relax ${String(relaxed.iterations).padStart(4)} ` +
-      `rho ${rho.toFixed(3)} drs ${entry.drs.length} pts ${center.length}`,
+      `rho ${rho.toFixed(3)} straights ${entry.straights.length} pts ${center.length}`,
   );
 }
 

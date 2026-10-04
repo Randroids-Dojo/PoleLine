@@ -81,6 +81,8 @@ export class ResultsScreen implements Screen {
       'dl',
       { class: 'res-facts' },
       h('div', null, h('dt', null, 'Top speed'), h('dd', null, `${kmh(lap.stats.topSpeed)} km/h`)),
+      h('div', null, h('dt', null, 'Clipped at'), h('dd', null, Number.isFinite(lap.stats.clipSpeed) ? `${kmh(lap.stats.clipSpeed)} km/h` : 'Never')),
+      h('div', null, h('dt', null, 'Energy out / back'), h('dd', null, `${(lap.stats.energyUsed / 1e6).toFixed(1)} / ${(lap.stats.energyRecovered / 1e6).toFixed(1)} MJ`)),
       h('div', null, h('dt', null, 'Slowest corner'), h('dd', null, `${kmh(lap.stats.minSpeed)} km/h`)),
       h('div', null, h('dt', null, 'Peak lateral'), h('dd', null, `${lap.stats.maxLatG.toFixed(1)} g`)),
       h('div', null, h('dt', null, 'Tyre temp'), h('dd', { html: `${tyreBadge(lap.compound, 16)} ${Math.round(lap.stats.tyreMax)}°C` })),

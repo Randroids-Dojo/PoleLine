@@ -32,8 +32,10 @@ export interface TrackMeta {
   grip: number;
   /** Share of the lap spent in each sector on the ideal line (for purple sectors). */
   poleSectors: [number, number, number];
-  /** DRS activation zones as [startS, endS] along the centreline (metres). */
-  drs: [number, number][];
+  /** Speed (m/s) at which the ideal lap clips (stops deploying) to save energy; 0 if it never does. */
+  clipRef: number;
+  /** Straight-mode (active aero) zones as [startS, endS] along the centreline (metres). */
+  straights: [number, number][];
   size: [number, number];
   /** Thumbnail outline, flat [x, y, ...] in a 0..1000 box. */
   outline: number[];
