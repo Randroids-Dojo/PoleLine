@@ -46,7 +46,7 @@ await page.getByRole('button', { name: 'Draw a lap' }).tap();
 await page.waitForTimeout(800);
 
 const cdp = await ctx.newCDPSession(page);
-type Pl = { __pl: { app: { current: { worldToScreen(x: number, y: number): { x: number; y: number }; status: string; isGliding: boolean } } } };
+type Pl = { __pl: { app: { current: { worldToScreen(x: number, y: number): { x: number; y: number }; status: string; isGliding: boolean; penDown: boolean; tip: { x: number; y: number } | null } } } };
 const toScreen = (p: { x: number; y: number }) => page.evaluate(([x, y]) => (window as unknown as Pl).__pl.app.current.worldToScreen(x, y), [p.x, p.y]);
 const status = () => page.evaluate(() => (window as unknown as Pl).__pl.app.current.status);
 const gliding = () => page.evaluate(() => (window as unknown as Pl).__pl.app.current.isGliding);
@@ -68,10 +68,20 @@ while ((await status()) === 'drawing' || (await status()) === 'idle') {
     await touch('touchMove', sp.x, sp.y);
     // Let the frame that consumes this move render before aiming the next one.
     await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => r(null))));
-    idx = k;
     moved++;
+    if (!(await page.evaluate(() => (window as unknown as Pl).__pl.app.current.penDown))) break;
+    idx = k;
   }
   await touch('touchEnd', 0, 0);
+  const tp = await page.evaluate(() => (window as unknown as Pl).__pl.app.current.tip);
+  if (tp) {
+    let best = idx, bd = Infinity;
+    for (let k = Math.max(0, idx - 80); k <= Math.min(pts.length - 1, idx + 5); k++) {
+      const d = Math.hypot(pts[k].x - tp.x, pts[k].y - tp.y);
+      if (d < bd) { bd = d; best = k; }
+    }
+    idx = best;
+  }
   if (strokes === 2) await page.screenshot({ path: join(out, 'touch-mid.png') });
   if (!moved || strokes > 80) break;
 }
