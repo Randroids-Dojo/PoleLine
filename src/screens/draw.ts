@@ -5,9 +5,11 @@
 //     next section, and the player lifts and carries on from the tip.
 //   continuous mode: the map feeds forward under the finger while it moves,
 //     at a player-chosen speed.
-// Lifting the finger always glides the camera on. Dragging on the grass pans
-// the map at any time (with a little momentum); a button glides back to the
-// tip when it is off screen. A stroke that crosses the
+// Lifting the finger always glides the camera on. By default the map turns so
+// the road ahead points up; with auto-rotate off it keeps whatever angle the
+// player set with the compass (tap: N/E/S/W at the top, drag: any angle).
+// Dragging on the grass pans the map at any time (with a little momentum); a
+// button glides back to the tip when it is off screen. A stroke that crosses the
 // white line stops at the edge; the player undoes that stroke (or carries on
 // from the tip). Only a line that stays inside the limits can be raced.
 
@@ -23,6 +25,7 @@ import { UNITS_PER_METRE } from '../sim/path';
 import { frameAt, projectGlobal, projectNear, type Track } from '../sim/track';
 import type { Compound } from '../sim/types';
 import { ICONS, h, setText, tyreBadge } from '../ui/dom';
+import { Compass, angleForBearing, bearingAtTop, nextCardinal } from '../ui/compass';
 
 export interface DrawActions {
   complete(points: number[]): void;
@@ -34,7 +37,15 @@ interface CamState {
   cy: number;
   zoom: number;
   angle: number;
+  ax: number;
   ay: number;
+}
+
+interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
 }
 
 const TIP_GRAB_RADIUS = 58;
@@ -58,7 +69,8 @@ const HINTS = {
   advance: 'The map moved on. Lift your finger, then carry on from the purple tip.',
   resume: 'Carry on from the purple tip.',
   limits: 'Undo the stroke, or carry on from the purple tip.',
-  pan: 'Swipe on the grass to look around.',
+  panTap: 'Drag on the grass to move the map.',
+  autoOff: 'Auto-rotate is off, so the map stays at your angle. Tap Auto to bring it back.',
   width: 'Use the whole width: wide on entry, clip the apex, wide on exit.',
   closing: 'Cross the line where you started for a clean flying lap.',
   backward: 'The line only flows forward.',
@@ -106,7 +118,16 @@ export class DrawScreen implements Screen {
   private topStrip!: HTMLElement;
   private bottomStrip!: HTMLElement;
   private safe = { top: 96, bottom: 700, left: 14, right: 376 };
-  private miniRect = { x: 0, y: 0, w: 0, h: 0 };
+  /** HUD widgets floating over the map that the tip should not hide under. */
+  private avoid: Rect[] = [];
+  private autoRotate: boolean;
+  private compass: Compass;
+  private spin: { from: number; to: number; t0: number; dur: number; pivot: { x: number; y: number }; world: { x: number; y: number } } | null = null;
+  private dragPivot: { pivot: { x: number; y: number }; world: { x: number; y: number } } | null = null;
+  private coach: HTMLElement | null = null;
+  private coachTimer: ReturnType<typeof setTimeout> | null = null;
+  private panStart = { x: 0, y: 0, t: 0 };
+  private panDistance = 0;
   private panning = false;
   private panLast = { x: 0, y: 0, t: 0 };
   private panVel = { x: 0, y: 0 };
@@ -129,6 +150,14 @@ export class DrawScreen implements Screen {
     const settings = getSettings();
     this.mode = settings.scrollMode;
     this.scrollSpeed = settings.scrollSpeed;
+    this.autoRotate = settings.autoRotate;
+    this.compass = new Compass({
+      tap: () => this.compassTap(),
+      dragStart: () => this.compassDragStart(),
+      drag: (d) => this.compassDrag(d),
+      toggleAuto: () => this.setAutoRotate(!this.autoRotate, true),
+    });
+    this.compass.setAuto(this.autoRotate);
     app.setCanvasVisible(true);
     this.zoom = this.drawZoom();
 
@@ -161,6 +190,7 @@ export class DrawScreen implements Screen {
       'div',
       { class: 'draw-hud' },
       this.topStrip,
+      this.compass.el,
       this.recenterBtn,
       h('div', { class: 'draw-progress', role: 'progressbar', 'aria-label': 'Lap drawn' }, this.bar),
       this.mini,
@@ -189,21 +219,94 @@ export class DrawScreen implements Screen {
     const was = this.mode;
     this.mode = s.scrollMode;
     this.scrollSpeed = s.scrollSpeed;
-    if (was !== this.mode && !this.drawing) this.glideToTip();
+    if (s.autoRotate !== this.autoRotate) this.setAutoRotate(s.autoRotate, false);
+    else if (was !== this.mode && !this.drawing) this.glideToTip();
+  }
+
+  /** Turn auto-rotation on or off. Turning it on re-frames with the road ahead pointing up. */
+  private setAutoRotate(on: boolean, save: boolean): void {
+    this.autoRotate = on;
+    this.compass.setAuto(on);
+    if (save) {
+      saveSettings({ autoRotate: on });
+      sfx.tap();
+    }
+    if (on && !this.drawing) {
+      this.spin = null;
+      this.glideToTip();
+    }
+  }
+
+  // Compass -----------------------------------------------------------------
+
+  /** Rotation pivot: the tip (or start line) when it is in view, otherwise the middle of the map. */
+  private pivot(): { x: number; y: number } {
+    const a = this.builder.lastPoint ?? this.startPoint();
+    const p = this.cam.toScreen(a.x, a.y);
+    const { top, bottom, left, right } = this.safe;
+    if (p.x > left && p.x < right && p.y > top && p.y < bottom) return p;
+    return { x: (left + right) / 2, y: (top + bottom) / 2 };
+  }
+
+  /** Set the camera angle while keeping `world` under the screen point `pivot`. */
+  private rotateAbout(angle: number, pivot: { x: number; y: number }, world: { x: number; y: number }): void {
+    const c = this.cam;
+    c.angle = angle;
+    const vx = (pivot.x - c.w * c.ax) / c.zoom;
+    const vy = (pivot.y - c.h * c.ay) / c.zoom;
+    const co = Math.cos(-angle);
+    const si = Math.sin(-angle);
+    c.cx = world.x - (vx * co - vy * si);
+    c.cy = world.y - (vx * si + vy * co);
+  }
+
+  /** Using the compass means the player wants to choose the angle: auto-rotate goes off. */
+  private takeManualControl(): void {
+    if (!this.autoRotate) return;
+    this.setAutoRotate(false, true);
+    this.showHint(HINTS.autoOff);
+  }
+
+  private compassTap(): void {
+    if (this.drawing) return;
+    this.takeManualControl();
+    this.glide = null;
+    this.momentum = null;
+    const target = angleForBearing(nextCardinal(bearingAtTop(this.cam.angle)));
+    const pivot = this.pivot();
+    this.spin = { from: this.cam.angle, to: target, t0: performance.now(), dur: 380, pivot, world: this.cam.toWorld(pivot.x, pivot.y) };
+    sfx.tap();
+  }
+
+  private compassDragStart(): void {
+    if (this.drawing) return;
+    this.takeManualControl();
+    this.glide = null;
+    this.spin = null;
+    this.momentum = null;
+    const pivot = this.pivot();
+    this.dragPivot = { pivot, world: this.cam.toWorld(pivot.x, pivot.y) };
+  }
+
+  private compassDrag(delta: number): void {
+    if (this.drawing || !this.dragPivot) return;
+    this.rotateAbout(this.cam.angle + delta, this.dragPivot.pivot, this.dragPivot.world);
   }
 
   /** The part of the screen not covered by HUD, where the tip can live. */
   private measureSafe(): void {
     const top = this.topStrip.getBoundingClientRect();
     const bottom = this.bottomStrip.getBoundingClientRect();
-    const mini = this.mini.getBoundingClientRect();
     this.safe = {
       top: (top.bottom || 70) + 22,
       bottom: (bottom.top || this.app.h - 80) - 62,
       left: 14,
       right: this.app.w - 14,
     };
-    this.miniRect = { x: mini.left - 14, y: mini.top - 14, w: mini.width + 28, h: mini.height + 28 };
+    this.avoid = [this.mini, this.compass.el].map((e) => {
+      const r = e.getBoundingClientRect();
+      return { x: r.left - 14, y: r.top - 14, w: r.width + 28, h: r.height + 28 };
+    });
   }
 
   /** Pixels between the tip and the edge of the drawing area, along the direction of travel. */
@@ -219,8 +322,7 @@ export class DrawScreen implements Screen {
     if (d.x < -1e-3) room = Math.min(room, (left - ts.x) / d.x);
     if (d.y > 1e-3) room = Math.min(room, (bottom - ts.y) / d.y);
     if (d.y < -1e-3) room = Math.min(room, (top - ts.y) / d.y);
-    const m = this.miniRect;
-    if (ts.x > m.x && ts.x < m.x + m.w && ts.y > m.y && ts.y < m.y + m.h) room = 0;
+    for (const m of this.avoid) if (ts.x > m.x && ts.x < m.x + m.w && ts.y > m.y && ts.y < m.y + m.h) room = 0;
     return room;
   }
 
@@ -256,7 +358,8 @@ export class DrawScreen implements Screen {
       cx: tip.x * 0.55 + mid.x * 0.45,
       cy: tip.y * 0.55 + mid.y * 0.45,
       zoom: this.zoom,
-      angle: angleForHeading(hx, hy),
+      angle: this.autoRotate ? angleForHeading(hx, hy) : this.cam.angle,
+      ax: 0.5,
       ay: 0.55,
     };
   }
@@ -291,7 +394,25 @@ export class DrawScreen implements Screen {
       hx = cx + a.tx * k;
       hy = cy + a.ty * k;
     }
-    return { cx: tip.x, cy: tip.y, zoom: this.zoom, angle: angleForHeading(hx, hy), ay };
+    if (this.autoRotate) return { cx: tip.x, cy: tip.y, zoom: this.zoom, angle: angleForHeading(hx, hy), ax: 0.5, ay };
+    // Fixed angle: keep the player's rotation and place the tip on the side of
+    // the screen opposite to where the road is heading.
+    const angle = this.cam.angle;
+    const hl = Math.hypot(hx, hy) || 1;
+    const co = Math.cos(angle);
+    const si = Math.sin(angle);
+    const dx = ((hx / hl) * co - (hy / hl) * si);
+    const dy = ((hx / hl) * si + (hy / hl) * co);
+    const { top, bottom, left, right } = this.safe;
+    const mx = (left + right) / 2;
+    const my = (top + bottom) / 2;
+    const halfW = (right - left) / 2 - 46;
+    const halfH = (bottom - top) / 2 - 46;
+    let t = Math.min(Math.abs(dx) > 1e-3 ? halfW / Math.abs(dx) : Infinity, Math.abs(dy) > 1e-3 ? halfH / Math.abs(dy) : Infinity) * 0.92;
+    // Slide the tip towards the middle until it clears the compass and minimap.
+    const hit = (x: number, y: number) => this.avoid.some((m) => x > m.x - 24 && x < m.x + m.w + 24 && y > m.y - 24 && y < m.y + m.h + 24);
+    for (let i = 0; i < 10 && hit(mx - dx * t, my - dy * t); i++) t *= 0.88;
+    return { cx: tip.x, cy: tip.y, zoom: this.zoom, angle, ax: (mx - dx * t) / this.app.w, ay: (my - dy * t) / this.app.h };
   }
 
   private setCam(s: CamState): void {
@@ -299,16 +420,17 @@ export class DrawScreen implements Screen {
     this.cam.cy = s.cy;
     this.cam.zoom = s.zoom;
     this.cam.angle = s.angle;
+    this.cam.ax = s.ax;
     this.cam.ay = s.ay;
-    this.cam.ax = 0.5;
   }
 
   private camState(): CamState {
-    return { cx: this.cam.cx, cy: this.cam.cy, zoom: this.cam.zoom, angle: this.cam.angle, ay: this.cam.ay };
+    return { cx: this.cam.cx, cy: this.cam.cy, zoom: this.cam.zoom, angle: this.cam.angle, ax: this.cam.ax, ay: this.cam.ay };
   }
 
   private glideTo(to: CamState, dur = 460): void {
     this.shiftX = this.shiftY = 0;
+    this.spin = null;
     this.glide = { from: this.camState(), to, t0: performance.now(), dur };
   }
 
@@ -324,6 +446,11 @@ export class DrawScreen implements Screen {
 
   get status(): string {
     return this.builder.status;
+  }
+
+  /** Camera angle in radians (test hook). */
+  get mapAngle(): number {
+    return this.cam.angle;
   }
 
   /** True while the map is being dragged (test hook). */
@@ -360,6 +487,8 @@ export class DrawScreen implements Screen {
     if (this.pointerId !== null || this.builder.status === 'done') return;
     unlockAudio();
     this.momentum = null;
+    this.spin = null;
+    this.dismissCoach();
     const p = this.local(e);
     const w = this.cam.toWorld(p.x, p.y);
     if (this.builder.status === 'idle') {
@@ -420,6 +549,8 @@ export class DrawScreen implements Screen {
     this.panning = true;
     this.pointerId = e.pointerId;
     this.panLast = { x: p.x, y: p.y, t: performance.now() };
+    this.panStart = { ...this.panLast };
+    this.panDistance = 0;
     this.panVel = { x: 0, y: 0 };
     this.app.canvas.setPointerCapture(e.pointerId);
   }
@@ -439,6 +570,7 @@ export class DrawScreen implements Screen {
       const now = performance.now();
       const dt = Math.max(1, now - this.panLast.t) / 1000;
       this.panBy(this.panLast.x, this.panLast.y, p.x, p.y);
+      this.panDistance += Math.hypot(p.x - this.panLast.x, p.y - this.panLast.y);
       const vx = (p.x - this.panLast.x) / dt;
       const vy = (p.y - this.panLast.y) / dt;
       this.panVel = { x: this.panVel.x * 0.6 + vx * 0.4, y: this.panVel.y * 0.6 + vy * 0.4 };
@@ -468,6 +600,12 @@ export class DrawScreen implements Screen {
     this.pickup = null;
     if (this.panning) {
       this.panning = false;
+      if (this.panDistance < 8 && performance.now() - this.panStart.t < 400) {
+        // A tap on the grass: remind them it drags.
+        this.flashHint(HINTS.panTap);
+        return;
+      }
+      if (!getSettings().panCoachSeen) saveSettings({ panCoachSeen: true });
       // A flick keeps the map gliding briefly; a slow drag stops where it is.
       const idle = performance.now() - this.panLast.t;
       const v = this.panVel;
@@ -488,9 +626,76 @@ export class DrawScreen implements Screen {
       this.glideToTip();
       if (this.strokes === 1 && !getSettings().tutorialDone) this.showHint(HINTS.lifted);
       else if (this.builder.progress > this.track.length * 0.82) this.showHint(HINTS.closing);
-      else if (this.strokes === 2) this.showHint(HINTS.pan);
       else if (this.strokes % 4 === 3) this.showHint(HINTS.width);
+      if (this.strokes === 1 || this.strokes === 3) this.maybeCoach();
     }
+  }
+
+  // Grass-drag coach mark --------------------------------------------------
+
+  /**
+   * Once ever, at a natural pause after a stroke, show a hand dragging across
+   * a patch of grass. Any touch dismisses it; a real pan means they know.
+   */
+  private maybeCoach(): void {
+    if (this.coach || this.coachTimer || getSettings().panCoachSeen) return;
+    this.coachTimer = setTimeout(() => {
+      this.coachTimer = null;
+      if (this.drawing || this.panning || this.builder.status !== 'drawing' || getSettings().panCoachSeen) return;
+      const spot = this.grassSpot();
+      if (!spot) return;
+      saveSettings({ panCoachSeen: true });
+      this.coach = h(
+        'div',
+        { class: 'pan-coach', style: `left:${spot.x}px;top:${spot.y}px`, 'aria-hidden': 'true' },
+        h('span', { class: 'pan-coach-trail' }),
+        h('span', { class: 'pan-coach-finger' }),
+        h('span', { class: 'pan-coach-label' }, 'Drag the grass to look around'),
+      );
+      this.el.append(this.coach);
+      // Keep the label on screen when the grass patch is near an edge.
+      const label = this.coach.querySelector<HTMLElement>('.pan-coach-label');
+      if (label) {
+        const r = label.getBoundingClientRect();
+        const shift = r.left < 10 ? 10 - r.left : r.right > this.app.w - 10 ? this.app.w - 10 - r.right : 0;
+        if (shift) label.style.transform = `translateX(calc(-50% + ${shift}px))`;
+      }
+      this.coachTimer = setTimeout(() => this.dismissCoach(), 4200);
+    }, 650);
+  }
+
+  private dismissCoach(): void {
+    if (this.coachTimer) {
+      clearTimeout(this.coachTimer);
+      this.coachTimer = null;
+    }
+    if (!this.coach) return;
+    const c = this.coach;
+    this.coach = null;
+    c.classList.add('is-leaving');
+    setTimeout(() => c.remove(), 300);
+  }
+
+  /** A point on screen that is clearly grass, away from the track and the tip. */
+  private grassSpot(): { x: number; y: number } | null {
+    const { top, bottom, left, right } = this.safe;
+    const tip = this.builder.lastPoint;
+    const ts = tip ? this.cam.toScreen(tip.x, tip.y) : null;
+    let best: { x: number; y: number; score: number } | null = null;
+    for (let gy = 0; gy < 7; gy++) {
+      for (let gx = 0; gx < 4; gx++) {
+        const x = left + 70 + ((right - left - 140) * gx) / 3;
+        const y = top + 40 + ((bottom - top - 80) * gy) / 6;
+        if (this.avoid.some((m) => x > m.x - 60 && x < m.x + m.w + 60 && y > m.y - 30 && y < m.y + m.h + 30)) continue;
+        const w = this.cam.toWorld(x, y);
+        const d = projectGlobal(this.track, w.x, w.y).dist - this.track.limit;
+        if (d * this.cam.zoom < 70) continue;
+        const fromTip = ts ? Math.hypot(ts.x - x, ts.y - y) : 400;
+        const score = Math.min(d * this.cam.zoom, 160) + Math.min(fromTip, 300) * 0.5 - Math.abs(y - (top + bottom) / 2) * 0.2;
+        if (!best || score > best.score) best = { x, y, score };
+      }
+    }
+    return best ? { x: best.x, y: best.y } : null;
   }
 
   /** Glide back to the tip (or the start line before the lap begins). */
@@ -559,6 +764,7 @@ export class DrawScreen implements Screen {
     this.glideToTip();
     this.tipPulse = performance.now() + 380;
     this.flashHint(HINTS.advance);
+    this.maybeCoach();
   }
 
   /** Continuous mode: feed the map forward while the tip is running out of room ahead. */
@@ -642,14 +848,30 @@ export class DrawScreen implements Screen {
     this.el.classList.add('is-offtrack');
     if (!this.limitsCard) {
       const undoBtn = h('button', { class: 'btn-limits', onclick: () => this.undo(), html: `${ICONS.undo}<span>Undo stroke</span>` });
+      const settingsBtn = h('button', {
+        class: 'btn-limits-alt',
+        onclick: () => openSettings(this.app, (st) => this.applySettings(st)),
+        html: `${ICONS.gear}<span>Settings</span>`,
+      });
       this.limitsCard = h(
         'div',
         { class: 'limits-card', role: 'alert' },
-        h('div', { class: 'limits-text' }, h('strong', null, 'Track limits'), h('span', null, 'That stroke went over the white line.')),
-        undoBtn,
+        h('div', { class: 'limits-text' }, h('strong', null, 'Track limits'), h('span', null, 'That stroke went over the white line. Scroll or rotation settings can make tricky corners easier.')),
+        h('div', { class: 'limits-actions' }, undoBtn, settingsBtn),
       );
       this.el.append(this.limitsCard);
       this.el.classList.add('has-limits');
+    }
+    // Make sure the spot where the line went wide is not hidden under the card.
+    const off = this.builder.offTrack;
+    if (off) {
+      const cardTop = this.limitsCard.getBoundingClientRect().top;
+      const sp = this.cam.toScreen(off.x, off.y);
+      if (sp.y > cardTop - 50) {
+        const dy = sp.y - (cardTop - 130);
+        const c = this.cam.toWorld(this.cam.w * this.cam.ax, this.cam.h * this.cam.ay + dy);
+        this.glideTo({ ...this.camState(), cx: c.x, cy: c.y }, 320);
+      }
     }
     this.showHint(HINTS.limits);
     this.updateHud();
@@ -784,6 +1006,12 @@ export class DrawScreen implements Screen {
       m.y *= k;
       if (Math.hypot(m.x, m.y) < 25) this.momentum = null;
     }
+    if (this.spin) {
+      const sp = this.spin;
+      const t = Math.min(1, (now - sp.t0) / sp.dur);
+      this.rotateAbout(lerpAngle(sp.from, sp.to, easeInOutCubic(t)), sp.pivot, sp.world);
+      if (t >= 1) this.spin = null;
+    }
     if (this.shiftX || this.shiftY) {
       this.cam.cx += this.shiftX;
       this.cam.cy += this.shiftY;
@@ -797,6 +1025,7 @@ export class DrawScreen implements Screen {
       this.cam.cy = g.from.cy + (g.to.cy - g.from.cy) * e;
       this.cam.zoom = g.from.zoom + (g.to.zoom - g.from.zoom) * e;
       this.cam.angle = lerpAngle(g.from.angle, g.to.angle, e);
+      this.cam.ax = g.from.ax + (g.to.ax - g.from.ax) * e;
       this.cam.ay = g.from.ay + (g.to.ay - g.from.ay) * e;
       if (t >= 1) this.glide = null;
     }
@@ -834,6 +1063,7 @@ export class DrawScreen implements Screen {
     if (status === 'done') this.drawDone(ctx, now);
     this.drawMini();
     this.updateRecenter();
+    this.compass.setAngle(this.cam.angle);
   }
 
   private drawStartCue(ctx: CanvasRenderingContext2D, now: number): void {
@@ -984,6 +1214,7 @@ export class DrawScreen implements Screen {
 
   destroy(): void {
     if (this.hintTimer) clearTimeout(this.hintTimer);
+    if (this.coachTimer) clearTimeout(this.coachTimer);
     for (const [type, fn] of this.listeners) this.app.canvas.removeEventListener(type, fn);
     this.el.remove();
   }

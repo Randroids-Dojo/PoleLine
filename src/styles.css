@@ -727,10 +727,9 @@ button:disabled {
   bottom: calc(74px + var(--safe-bottom));
   max-width: 520px;
   margin: 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 10px 10px 14px;
+  display: grid;
+  gap: 10px;
+  padding: 12px 12px 12px 14px;
   border: 2px solid var(--ink);
   border-left: 8px solid var(--red);
   border-radius: 8px;
@@ -772,8 +771,224 @@ button:disabled {
   white-space: nowrap;
 }
 
-.btn-limits:active {
+.btn-limits:active,
+.btn-limits-alt:active {
   transform: scale(0.97);
+}
+
+.limits-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.limits-actions .btn-limits {
+  flex: 1;
+  justify-content: center;
+}
+
+.btn-limits-alt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 48px;
+  padding: 0 14px 0 12px;
+  border: 2px solid var(--ink);
+  border-radius: 6px;
+  font-weight: 750;
+  font-size: 15px;
+  white-space: nowrap;
+}
+
+/* Compass ---------------------------------------------------------------- */
+
+.compass {
+  pointer-events: auto;
+  position: absolute;
+  top: calc(84px + var(--safe-top));
+  left: 12px;
+  display: grid;
+  justify-items: center;
+  gap: 5px;
+}
+
+.compass-btn {
+  display: block;
+  width: 60px;
+  height: 60px;
+  padding: 0;
+  border-radius: 50%;
+  touch-action: none;
+  filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.35));
+}
+
+.compass-rose {
+  display: block;
+  width: 60px;
+  height: 60px;
+  overflow: visible;
+}
+
+.compass-face {
+  fill: rgba(255, 255, 255, 0.94);
+  stroke: var(--ink);
+  stroke-width: 3;
+}
+
+.compass-tick {
+  stroke: var(--ink-3);
+  stroke-width: 1.6;
+}
+
+.compass-tick.is-major {
+  stroke: var(--ink);
+  stroke-width: 2.4;
+}
+
+.compass-north {
+  fill: var(--red);
+}
+
+.compass-south {
+  fill: var(--ink-2);
+}
+
+.compass-letter {
+  font-family: var(--display);
+  font-size: 13px;
+  font-weight: 900;
+  font-stretch: 112%;
+  fill: var(--ink);
+}
+
+.compass-letter.is-north {
+  fill: var(--red);
+}
+
+.compass-pin {
+  fill: #fff;
+  stroke: var(--ink);
+  stroke-width: 2;
+}
+
+.compass-auto {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1.5px solid var(--ink);
+  border-radius: 14px;
+  background: var(--sheet);
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--ink-2);
+}
+
+.compass-auto i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--rule);
+}
+
+.compass-auto.is-on {
+  background: var(--purple-ink);
+  border-color: var(--purple-ink);
+  color: #fff;
+}
+
+.compass-auto.is-on i {
+  background: #fff;
+}
+
+/* Grass-drag coach mark ---------------------------------------------------- */
+
+.pan-coach {
+  position: absolute;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  animation: fade-in 0.3s ease;
+}
+
+.pan-coach.is-leaving {
+  animation: fade-out 0.3s ease forwards;
+}
+
+.pan-coach-finger,
+.pan-coach-trail {
+  position: absolute;
+  top: -15px;
+  left: -15px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+}
+
+.pan-coach-finger {
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.35);
+  animation: coach-drag 1.6s cubic-bezier(0.45, 0, 0.25, 1) infinite;
+}
+
+.pan-coach-trail {
+  left: -60px;
+  width: 120px;
+  height: 8px;
+  top: -4px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.55));
+  animation: coach-trail 1.6s cubic-bezier(0.45, 0, 0.25, 1) infinite;
+  transform-origin: left center;
+}
+
+.pan-coach-label {
+  position: absolute;
+  top: 26px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--ink);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+@keyframes coach-drag {
+  0% {
+    transform: translateX(-56px) scale(1.15);
+    opacity: 0;
+  }
+  15% {
+    transform: translateX(-56px) scale(1);
+    opacity: 1;
+  }
+  75% {
+    transform: translateX(56px) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(56px) scale(1.15);
+    opacity: 0;
+  }
+}
+
+@keyframes coach-trail {
+  0%,
+  15% {
+    transform: scaleX(0);
+    opacity: 0;
+  }
+  75% {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scaleX(1);
+    opacity: 0;
+  }
 }
 
 @keyframes fade-out {

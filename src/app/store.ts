@@ -107,6 +107,10 @@ export interface Settings {
   /** Continuous scroll speed multiplier, 0.25 to 2. */
   scrollSpeed: number;
   keepAwake: boolean;
+  /** Turn the map so the road ahead points up. Off: the player sets the angle. */
+  autoRotate: boolean;
+  /** The one-time "drag the grass" demo has been shown. */
+  panCoachSeen: boolean;
 }
 
 export const SCROLL_SPEED_MIN = 0.25;
@@ -141,6 +145,8 @@ export function getSettings(): Settings {
     scrollMode: 'pause',
     scrollSpeed: SCROLL_SPEED_DEFAULT,
     keepAwake: true,
+    autoRotate: true,
+    panCoachSeen: false,
     ...stored,
   };
   if (s.scrollMode !== 'pause' && s.scrollMode !== 'continuous') s.scrollMode = 'pause';

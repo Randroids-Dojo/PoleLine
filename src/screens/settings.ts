@@ -85,6 +85,10 @@ export function openSettings(app: App, onChange?: (s: Settings) => void): void {
       h('h3', null, 'When the map scrolls while you draw'),
       modeGroup,
       speedRow,
+      h('h3', null, 'Map'),
+      toggle('Rotate the map to follow the track', 'Turns the road ahead to point up. Off: the map stays where you put it with the compass.', s.autoRotate, (v) => {
+        changed({ autoRotate: v });
+      }),
       h('h3', null, 'Device'),
       toggle('Sound', 'Engine, timing beeps and alerts.', s.sound, (v) => {
         changed({ sound: v });
