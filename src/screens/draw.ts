@@ -5,8 +5,9 @@
 //     next section, and the player lifts and carries on from the tip.
 //   continuous mode: the map feeds forward under the finger while it moves,
 //     at a player-chosen speed.
-// Lifting the finger always glides the camera on. Leaving the track deletes
-// the lap.
+// Lifting the finger always glides the camera on. A stroke that crosses the
+// white line stops at the edge; the player undoes that stroke (or carries on
+// from the tip). Only a line that stays inside the limits can be raced.
 
 import type { App, Screen } from '../app/app';
 import { buzz, sfx, unlockAudio } from '../app/audio';
@@ -48,6 +49,7 @@ const HINTS = {
   lifted: 'Lift whenever you like. Carry on from the purple tip.',
   advance: 'The map moved on. Lift your finger, then carry on from the purple tip.',
   resume: 'Carry on from the purple tip.',
+  limits: 'Undo the stroke, or carry on from the purple tip.',
   width: 'Use the whole width: wide on entry, clip the apex, wide on exit.',
   closing: 'Cross the line where you started for a clean flying lap.',
   backward: 'The line only flows forward.',
@@ -74,7 +76,7 @@ export class DrawScreen implements Screen {
   private miniScale = 1;
   private miniOff = { x: 0, y: 0 };
   private flashUntil = 0;
-  private failCard: HTMLElement | null = null;
+  private limitsCard: HTMLElement | null = null;
   private stamp: HTMLElement | null = null;
   private tipPulse = 0;
   private strokes = 0;
@@ -308,6 +310,11 @@ export class DrawScreen implements Screen {
     return this.drawing;
   }
 
+  /** Where the last refused segment left the track (test hook). */
+  get offTrackAt(): { x: number; y: number } | null {
+    return this.builder.offTrack;
+  }
+
   get isGliding(): boolean {
     return this.glide !== null;
   }
@@ -324,7 +331,7 @@ export class DrawScreen implements Screen {
   }
 
   private onDown(e: PointerEvent): void {
-    if (this.pointerId !== null || this.failCard || this.builder.status === 'done') return;
+    if (this.pointerId !== null || this.builder.status === 'done') return;
     this.awaitLift = false;
     unlockAudio();
     const p = this.local(e);
@@ -355,6 +362,7 @@ export class DrawScreen implements Screen {
       buzz([10, 40, 10]);
       return;
     }
+    this.closeLimits();
     this.builder.beginStroke();
     this.strokes++;
     this.strokeFrom = this.builder.progress;
@@ -391,7 +399,7 @@ export class DrawScreen implements Screen {
     this.pickup = null;
     if (this.awaitLift) {
       this.awaitLift = false;
-      if (this.builder.status === 'drawing') setText(this.hint, HINTS.resume);
+      if (this.builder.status === 'drawing' && !this.limitsCard) setText(this.hint, HINTS.resume);
       return;
     }
     if (!this.drawing) return;
@@ -419,7 +427,7 @@ export class DrawScreen implements Screen {
       if (r === 'finish') this.finish();
       this.updateHud();
     } else if (r === 'offtrack') {
-      this.fail();
+      this.leftTrack();
     } else if (r === 'backward') {
       this.backwardRun++;
       if (this.backwardRun > 8 && performance.now() - this.flashUntil > 1500) this.flashHint(HINTS.backward);
@@ -475,20 +483,28 @@ export class DrawScreen implements Screen {
   }
 
   private undo(): void {
-    if (!this.builder.canUndo || this.drawing) return;
+    if (this.drawing) return;
+    const hadCard = !!this.limitsCard;
+    this.closeLimits();
+    if (!this.builder.canUndo) {
+      // Nothing drawn yet beyond the start: just clear the off-track marker.
+      this.builder.offTrack = null;
+      if (hadCard) setText(this.hint, HINTS.resume);
+      return;
+    }
     sfx.tap();
     if (this.builder.undoStroke()) {
       this.rebuildInk();
       this.glideToTip();
       this.updateHud();
+      setText(this.hint, HINTS.resume);
     }
   }
 
   private restart(): void {
     if (this.drawing) return;
     sfx.tap();
-    this.failCard?.remove();
-    this.failCard = null;
+    this.closeLimits();
     this.builder.reset();
     this.awaitLift = false;
     this.ink = new Path2D();
@@ -499,25 +515,38 @@ export class DrawScreen implements Screen {
     this.updateHud();
   }
 
-  private fail(): void {
+  /**
+   * The finger crossed the white line. The line already stops at the last
+   * legal point; end the stroke and offer to undo it.
+   */
+  private leftTrack(): void {
     this.drawing = false;
-    this.pointerId = null;
+    this.pickup = null;
+    this.awaitLift = true;
     sfx.fail();
     buzz([30, 60, 90]);
-    this.el.classList.add('is-failed');
-    setTimeout(() => this.el.classList.remove('is-failed'), 500);
-    const retry = h('button', { class: 'btn-primary', onclick: () => this.restart() }, 'Draw again');
-    this.failCard = h(
-      'div',
-      { class: 'sheet fail-card', role: 'alertdialog', 'aria-labelledby': 'fail-title' },
-      h('h2', { id: 'fail-title' }, 'Track limits'),
-      h('p', null, 'Your line left the track, so the lap is deleted. Every lap has to stay inside the white lines.'),
-      retry,
-      h('button', { class: 'btn-quiet', onclick: () => this.actions.exit() }, 'Back to circuits'),
-    );
-    this.el.append(this.failCard);
-    retry.focus();
+    this.el.classList.remove('is-offtrack');
+    void this.el.offsetWidth;
+    this.el.classList.add('is-offtrack');
+    if (!this.limitsCard) {
+      const undoBtn = h('button', { class: 'btn-limits', onclick: () => this.undo(), html: `${ICONS.undo}<span>Undo stroke</span>` });
+      this.limitsCard = h(
+        'div',
+        { class: 'limits-card', role: 'alert' },
+        h('div', { class: 'limits-text' }, h('strong', null, 'Track limits'), h('span', null, 'That stroke went over the white line.')),
+        undoBtn,
+      );
+      this.el.append(this.limitsCard);
+      this.el.classList.add('has-limits');
+    }
+    setText(this.hint, HINTS.limits);
     this.updateHud();
+  }
+
+  private closeLimits(): void {
+    this.limitsCard?.remove();
+    this.limitsCard = null;
+    this.el.classList.remove('has-limits');
   }
 
   private finish(): void {
@@ -595,7 +624,7 @@ export class DrawScreen implements Screen {
     g.save();
     g.scale(this.miniScale, this.miniScale);
     g.translate(this.miniOff.x, this.miniOff.y);
-    g.strokeStyle = this.builder.status === 'failed' ? '#e10600' : INK;
+    g.strokeStyle = INK;
     g.lineWidth = 2.6 / this.miniScale;
     g.stroke(this.ink);
     // Current view.
@@ -657,7 +686,7 @@ export class DrawScreen implements Screen {
     this.art.draw(ctx, this.cam);
 
     const status = this.builder.status;
-    if (this.guidePath && status !== 'failed') {
+    if (this.guidePath) {
       ctx.save();
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
@@ -674,13 +703,13 @@ export class DrawScreen implements Screen {
     if (status === 'idle') this.drawStartCue(ctx, now);
     if (status === 'drawing') this.drawEdgeWarning(ctx);
     if (status !== 'idle') {
-      strokeInk(ctx, this.ink, this.cam.zoom, status === 'failed' ? '#e10600' : INK);
+      strokeInk(ctx, this.ink, this.cam.zoom, INK);
     }
     if (status === 'drawing' && this.builder.progress > this.track.length * 0.7) this.drawStartMarker(ctx, now);
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (status === 'drawing') this.drawTip(ctx, now);
-    if (status === 'failed' && this.builder.failPoint) this.drawFail(ctx, now);
+    if (status === 'drawing' && this.builder.offTrack) this.drawOffTrack(ctx, now);
     if (status === 'done') this.drawDone(ctx, now);
     this.drawMini();
   }
@@ -805,8 +834,8 @@ export class DrawScreen implements Screen {
     ctx.stroke();
   }
 
-  private drawFail(ctx: CanvasRenderingContext2D, now: number): void {
-    const f = this.builder.failPoint!;
+  private drawOffTrack(ctx: CanvasRenderingContext2D, now: number): void {
+    const f = this.builder.offTrack!;
     const s = this.cam.toScreen(f.x, f.y);
     const ph = (now % 900) / 900;
     ctx.beginPath();

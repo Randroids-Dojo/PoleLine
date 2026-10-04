@@ -1,12 +1,14 @@
 // Incremental line drawing. The draw screen feeds finger positions (already in
 // track metres) into a LineBuilder, which only ever stores points that pass the
 // same checks the server's validatePath runs. Ink only flows forward: a finger
-// dragged backwards simply stops adding points.
+// dragged backwards simply stops adding points. A segment that would leave the
+// track is refused (the line stops at the last legal point and `offTrack`
+// records where it went off); the player undoes the stroke or carries on.
 
 import { MAX_POINTS, MIN_POINT_SPACING, UNITS_PER_METRE, cloneState, quantize, startState, walkSegment, type WalkState } from './path.js';
 import { projectNear, type Track } from './track.js';
 
-export type BuilderStatus = 'idle' | 'drawing' | 'done' | 'failed';
+export type BuilderStatus = 'idle' | 'drawing' | 'done';
 
 export type ExtendResult = 'skip' | 'ok' | 'backward' | 'offtrack' | 'finish';
 
@@ -20,8 +22,8 @@ export class LineBuilder {
   private pts: number[] = [];
   private state: WalkState | null = null;
   private strokes: { count: number; state: WalkState }[] = [];
-  /** Where the line left the track, when failed. */
-  failPoint: { x: number; y: number } | null = null;
+  /** Where the most recent refused segment left the track. Cleared on undo or the next accepted point. */
+  offTrack: { x: number; y: number } | null = null;
 
   constructor(track: Track) {
     this.track = track;
@@ -91,7 +93,7 @@ export class LineBuilder {
     this.strokes.push({ count: this.count, state: cloneState(this.state) });
   }
 
-  /** Remove the most recent stroke. Not available once the line has failed. */
+  /** Remove the most recent stroke. */
   undoStroke(): boolean {
     if (this.status !== 'drawing' || this.strokes.length === 0) return false;
     let target = this.strokes[this.strokes.length - 1];
@@ -102,6 +104,7 @@ export class LineBuilder {
     if (target.count === this.count) return false;
     this.pts.length = target.count * 2;
     this.state = cloneState(target.state);
+    this.offTrack = null;
     return true;
   }
 
@@ -124,8 +127,7 @@ export class LineBuilder {
     const r = walkSegment(this.track, last.x, last.y, bx, by, trial);
     if (r.kind === 'backward') return 'backward';
     if (r.kind === 'offtrack') {
-      this.status = 'failed';
-      this.failPoint = { x: r.x, y: r.y };
+      this.offTrack = { x: r.x, y: r.y };
       return 'offtrack';
     }
     if (r.kind === 'finish') {
@@ -134,17 +136,18 @@ export class LineBuilder {
       const check = cloneState(this.state);
       const r2 = walkSegment(this.track, last.x, last.y, fx / UNITS_PER_METRE, fy / UNITS_PER_METRE, check);
       if (r2.kind === 'offtrack') {
-        this.status = 'failed';
-        this.failPoint = { x: r2.x, y: r2.y };
+        this.offTrack = { x: r2.x, y: r2.y };
         return 'offtrack';
       }
       this.pts.push(fx, fy);
       this.state = check;
       this.status = 'done';
+      this.offTrack = null;
       return 'finish';
     }
     this.pts.push(qx, qy);
     this.state = trial;
+    this.offTrack = null;
     return 'ok';
   }
 
@@ -153,6 +156,6 @@ export class LineBuilder {
     this.pts = [];
     this.state = null;
     this.strokes = [];
-    this.failPoint = null;
+    this.offTrack = null;
   }
 }

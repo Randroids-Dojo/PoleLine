@@ -666,12 +666,74 @@ button:disabled {
   font-variant-numeric: tabular-nums;
 }
 
-.draw-hud.is-failed::after {
+.draw-hud.is-offtrack::after {
   content: '';
   position: absolute;
   inset: 0;
-  background: rgba(225, 6, 0, 0.32);
+  pointer-events: none;
+  background: rgba(225, 6, 0, 0.3);
   animation: fade-out 0.5s ease forwards;
+}
+
+.draw-hud.has-limits .draw-hint {
+  display: none;
+}
+
+.limits-card {
+  pointer-events: auto;
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: calc(74px + var(--safe-bottom));
+  max-width: 520px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 10px 10px 14px;
+  border: 2px solid var(--ink);
+  border-left: 8px solid var(--red);
+  border-radius: 8px;
+  background: var(--sheet);
+  animation: rise 0.24s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+
+.limits-text {
+  display: grid;
+  flex: 1;
+  line-height: 1.2;
+}
+
+.limits-text strong {
+  font-size: 19px;
+  font-weight: 900;
+  font-stretch: 125%;
+  letter-spacing: -0.02em;
+  color: var(--red);
+}
+
+.limits-text span {
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.btn-limits {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 48px;
+  padding: 0 14px 0 12px;
+  border-radius: 6px;
+  background: var(--ink);
+  color: #fff;
+  font-weight: 800;
+  font-stretch: 112%;
+  font-size: 15px;
+  white-space: nowrap;
+}
+
+.btn-limits:active {
+  transform: scale(0.97);
 }
 
 @keyframes fade-out {
@@ -684,37 +746,6 @@ button:disabled {
   pointer-events: auto;
   background: var(--sheet);
   color: var(--ink);
-}
-
-.fail-card {
-  position: absolute;
-  left: 12px;
-  right: 12px;
-  bottom: calc(12px + var(--safe-bottom));
-  display: grid;
-  gap: 8px;
-  padding: 18px 18px 10px;
-  border: 2px solid var(--ink);
-  border-radius: 10px;
-  animation: rise 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.2);
-  max-width: 520px;
-  margin: 0 auto;
-}
-
-.fail-card h2 {
-  margin: 0;
-  font-size: 34px;
-  line-height: 1;
-  font-weight: 900;
-  font-stretch: 125%;
-  letter-spacing: -0.03em;
-  color: var(--red);
-}
-
-.fail-card p {
-  margin: 0 0 6px;
-  font-size: 15px;
-  color: var(--ink-2);
 }
 
 @keyframes rise {

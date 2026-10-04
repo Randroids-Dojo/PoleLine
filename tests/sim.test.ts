@@ -133,14 +133,27 @@ describe('line builder', () => {
     expect(lap.timeMs).toBeLessThan(80000);
   });
 
-  it('fails the moment the line leaves the track', () => {
+  it('stops the line at the track limit and lets the player undo or carry on', () => {
     const b = new LineBuilder(mc);
     expect(b.start(mc.x[0], mc.y[0])).toBe(true);
-    const k = 30;
+    expect(b.extend(mc.x[10], mc.y[10])).toBe('ok');
+    b.beginStroke();
+    expect(b.extend(mc.x[16], mc.y[16])).toBe('ok');
+    const before = b.count;
+    const k = 24;
     const r = b.extend(mc.x[k] + mc.nx[k] * (mc.limit + 2), mc.y[k] + mc.ny[k] * (mc.limit + 2));
     expect(r).toBe('offtrack');
-    expect(b.status).toBe('failed');
-    expect(b.canUndo).toBe(false);
+    expect(b.status).toBe('drawing');
+    expect(b.count).toBe(before);
+    expect(b.offTrack).not.toBeNull();
+    // Carrying on from the tip inside the limits works and clears the marker.
+    expect(b.extend(mc.x[20], mc.y[20])).toBe('ok');
+    expect(b.offTrack).toBeNull();
+    // Or undo the stroke that went wide.
+    b.extend(mc.x[k] + mc.nx[k] * (mc.limit + 2), mc.y[k] + mc.ny[k] * (mc.limit + 2));
+    expect(b.undoStroke()).toBe(true);
+    expect(b.offTrack).toBeNull();
+    expect(b.count).toBeLessThan(before);
   });
 
   it('ignores backwards strokes and supports undo', () => {

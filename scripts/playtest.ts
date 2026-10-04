@@ -1,7 +1,8 @@
 // Automated playtest: draws a lap with real pointer gestures in a phone-sized
 // browser and captures screenshots of every stage.
 //
-//   npx tsx scripts/playtest.ts [slug] [ideal|wobbly|centre|offtrack] [outDir] [url]
+//   npx tsx scripts/playtest.ts [slug] [ideal|good|wobbly|centre|offtrack] [outDir] [url]
+// offtrack: goes over the white line once, taps Undo stroke, then finishes cleanly.
 
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -62,14 +63,15 @@ const status = () => page.evaluate(() => (window as unknown as Pl).__pl.app.curr
 const gliding = () => page.evaluate(() => (window as unknown as Pl).__pl.app.current.isGliding);
 const penDown = () => page.evaluate(() => (window as unknown as Pl).__pl.app.current.penDown);
 const tipNow = () => page.evaluate(() => (window as unknown as Pl).__pl.app.current.tip);
+const offTrackAt = () => page.evaluate(() => (window as unknown as { __pl: { app: { current: { offTrackAt: unknown } } } }).__pl.app.current.offTrackAt);
 
-const pts = linePoints(quality);
+let pts = linePoints(quality);
 let idx = 0;
 let strokes = 0;
 const safe = { top: 110, bottom: 844 - 130, left: 18, right: 390 - 18 };
 while (true) {
   const st = await status();
-  if (st === 'done' || st === 'failed') break;
+  if (st === 'done') break;
   while (await gliding()) await page.waitForTimeout(40);
   const s0 = await toScreen(pts[idx]);
   await page.mouse.move(s0.x, s0.y);
@@ -85,11 +87,20 @@ while (true) {
     idx = k;
   }
   await page.mouse.up();
+  if (await offTrackAt()) {
+    // Over the limit: show it, undo the stroke, then finish on a clean line.
+    await page.waitForTimeout(250);
+    await page.screenshot({ path: join(out, `${attempt}-3b-limits.png`) });
+    await page.getByRole('button', { name: 'Undo stroke' }).click();
+    await page.waitForTimeout(150);
+    await page.screenshot({ path: join(out, `${attempt}-3c-undone.png`) });
+    pts = linePoints('ideal');
+  }
   // Resume from wherever the line actually stopped.
   const tp = await tipNow();
   if (tp) {
     let best = idx, bd = Infinity;
-    for (let k = Math.max(0, idx - 80); k <= Math.min(pts.length - 1, idx + 5); k++) {
+    for (let k = Math.max(0, idx - 400); k <= Math.min(pts.length - 1, idx + 5); k++) {
       const d = Math.hypot(pts[k].x - tp.x, pts[k].y - tp.y);
       if (d < bd) { bd = d; best = k; }
     }
@@ -107,7 +118,7 @@ while (true) {
 }
 console.log(`strokes ${strokes}, status ${await status()}`);
 await page.screenshot({ path: join(out, `${attempt}-4-draw-end.png`) });
-if ((await status()) === 'failed') break;
+if ((await status()) !== 'done') break;
 await page.waitForTimeout(1500);
 await page.screenshot({ path: join(out, `${attempt}-5-race-start.png`) });
 await page.waitForTimeout(5000);
