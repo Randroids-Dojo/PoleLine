@@ -207,7 +207,7 @@ export class DrawScreen implements Screen {
     this.resize();
     this.showHint(HINTS.start);
     this.updateSubtitle(this.cornerFactor());
-    this.setCam(this.frameFor(0, this.startPoint()));
+    this.setCam(this.startFrame());
     this.updateHud();
 
     const c = app.canvas;
@@ -371,6 +371,26 @@ export class DrawScreen implements Screen {
       ax: 0.5,
       ay: 0.55,
     };
+  }
+
+  /**
+   * Every lap opens the same way, whatever the rotation setting: the start
+   * straight runs from the bottom of the screen to the top, with the line low
+   * enough to show plenty of road ahead. With auto-rotate off this angle then
+   * stays until the player turns the map with the compass.
+   */
+  private startFrame(): CamState {
+    const a = frameAt(this.track, 0);
+    const b = frameAt(this.track, 40);
+    let hx = b.x - a.x;
+    let hy = b.y - a.y;
+    const len = Math.hypot(hx, hy);
+    if (len < 1) {
+      hx = a.tx;
+      hy = a.ty;
+    }
+    const tipY = Math.max(this.safe.top + 160, Math.min(this.safe.bottom - 40, this.app.h * 0.74));
+    return { cx: a.x, cy: a.y, zoom: this.zoom, angle: angleForHeading(hx, hy), ax: 0.5, ay: tipY / this.app.h };
   }
 
   /**
@@ -716,7 +736,7 @@ export class DrawScreen implements Screen {
   private recenter(): void {
     sfx.tap();
     this.momentum = null;
-    if (this.builder.status === 'idle') this.glideTo(this.frameFor(0, this.startPoint()));
+    if (this.builder.status === 'idle') this.glideTo(this.startFrame());
     else this.glideToTip();
   }
 
@@ -860,7 +880,7 @@ export class DrawScreen implements Screen {
     this.ink = new Path2D();
     this.inkFrom = 0;
     this.strokes = 0;
-    this.glideTo(this.frameFor(0, this.startPoint()), 600);
+    this.glideTo(this.startFrame(), 600);
     this.showHint(HINTS.start);
     this.updateHud();
   }
