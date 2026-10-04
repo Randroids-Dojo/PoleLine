@@ -91,15 +91,42 @@ export function updateBestSectors(slug: string, s: [number, number, number]): vo
   write(`sectors:v${SIM_VERSION}:${slug}`, next);
 }
 
+/**
+ * What happens when the map needs to move to show more track while drawing.
+ * `pause`: the stroke ends, the map glides on, and the player lifts and carries
+ * on from the tip. `continuous`: the map scrolls under the finger while drawing.
+ */
+export type ScrollMode = 'pause' | 'continuous';
+
 export interface Settings {
   sound: boolean;
   tutorialDone: boolean;
   lastTrack: string;
   attempts: number;
+  scrollMode: ScrollMode;
+  /** Continuous scroll speed multiplier, 0.25 to 2. */
+  scrollSpeed: number;
+  keepAwake: boolean;
 }
 
+export const SCROLL_SPEED_MIN = 0.25;
+export const SCROLL_SPEED_MAX = 2;
+
 export function getSettings(): Settings {
-  return { sound: true, tutorialDone: false, lastTrack: 'bahrain', attempts: 0, ...read<Partial<Settings>>('settings', {}) };
+  const s: Settings = {
+    sound: true,
+    tutorialDone: false,
+    lastTrack: 'spielberg',
+    attempts: 0,
+    scrollMode: 'pause',
+    scrollSpeed: 1,
+    keepAwake: true,
+    ...read<Partial<Settings>>('settings', {}),
+  };
+  if (s.scrollMode !== 'pause' && s.scrollMode !== 'continuous') s.scrollMode = 'pause';
+  const sp = Number(s.scrollSpeed);
+  s.scrollSpeed = Number.isFinite(sp) ? Math.min(SCROLL_SPEED_MAX, Math.max(SCROLL_SPEED_MIN, sp)) : 1;
+  return s;
 }
 
 export function saveSettings(patch: Partial<Settings>): Settings {

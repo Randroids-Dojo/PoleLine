@@ -2,7 +2,8 @@
 
 import type { App, Screen } from '../app/app';
 import { fetchRecords, type Records } from '../app/api';
-import { setSoundEnabled, sfx, unlockAudio } from '../app/audio';
+import { sfx, unlockAudio } from '../app/audio';
+import { openSettings } from './settings';
 import { downforceLabel, gripLabel, outlinePath, outlineViewBox, tyreHint, windText } from '../app/describe';
 import { formatLap, gridSlot, type GridSlot } from '../app/format';
 import { getBest, getSettings, getTyre, saveSettings, setTyre } from '../app/store';
@@ -40,29 +41,13 @@ export class HomeScreen implements Screen {
   }
 
   private render(): void {
-    const settings = getSettings();
-    const soundBtn = h('button', {
-      class: 'icon-btn',
-      'aria-label': settings.sound ? 'Mute sound' : 'Turn sound on',
-      html: settings.sound ? ICONS.soundOn : ICONS.soundOff,
-      onclick: () => {
-        const on = !getSettings().sound;
-        saveSettings({ sound: on });
-        setSoundEnabled(on);
-        soundBtn.innerHTML = on ? ICONS.soundOn : ICONS.soundOff;
-        soundBtn.setAttribute('aria-label', on ? 'Mute sound' : 'Turn sound on');
-        if (on) {
-          unlockAudio();
-          sfx.tap();
-        }
-      },
-    });
+    const gearBtn = h('button', { class: 'icon-btn', 'aria-label': 'Settings', html: ICONS.gear, onclick: () => openSettings(this.app) });
     const poles = polesTaken();
     const header = h(
       'header',
       { class: 'home-head' },
       h('h1', { class: 'wordmark' }, 'PoleLine'),
-      h('div', { class: 'head-right' }, h('span', { class: 'poles', title: 'Circuits where you beat real pole pace' }, h('b', null, String(poles)), ` of ${CATALOG.length} poles`), soundBtn),
+      h('div', { class: 'head-right' }, h('span', { class: 'poles', title: 'Circuits where you beat real pole pace' }, h('b', null, String(poles)), ` of ${CATALOG.length} poles`), gearBtn),
     );
     this.strip = h('nav', { class: 'rounds', 'aria-label': 'Circuits' });
     CATALOG.forEach((m, i) => {

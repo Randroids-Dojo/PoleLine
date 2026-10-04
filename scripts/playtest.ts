@@ -42,9 +42,9 @@ page.on('console', (m) => {
   if (m.type() === 'error' || m.type() === 'warning') console.log('[page]', m.text());
 });
 page.on('pageerror', (e) => console.log('[pageerror]', e.message));
-await page.addInitScript((s) => {
-  localStorage.setItem('poleline:v1:settings', JSON.stringify({ lastTrack: s, sound: false }));
-}, slug);
+await page.addInitScript(([s, mode, speed]) => {
+  localStorage.setItem('poleline:v1:settings', JSON.stringify({ lastTrack: s, sound: false, scrollMode: mode, scrollSpeed: Number(speed) }));
+}, [slug, process.env.MODE ?? 'pause', process.env.SPEED ?? '1'] as const);
 await page.goto(url);
 await page.waitForTimeout(900);
 await page.screenshot({ path: join(out, '1-home.png') });
@@ -56,10 +56,12 @@ await page.waitForTimeout(700);
 await page.waitForTimeout(700);
 await page.screenshot({ path: join(out, `${attempt}-2-draw-idle.png`) });
 
-type Pl = { __pl: { app: { current: { worldToScreen(x: number, y: number): { x: number; y: number }; status: string; isGliding: boolean } } } };
+type Pl = { __pl: { app: { current: { worldToScreen(x: number, y: number): { x: number; y: number }; status: string; isGliding: boolean; penDown: boolean; tip: { x: number; y: number } | null } } } };
 const toScreen = (p: { x: number; y: number }) => page.evaluate(([x, y]) => (window as unknown as Pl).__pl.app.current.worldToScreen(x, y), [p.x, p.y]);
 const status = () => page.evaluate(() => (window as unknown as Pl).__pl.app.current.status);
 const gliding = () => page.evaluate(() => (window as unknown as Pl).__pl.app.current.isGliding);
+const penDown = () => page.evaluate(() => (window as unknown as Pl).__pl.app.current.penDown);
+const tipNow = () => page.evaluate(() => (window as unknown as Pl).__pl.app.current.tip);
 
 const pts = linePoints(quality);
 let idx = 0;
@@ -78,12 +80,25 @@ while (true) {
     const sp = await toScreen(pts[k]);
     if (sp.y < safe.top || sp.y > safe.bottom || sp.x < safe.left || sp.x > safe.right) break;
     await page.mouse.move(sp.x, sp.y);
-    idx = k;
     moved++;
-    if (moved % 25 === 0 && (await status()) !== 'drawing') break;
+    if (!(await penDown())) break;
+    idx = k;
   }
   await page.mouse.up();
-  if (strokes === 3) await page.screenshot({ path: join(out, `${attempt}-3-draw-mid.png`) });
+  // Resume from wherever the line actually stopped.
+  const tp = await tipNow();
+  if (tp) {
+    let best = idx, bd = Infinity;
+    for (let k = Math.max(0, idx - 80); k <= Math.min(pts.length - 1, idx + 5); k++) {
+      const d = Math.hypot(pts[k].x - tp.x, pts[k].y - tp.y);
+      if (d < bd) { bd = d; best = k; }
+    }
+    idx = best;
+  }
+  if (strokes === 3) {
+    while (await gliding()) await page.waitForTimeout(30);
+    await page.screenshot({ path: join(out, `${attempt}-3-draw-mid.png`) });
+  }
   if (moved === 0) {
     console.log('stuck at', idx, await status());
     break;

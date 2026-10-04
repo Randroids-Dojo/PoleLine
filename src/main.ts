@@ -2,6 +2,7 @@ import '@fontsource-variable/archivo/wdth.css';
 import './styles.css';
 import { App } from './app/app';
 import { setSoundEnabled } from './app/audio';
+import { setKeepAwake } from './app/wake';
 import { bumpAttempts, getBest, getBestSectors, getSettings, saveSettings, setBest, updateBestSectors } from './app/store';
 import { HomeScreen } from './screens/home';
 import { DrawScreen } from './screens/draw';
@@ -16,6 +17,7 @@ import type { Compound } from './sim/types';
 
 const app = new App();
 setSoundEnabled(getSettings().sound);
+setKeepAwake(getSettings().keepAwake);
 let currentSlug = getSettings().lastTrack;
 
 function home(slug = currentSlug): void {
@@ -74,7 +76,6 @@ window.addEventListener('popstate', () => {
     return;
   }
   home();
-void flushUnsubmitted();
 });
 
 if (import.meta.env.DEV || new URLSearchParams(location.search).has('debug')) {

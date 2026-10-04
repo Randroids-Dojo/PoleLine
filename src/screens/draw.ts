@@ -1,13 +1,17 @@
 // Draw a lap. The map is zoomed so the track is a comfortable finger width and
 // rotated so the road ahead points up the screen. Strokes draw exactly under
-// the finger; when the tip runs out of room ahead, the map gently feeds forward
-// (only while the finger moves, so it can never run away). Lifting the finger
-// glides the camera on to frame the next section. Leaving the track deletes
+// the finger. When the tip runs out of room ahead the map has to move:
+//   pause mode (default): the stroke ends, the camera glides on to frame the
+//     next section, and the player lifts and carries on from the tip.
+//   continuous mode: the map feeds forward under the finger while it moves,
+//     at a player-chosen speed.
+// Lifting the finger always glides the camera on. Leaving the track deletes
 // the lap.
 
 import type { App, Screen } from '../app/app';
 import { buzz, sfx, unlockAudio } from '../app/audio';
-import { getSettings, saveSettings } from '../app/store';
+import { getSettings, saveSettings, type ScrollMode, type Settings } from '../app/store';
+import { openSettings } from './settings';
 import { Camera, angleForHeading, easeInOutCubic, lerpAngle } from '../render/camera';
 import { INK, polyPath, strokeInk } from '../render/line-art';
 import type { TrackArt } from '../render/track-art';
@@ -31,6 +35,10 @@ interface CamState {
 }
 
 const TIP_GRAB_RADIUS = 58;
+/** In pause mode, end the stroke when the tip gets this close (px) to the edge of the drawing area ahead. */
+const ADVANCE_ROOM = 64;
+/** A stroke always gets at least this many metres before the map may move on. */
+const MIN_STROKE = 8;
 const PICKUP_EASE = 70;
 /** Start warning when the line is this close (metres) to the edge of the track. */
 const EDGE_WARN = 1.2;
@@ -38,6 +46,8 @@ const HINTS = {
   start: 'Put your finger on the chequered line and drag along the track.',
   drawing: 'Stay inside the white lines.',
   lifted: 'Lift whenever you like. Carry on from the purple tip.',
+  advance: 'The map moved on. Lift your finger, then carry on from the purple tip.',
+  resume: 'Carry on from the purple tip.',
   width: 'Use the whole width: wide on entry, clip the apex, wide on exit.',
   closing: 'Cross the line where you started for a clean flying lap.',
   backward: 'The line only flows forward.',
@@ -76,6 +86,16 @@ export class DrawScreen implements Screen {
   private guidePath: Path2D | null = null;
   private warned = false;
   private listeners: [string, EventListener][] = [];
+  private mode: ScrollMode;
+  private scrollSpeed: number;
+  /** The stroke was ended by the map moving on; waiting for the finger to lift. */
+  private awaitLift = false;
+  /** Lap progress when the current stroke began. */
+  private strokeFrom = 0;
+  private topStrip!: HTMLElement;
+  private bottomStrip!: HTMLElement;
+  private safe = { top: 96, bottom: 700, left: 14, right: 376 };
+  private miniRect = { x: 0, y: 0, w: 0, h: 0 };
 
   constructor(
     private app: App,
@@ -87,6 +107,9 @@ export class DrawScreen implements Screen {
   ) {
     this.builder = new LineBuilder(track);
     if (guide) this.guidePath = polyPath(guide);
+    const settings = getSettings();
+    this.mode = settings.scrollMode;
+    this.scrollSpeed = settings.scrollSpeed;
     app.setCanvasVisible(true);
     this.zoom = this.drawZoom();
 
@@ -98,26 +121,29 @@ export class DrawScreen implements Screen {
     this.miniCtx = this.mini.getContext('2d')!;
     this.miniOutline = this.buildMiniOutline();
 
+    this.topStrip = h(
+      'div',
+      { class: 'strip strip-top' },
+      h('button', { class: 'icon-btn', 'aria-label': 'Back to circuits', html: ICONS.close, onclick: () => this.actions.exit() }),
+      h('div', { class: 'draw-title' }, h('strong', null, track.meta.short), h('span', null, 'Draw your lap')),
+      h('button', { class: 'icon-btn', 'aria-label': 'Settings', html: ICONS.gear, onclick: () => openSettings(this.app, (s) => this.applySettings(s)) }),
+      h('span', { class: 'draw-tyre', html: tyreBadge(compound, 26) }),
+    );
+    this.bottomStrip = h(
+      'div',
+      { class: 'strip strip-bottom' },
+      this.undoBtn,
+      this.pct,
+      h('button', { class: 'icon-btn', 'aria-label': 'Start the lap again', html: ICONS.restart, onclick: () => this.restart() }),
+    );
     this.el = h(
       'div',
       { class: 'draw-hud' },
-      h(
-        'div',
-        { class: 'strip strip-top' },
-        h('button', { class: 'icon-btn', 'aria-label': 'Back to circuits', html: ICONS.close, onclick: () => this.actions.exit() }),
-        h('div', { class: 'draw-title' }, h('strong', null, track.meta.short), h('span', null, 'Draw your lap')),
-        h('span', { class: 'draw-tyre', html: tyreBadge(compound, 26) }),
-      ),
+      this.topStrip,
       h('div', { class: 'draw-progress', role: 'progressbar', 'aria-label': 'Lap drawn' }, this.bar),
       this.mini,
       this.hint,
-      h(
-        'div',
-        { class: 'strip strip-bottom' },
-        this.undoBtn,
-        this.pct,
-        h('button', { class: 'icon-btn', 'aria-label': 'Start the lap again', html: ICONS.restart, onclick: () => this.restart() }),
-      ),
+      this.bottomStrip,
     );
     app.root.append(this.el);
     this.resize();
@@ -136,6 +162,45 @@ export class DrawScreen implements Screen {
     this.listeners.push([type, fn]);
   }
 
+  private applySettings(s: Settings): void {
+    const was = this.mode;
+    this.mode = s.scrollMode;
+    this.scrollSpeed = s.scrollSpeed;
+    if (was !== this.mode && !this.drawing) this.glideToTip();
+  }
+
+  /** The part of the screen not covered by HUD, where the tip can live. */
+  private measureSafe(): void {
+    const top = this.topStrip.getBoundingClientRect();
+    const bottom = this.bottomStrip.getBoundingClientRect();
+    const mini = this.mini.getBoundingClientRect();
+    this.safe = {
+      top: (top.bottom || 70) + 22,
+      bottom: (bottom.top || this.app.h - 80) - 62,
+      left: 14,
+      right: this.app.w - 14,
+    };
+    this.miniRect = { x: mini.left - 14, y: mini.top - 14, w: mini.width + 28, h: mini.height + 28 };
+  }
+
+  /** Pixels between the tip and the edge of the drawing area, along the direction of travel. */
+  private roomAhead(): number {
+    const tip = this.builder.lastPoint;
+    if (!tip) return Infinity;
+    const ts = this.cam.toScreen(tip.x, tip.y);
+    const f = frameAt(this.track, this.builder.progress);
+    const d = this.cam.dirToScreen(f.tx, f.ty);
+    const { top, bottom, left, right } = this.safe;
+    let room = Infinity;
+    if (d.x > 1e-3) room = Math.min(room, (right - ts.x) / d.x);
+    if (d.x < -1e-3) room = Math.min(room, (left - ts.x) / d.x);
+    if (d.y > 1e-3) room = Math.min(room, (bottom - ts.y) / d.y);
+    if (d.y < -1e-3) room = Math.min(room, (top - ts.y) / d.y);
+    const m = this.miniRect;
+    if (ts.x > m.x && ts.x < m.x + m.w && ts.y > m.y && ts.y < m.y + m.h) room = 0;
+    return room;
+  }
+
   private drawZoom(): number {
     // Aim for a legal track width of ~52 CSS px on a phone, a little less on big screens.
     const target = Math.min(this.app.w, this.app.h) > 700 ? 46 : 52;
@@ -149,6 +214,7 @@ export class DrawScreen implements Screen {
 
   /** Camera that frames the next section of track ahead of progress s. */
   private frameFor(s: number, tip: { x: number; y: number }): CamState {
+    if (this.mode === 'pause') return this.frameLow(s, tip);
     const look = Math.min(220, (this.app.h * 0.6) / this.zoom);
     const a = frameAt(this.track, s + 4);
     const b = frameAt(this.track, s + look * 0.55);
@@ -170,6 +236,39 @@ export class DrawScreen implements Screen {
       angle: angleForHeading(hx, hy),
       ay: 0.55,
     };
+  }
+
+  /**
+   * Pause mode framing: the tip sits low on the screen and the next stretch of
+   * track points up, so each stroke gets as much road as the screen can show.
+   */
+  private frameLow(s: number, tip: { x: number; y: number }): CamState {
+    const tipY = Math.max(this.safe.top + 160, Math.min(this.safe.bottom - 28, this.app.h * 0.8));
+    const ay = tipY / this.app.h;
+    const look = (tipY - this.safe.top) / this.zoom;
+    const a = frameAt(this.track, s + 3);
+    const b = frameAt(this.track, s + look * 0.75);
+    let cx = b.x - tip.x;
+    let cy = b.y - tip.y;
+    const len = Math.hypot(cx, cy);
+    if (len < 1) {
+      cx = a.tx;
+      cy = a.ty;
+    } else {
+      cx /= len;
+      cy /= len;
+    }
+    // Aim at the chord to the next stretch, but never so far that the road
+    // right at the tip heads sideways or back towards the bottom edge.
+    let hx = cx * 0.8 + a.tx * 0.2;
+    let hy = cy * 0.8 + a.ty * 0.2;
+    for (const k of [0.5, 1, 2, 4, 1000]) {
+      const l = Math.hypot(hx, hy) || 1;
+      if ((hx / l) * a.tx + (hy / l) * a.ty >= 0.55) break;
+      hx = cx + a.tx * k;
+      hy = cy + a.ty * k;
+    }
+    return { cx: tip.x, cy: tip.y, zoom: this.zoom, angle: angleForHeading(hx, hy), ay };
   }
 
   private setCam(s: CamState): void {
@@ -204,6 +303,11 @@ export class DrawScreen implements Screen {
     return this.builder.status;
   }
 
+  /** True while a stroke is accepting finger movement. */
+  get penDown(): boolean {
+    return this.drawing;
+  }
+
   get isGliding(): boolean {
     return this.glide !== null;
   }
@@ -221,6 +325,7 @@ export class DrawScreen implements Screen {
 
   private onDown(e: PointerEvent): void {
     if (this.pointerId !== null || this.failCard || this.builder.status === 'done') return;
+    this.awaitLift = false;
     unlockAudio();
     const p = this.local(e);
     this.glide = null;
@@ -235,6 +340,7 @@ export class DrawScreen implements Screen {
       this.pointerId = e.pointerId;
       this.drawing = true;
       this.strokes = 1;
+      this.strokeFrom = 0;
       this.rebuildInk();
       this.app.canvas.setPointerCapture(e.pointerId);
       setText(this.hint, HINTS.drawing);
@@ -251,6 +357,7 @@ export class DrawScreen implements Screen {
     }
     this.builder.beginStroke();
     this.strokes++;
+    this.strokeFrom = this.builder.progress;
     this.pointerId = e.pointerId;
     this.drawing = true;
     this.app.canvas.setPointerCapture(e.pointerId);
@@ -282,6 +389,11 @@ export class DrawScreen implements Screen {
     if (e.pointerId !== this.pointerId) return;
     this.pointerId = null;
     this.pickup = null;
+    if (this.awaitLift) {
+      this.awaitLift = false;
+      if (this.builder.status === 'drawing') setText(this.hint, HINTS.resume);
+      return;
+    }
     if (!this.drawing) return;
     this.drawing = false;
     if (this.builder.status === 'drawing') {
@@ -300,7 +412,10 @@ export class DrawScreen implements Screen {
     if (r === 'ok' || r === 'finish') {
       this.appendInk();
       const ds = this.builder.progress - before;
-      if (r === 'ok' && ds > 0) this.conveyor(ds);
+      if (r === 'ok' && ds > 0) {
+        if (this.mode === 'continuous') this.conveyor(ds);
+        else if (this.builder.progress - this.strokeFrom > MIN_STROKE && this.roomAhead() < ADVANCE_ROOM) this.advance();
+      }
       if (r === 'finish') this.finish();
       this.updateHud();
     } else if (r === 'offtrack') {
@@ -311,21 +426,28 @@ export class DrawScreen implements Screen {
     }
   }
 
-  /** Feed the map forward when the tip is running out of room ahead. */
+  /**
+   * Pause mode: the map needs to move, so this stroke is over. The camera
+   * glides on and further finger movement is ignored until the finger lifts.
+   */
+  private advance(): void {
+    this.drawing = false;
+    this.pickup = null;
+    this.awaitLift = true;
+    sfx.lift();
+    buzz(15);
+    this.glideToTip();
+    this.tipPulse = performance.now() + 380;
+    this.flashHint(HINTS.advance);
+  }
+
+  /** Continuous mode: feed the map forward while the tip is running out of room ahead. */
   private conveyor(ds: number): void {
-    const tip = this.builder.lastPoint!;
-    const ts = this.cam.toScreen(tip.x, tip.y);
+    const room = this.roomAhead();
     const f = frameAt(this.track, this.builder.progress);
-    const d = this.cam.dirToScreen(f.tx, f.ty);
-    const top = 96, bottom = this.app.h - 110, left = 14, right = this.app.w - 14;
-    let room = Infinity;
-    if (d.x > 1e-3) room = Math.min(room, (right - ts.x) / d.x);
-    if (d.x < -1e-3) room = Math.min(room, (left - ts.x) / d.x);
-    if (d.y > 1e-3) room = Math.min(room, (bottom - ts.y) / d.y);
-    if (d.y < -1e-3) room = Math.min(room, (top - ts.y) / d.y);
     const r0 = Math.min(this.app.w, this.app.h) * 0.42;
     if (room >= r0) return;
-    const gain = 1.6 * (1 - Math.max(0, room) / r0);
+    const gain = 1.6 * this.scrollSpeed * (1 - Math.max(0, room) / r0);
     // Applied at the next frame, never mid-batch: every finger sample in a
     // batch was taken against the frame the player was looking at.
     this.shiftX += f.tx * ds * gain;
@@ -368,6 +490,7 @@ export class DrawScreen implements Screen {
     this.failCard?.remove();
     this.failCard = null;
     this.builder.reset();
+    this.awaitLift = false;
     this.ink = new Path2D();
     this.inkFrom = 0;
     this.strokes = 0;
@@ -502,6 +625,7 @@ export class DrawScreen implements Screen {
   resize(): void {
     this.cam.w = this.app.w;
     this.cam.h = this.app.h;
+    this.measureSafe();
     const z = this.drawZoom();
     if (Math.abs(z - this.zoom) > 1e-6) {
       this.zoom = z;
