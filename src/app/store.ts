@@ -2,6 +2,7 @@
 // ghost can be re-simulated), and settings. Every read is defensive.
 
 import type { Compound } from '../sim/types';
+import { SIM_VERSION } from '../sim/version';
 
 const PREFIX = 'poleline:v1:';
 
@@ -49,6 +50,8 @@ export function setPlayerName(name: string): Player {
 }
 
 export interface PersonalBest {
+  /** Physics version the time was set under. */
+  v?: number;
   timeMs: number;
   compound: Compound;
   sectorsMs: [number, number, number];
@@ -59,12 +62,12 @@ export interface PersonalBest {
 
 export function getBest(slug: string): PersonalBest | null {
   const b = read<PersonalBest | null>(`pb:${slug}`, null);
-  if (!b || typeof b.timeMs !== 'number' || !Array.isArray(b.code)) return null;
+  if (!b || typeof b.timeMs !== 'number' || !Array.isArray(b.code) || (b.v ?? 1) !== SIM_VERSION) return null;
   return b;
 }
 
 export function setBest(slug: string, pb: PersonalBest): void {
-  write(`pb:${slug}`, pb);
+  write(`pb:${slug}`, { ...pb, v: SIM_VERSION });
 }
 
 export function markSubmitted(slug: string): void {
@@ -77,7 +80,7 @@ export function markSubmitted(slug: string): void {
 
 /** Best sector times ever on this circuit (any lap), for green sectors. */
 export function getBestSectors(slug: string): [number, number, number] | null {
-  return read<[number, number, number] | null>(`sectors:${slug}`, null);
+  return read<[number, number, number] | null>(`sectors:v${SIM_VERSION}:${slug}`, null);
 }
 
 export function updateBestSectors(slug: string, s: [number, number, number]): void {
@@ -85,7 +88,7 @@ export function updateBestSectors(slug: string, s: [number, number, number]): vo
   const next: [number, number, number] = cur
     ? [Math.min(cur[0], s[0]), Math.min(cur[1], s[1]), Math.min(cur[2], s[2])]
     : [s[0], s[1], s[2]];
-  write(`sectors:${slug}`, next);
+  write(`sectors:v${SIM_VERSION}:${slug}`, next);
 }
 
 export interface Settings {

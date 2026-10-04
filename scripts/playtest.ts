@@ -104,6 +104,12 @@ await page.waitForTimeout(2400);
 await page.screenshot({ path: join(out, `${attempt}-6c-pullback.png`) });
 await page.waitForTimeout(1500);
 await page.screenshot({ path: join(out, `${attempt}-7-results.png`) });
+if (process.env.POST_NAME && (await page.locator('.name-input').count())) {
+  await page.locator('.name-input').fill(process.env.POST_NAME);
+  await page.getByRole('button', { name: 'Post time' }).click();
+  await page.waitForFunction(() => /World #|Not posted/.test(document.querySelector('.res-world-status')?.textContent ?? ''), null, { timeout: 15000 }).catch(() => {});
+  await page.screenshot({ path: join(out, `${attempt}-8-posted.png`) });
+}
 const text = await page.locator('.res-sheet').innerText();
 console.log(text.replace(/\n+/g, ' | '));
 }

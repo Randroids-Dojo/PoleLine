@@ -122,6 +122,7 @@ export class ResultsScreen implements Screen {
     this.el = h('div', { class: 'results' }, this.sheet);
     app.root.append(this.el);
     this.resize();
+    document.fonts?.ready.then(() => this.resize()).catch(() => {});
     if (input.isPb) {
       sfx.finish(true);
       this.confetti = makeConfetti(app.w, slot.tier === 'pole' ? 170 : 90);

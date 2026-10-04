@@ -10,12 +10,12 @@
 // deterministic simulation the browser ran, so the time on the board is the
 // server's. Each player keeps only their best lap per circuit.
 //
-// Keys (shared store, so everything is prefixed `poleline:`):
-//   poleline:lb:<slug>    sorted set, member = playerId, score = lap ms
-//   poleline:meta:<slug>  hash, playerId -> {name, compound, timeMs, date}
-//   poleline:records      hash, slug -> {name, compound, timeMs}
-//   poleline:wr:<slug>    string, the record lap's line (for a future ghost)
-//   poleline:rl:<ip>      rate-limit counter
+// Keys (shared store, so everything is prefixed `poleline:v<SIM_VERSION>:`):
+//   lb:<slug>    sorted set, member = playerId, score = lap ms
+//   meta:<slug>  hash, playerId -> {name, compound, timeMs, date}
+//   records      hash, slug -> {name, compound, timeMs}
+//   wr:<slug>    string, the record lap's line (for a future ghost)
+//   rl:<ip>      rate-limit counter
 
 import { Redis } from '@upstash/redis';
 import { z } from 'zod';
@@ -24,6 +24,7 @@ import { GEOMETRY } from '../src/data/geometry-all.js';
 import { simulateLap } from '../src/sim/lapsim.js';
 import { MAX_POINTS, decodePath, validatePath } from '../src/sim/path.js';
 import { buildTrack, type Track } from '../src/sim/track.js';
+import { SIM_VERSION } from '../src/sim/version.js';
 
 interface Req {
   method?: string;
@@ -38,7 +39,7 @@ interface Res {
   end(): Res;
 }
 
-const PREFIX = 'poleline:';
+const PREFIX = `poleline:v${SIM_VERSION}:`;
 const MAX_LIMIT = 100;
 const RATE_WINDOW = 60;
 const RATE_MAX = 20;
