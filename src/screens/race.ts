@@ -6,7 +6,9 @@ import type { App, Screen } from '../app/app';
 import { startEngine, stopEngine, sfx, updateEngine } from '../app/audio';
 import { formatDelta, formatLap, formatSector, kmh } from '../app/format';
 import { Camera, angleForHeading, lerpAngle } from '../render/camera';
-import { GHOST_LIVERY, PLAYER_LIVERY, drawCar, makeCarSprite } from '../render/car-art';
+import { GHOST_LIVERY, drawCar, makeCarSprite } from '../render/car-art';
+import { liveryById } from '../render/liveries';
+import { getSettings } from '../app/store';
 import { polyPath, strokeInk } from '../render/line-art';
 import type { TrackArt } from '../render/track-art';
 import { COMPOUND_SPECS } from '../sim/car';
@@ -94,7 +96,7 @@ export function sectorColour(ms: number, k: number, track: Track, bestSectors: [
 
 export class RaceScreen implements Screen {
   private cam = new Camera();
-  private sprite = makeCarSprite(PLAYER_LIVERY);
+  private sprite = makeCarSprite(liveryById(getSettings().livery));
   private ghostSprite = makeCarSprite(GHOST_LIVERY);
   private path: Path2D;
   private start = 0;

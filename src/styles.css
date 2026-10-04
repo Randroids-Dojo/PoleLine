@@ -1929,3 +1929,73 @@ button:disabled {
 .set-damping-row.is-off .set-damp {
   cursor: default;
 }
+
+/* Car and garage --------------------------------------------------------- */
+
+.launch-go {
+  display: flex;
+  gap: 8px;
+}
+
+.car-btn {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 52px;
+  min-height: 58px;
+  border-radius: 6px;
+  background: #43464c;
+  border: 2px solid var(--ink);
+}
+
+.car-btn img {
+  height: 54px;
+  width: auto;
+}
+
+.car-btn:active {
+  transform: scale(0.96);
+}
+
+.garage-sheet {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 640px;
+  max-height: 86%;
+  border-radius: 14px 14px 0 0;
+  border-top: 2px solid var(--ink);
+  padding-bottom: var(--safe-bottom);
+  animation: sheet-up 0.32s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+
+.garage-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  padding: 14px 16px 20px;
+  overflow-y: auto;
+}
+
+.garage-card {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 10px 8px 8px;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background: #43464c;
+  color: #fff;
+  font-weight: 750;
+  font-size: 14px;
+}
+
+.garage-card img {
+  width: 100%;
+  height: auto;
+}
+
+.garage-card.is-on {
+  border-color: var(--purple);
+  box-shadow: 0 0 0 3px var(--purple-tint);
+}

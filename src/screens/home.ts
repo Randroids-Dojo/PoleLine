@@ -4,6 +4,9 @@ import type { App, Screen } from '../app/app';
 import { fetchRecords, type Records } from '../app/api';
 import { sfx, unlockAudio } from '../app/audio';
 import { openSettings } from './settings';
+import { openGarage } from './garage';
+import { liveryPreview } from '../render/car-art';
+import { liveryById } from '../render/liveries';
 import { downforceLabel, gripLabel, outlinePath, outlineViewBox, tyreHint, windText } from '../app/describe';
 import { formatLap, gridSlot, type GridSlot } from '../app/format';
 import { getBest, getSettings, getTyre, saveSettings, setTyre } from '../app/store';
@@ -165,6 +168,13 @@ export class HomeScreen implements Screen {
     );
     const board = h('button', { class: 'btn-quiet', onclick: () => this.actions.leaderboard(m.slug), html: `${ICONS.board}<span>Leaderboard</span>` });
 
+    const livery = liveryById(getSettings().livery);
+    const car = h(
+      'button',
+      { class: 'car-btn', 'aria-label': `Your car: ${livery.name}. Change livery`, title: `Your car: ${livery.name}`, onclick: () => openGarage(this.app, () => this.renderEvent()) },
+      h('img', { src: liveryPreview(livery, 'up'), alt: '' }),
+    );
+
     this.event.append(
       h('div', { class: 'event-title' }, h('p', { class: 'event-round' }, `Round ${round} of ${CATALOG.length}`, h('span', { class: 'flag' }, m.flag), m.country), h('h2', null, m.short), h('p', { class: 'event-name' }, m.name)),
       map,
@@ -172,7 +182,7 @@ export class HomeScreen implements Screen {
       board,
       facts,
       hint,
-      h('div', { class: 'launch' }, tyres, go),
+      h('div', { class: 'launch' }, tyres, h('div', { class: 'launch-go' }, car, go)),
     );
   }
 

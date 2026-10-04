@@ -114,6 +114,8 @@ export interface Settings {
   autoRotate: boolean;
   /** The one-time "drag the grass" demo has been shown. */
   panCoachSeen: boolean;
+  /** Car livery id (see src/render/liveries.ts). */
+  livery: string;
 }
 
 export const SCROLL_SPEED_MIN = 0.25;
@@ -151,6 +153,7 @@ export function getSettings(): Settings {
     keepAwake: true,
     autoRotate: true,
     panCoachSeen: false,
+    livery: 'poleline',
     ...stored,
   };
   if (s.scrollMode !== 'pause' && s.scrollMode !== 'continuous') s.scrollMode = 'pause';
