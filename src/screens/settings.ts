@@ -5,6 +5,7 @@ import type { App } from '../app/app';
 import { setSoundEnabled, sfx, unlockAudio } from '../app/audio';
 import { SCROLL_SPEED_MAX, SCROLL_SPEED_MIN, getSettings, saveSettings, type ScrollMode, type Settings } from '../app/store';
 import { setKeepAwake } from '../app/wake';
+import { CORNER_DAMPING_OPTIONS } from '../app/damping';
 import { ICONS, h } from '../ui/dom';
 
 export function openSettings(app: App, onChange?: (s: Settings) => void): void {
@@ -53,14 +54,28 @@ export function openSettings(app: App, onChange?: (s: Settings) => void): void {
     h('div', { class: 'set-speed-scale', 'aria-hidden': 'true' }, h('span', null, 'Gentle'), h('span', null, 'Fast')),
   );
 
+  const damping = h('div', { class: 'set-damping', role: 'radiogroup', 'aria-label': 'Slow down near corners' });
+  for (const o of CORNER_DAMPING_OPTIONS) {
+    const input = h('input', { type: 'radio', name: 'corner-damping', value: o.id }) as HTMLInputElement;
+    input.checked = s.cornerDamping === o.id;
+    input.addEventListener('change', () => {
+      if (input.checked) changed({ cornerDamping: o.id });
+    });
+    damping.append(h('label', { class: 'set-damp' }, input, h('span', { class: 'set-text' }, h('b', null, o.label), h('small', null, o.detail))));
+  }
+  const dampingRow = h('div', { class: 'set-speed set-damping-row' }, h('div', { class: 'set-speed-head' }, h('b', null, 'Slow down near corners')), damping);
+
   const modes: { id: ScrollMode; label: string; detail: string }[] = [
     { id: 'pause', label: 'Pause my stroke', detail: 'The map glides on and your stroke ends. Lift, then carry on from the purple tip.' },
     { id: 'continuous', label: 'Keep drawing', detail: 'The map scrolls under your finger as you draw. Faster, but harder to control.' },
   ];
   const modeGroup = h('div', { class: 'set-modes', role: 'radiogroup', 'aria-label': 'When the map scrolls' });
   const syncSpeed = (mode: ScrollMode) => {
-    speedRow.classList.toggle('is-off', mode !== 'continuous');
-    speed.disabled = mode !== 'continuous';
+    const on = mode === 'continuous';
+    speedRow.classList.toggle('is-off', !on);
+    speed.disabled = !on;
+    dampingRow.classList.toggle('is-off', !on);
+    dampingRow.querySelectorAll('input').forEach((i) => ((i as HTMLInputElement).disabled = !on));
   };
   for (const m of modes) {
     const input = h('input', { type: 'radio', name: 'scroll-mode', value: m.id }) as HTMLInputElement;
@@ -85,6 +100,7 @@ export function openSettings(app: App, onChange?: (s: Settings) => void): void {
       h('h3', null, 'When the map scrolls while you draw'),
       modeGroup,
       speedRow,
+      dampingRow,
       h('h3', null, 'Map'),
       toggle('Rotate the map to follow the track', 'Turns the road ahead to point up. Off: the map stays where you put it with the compass.', s.autoRotate, (v) => {
         changed({ autoRotate: v });

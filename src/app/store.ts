@@ -3,6 +3,7 @@
 
 import type { Compound } from '../sim/types';
 import { SIM_VERSION } from '../sim/version';
+import type { CornerDamping } from './damping';
 
 const PREFIX = 'poleline:v1:';
 
@@ -106,6 +107,8 @@ export interface Settings {
   scrollMode: ScrollMode;
   /** Continuous scroll speed multiplier, 0.25 to 2. */
   scrollSpeed: number;
+  /** Continuous mode only: how the scroll slows near corners. */
+  cornerDamping: CornerDamping;
   keepAwake: boolean;
   /** Turn the map so the road ahead points up. Off: the player sets the angle. */
   autoRotate: boolean;
@@ -144,12 +147,14 @@ export function getSettings(): Settings {
     attempts: 0,
     scrollMode: 'pause',
     scrollSpeed: SCROLL_SPEED_DEFAULT,
+    cornerDamping: 'off',
     keepAwake: true,
     autoRotate: true,
     panCoachSeen: false,
     ...stored,
   };
   if (s.scrollMode !== 'pause' && s.scrollMode !== 'continuous') s.scrollMode = 'pause';
+  if (!['off', 'gentle', 'early', 'hold', 'pace'].includes(s.cornerDamping)) s.cornerDamping = 'off';
   const sp = Number(s.scrollSpeed);
   s.scrollSpeed = Number.isFinite(sp) ? Math.min(SCROLL_SPEED_MAX, Math.max(SCROLL_SPEED_MIN, sp)) : SCROLL_SPEED_DEFAULT;
   return s;

@@ -1892,3 +1892,40 @@ button:disabled {
 .switch:checked::after {
   transform: translateX(20px);
 }
+
+.set-damping {
+  display: grid;
+  gap: 6px;
+}
+
+.set-damp {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--sheet);
+  border: 1.5px solid transparent;
+  cursor: pointer;
+}
+
+.set-damp:has(input:checked) {
+  border-color: var(--purple-ink);
+  background: var(--purple-tint);
+}
+
+.set-damp input {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 1px 0 0;
+  accent-color: var(--purple-ink);
+}
+
+.set-damp .set-text b {
+  font-size: 15px;
+}
+
+.set-damping-row.is-off .set-damp {
+  cursor: default;
+}

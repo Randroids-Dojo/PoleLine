@@ -26,6 +26,7 @@ import { frameAt, projectGlobal, projectNear, type Track } from '../sim/track';
 import type { Compound } from '../sim/types';
 import { ICONS, h, setText, tyreBadge } from '../ui/dom';
 import { Compass, angleForBearing, bearingAtTop, nextCardinal } from '../ui/compass';
+import { CornerDamper, type CornerDamping } from '../app/damping';
 
 export interface DrawActions {
   complete(points: number[]): void;
@@ -121,6 +122,10 @@ export class DrawScreen implements Screen {
   /** HUD widgets floating over the map that the tip should not hide under. */
   private avoid: Rect[] = [];
   private autoRotate: boolean;
+  private damping: CornerDamping;
+  private damper: CornerDamper | null = null;
+  private subtitle!: HTMLElement;
+  private scrollShown = -1;
   private compass: Compass;
   private spin: { from: number; to: number; t0: number; dur: number; pivot: { x: number; y: number }; world: { x: number; y: number } } | null = null;
   private dragPivot: { pivot: { x: number; y: number }; world: { x: number; y: number } } | null = null;
@@ -151,6 +156,7 @@ export class DrawScreen implements Screen {
     this.mode = settings.scrollMode;
     this.scrollSpeed = settings.scrollSpeed;
     this.autoRotate = settings.autoRotate;
+    this.damping = settings.cornerDamping;
     this.compass = new Compass({
       tap: () => this.compassTap(),
       dragStart: () => this.compassDragStart(),
@@ -173,7 +179,7 @@ export class DrawScreen implements Screen {
       'div',
       { class: 'strip strip-top' },
       h('button', { class: 'icon-btn', 'aria-label': 'Back to circuits', html: ICONS.close, onclick: () => this.actions.exit() }),
-      h('div', { class: 'draw-title' }, h('strong', null, track.meta.short), h('span', null, 'Draw your lap')),
+      h('div', { class: 'draw-title' }, h('strong', null, track.meta.short), (this.subtitle = h('span', null, 'Draw your lap'))),
       h('button', { class: 'icon-btn', 'aria-label': 'Settings', html: ICONS.gear, onclick: () => openSettings(this.app, (s) => this.applySettings(s)) }),
       h('span', { class: 'draw-tyre', html: tyreBadge(compound, 26) }),
     );
@@ -200,6 +206,7 @@ export class DrawScreen implements Screen {
     app.root.append(this.el);
     this.resize();
     this.showHint(HINTS.start);
+    this.updateSubtitle(this.cornerFactor());
     this.setCam(this.frameFor(0, this.startPoint()));
     this.updateHud();
 
@@ -219,6 +226,8 @@ export class DrawScreen implements Screen {
     const was = this.mode;
     this.mode = s.scrollMode;
     this.scrollSpeed = s.scrollSpeed;
+    this.damping = s.cornerDamping;
+    this.updateSubtitle(this.cornerFactor());
     if (s.autoRotate !== this.autoRotate) this.setAutoRotate(s.autoRotate, false);
     else if (was !== this.mode && !this.drawing) this.glideToTip();
   }
@@ -446,6 +455,11 @@ export class DrawScreen implements Screen {
 
   get status(): string {
     return this.builder.status;
+  }
+
+  /** Current corner damping multiplier at the tip (test hook). */
+  get scrollFactor(): number {
+    return this.cornerFactor();
   }
 
   /** Camera angle in radians (test hook). */
@@ -767,13 +781,31 @@ export class DrawScreen implements Screen {
     this.maybeCoach();
   }
 
+  /** Continuous mode: scroll multiplier from corner damping at the tip. */
+  private cornerFactor(): number {
+    if (this.damping === 'off') return 1;
+    if (!this.damper) this.damper = new CornerDamper(this.track);
+    return this.damper.factor(this.damping, this.builder.progress);
+  }
+
+  /** While experimenting with damping, show the live scroll rate under the title. */
+  private updateSubtitle(factor: number): void {
+    const live = this.mode === 'continuous' && this.damping !== 'off';
+    const rate = live ? Math.round(this.scrollSpeed * factor * 100) / 100 : -1;
+    if (rate === this.scrollShown) return;
+    this.scrollShown = rate;
+    setText(this.subtitle, live ? `Scroll ${rate.toFixed(2)}× near here` : 'Draw your lap');
+  }
+
   /** Continuous mode: feed the map forward while the tip is running out of room ahead. */
   private conveyor(ds: number): void {
     const room = this.roomAhead();
     const f = frameAt(this.track, this.builder.progress);
     const r0 = Math.min(this.app.w, this.app.h) * 0.42;
+    const factor = this.cornerFactor();
+    this.updateSubtitle(factor);
     if (room >= r0) return;
-    const gain = 1.6 * this.scrollSpeed * (1 - Math.max(0, room) / r0);
+    const gain = 1.6 * this.scrollSpeed * factor * (1 - Math.max(0, room) / r0);
     // Applied at the next frame, never mid-batch: every finger sample in a
     // batch was taken against the frame the player was looking at.
     this.shiftX += f.tx * ds * gain;

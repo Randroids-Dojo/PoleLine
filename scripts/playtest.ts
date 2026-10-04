@@ -43,9 +43,9 @@ page.on('console', (m) => {
   if (m.type() === 'error' || m.type() === 'warning') console.log('[page]', m.text());
 });
 page.on('pageerror', (e) => console.log('[pageerror]', e.message));
-await page.addInitScript(([s, mode, speed, rotate]) => {
-  localStorage.setItem('poleline:v1:settings', JSON.stringify({ v: 2, lastTrack: s, sound: false, scrollMode: mode, scrollSpeed: Number(speed), autoRotate: rotate !== 'off', panCoachSeen: true }));
-}, [slug, process.env.MODE ?? 'pause', process.env.SPEED ?? '1', process.env.ROTATE ?? 'on'] as const);
+await page.addInitScript(([s, mode, speed, rotate, damp]) => {
+  localStorage.setItem('poleline:v1:settings', JSON.stringify({ v: 2, lastTrack: s, sound: false, scrollMode: mode, scrollSpeed: Number(speed), autoRotate: rotate !== 'off', cornerDamping: damp, panCoachSeen: true }));
+}, [slug, process.env.MODE ?? 'pause', process.env.SPEED ?? '1', process.env.ROTATE ?? 'on', process.env.DAMP ?? 'off'] as const);
 await page.goto(url);
 await page.waitForTimeout(900);
 await page.screenshot({ path: join(out, '1-home.png') });
