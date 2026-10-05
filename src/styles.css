@@ -1303,21 +1303,57 @@ button:disabled {
 }
 
 .aero-chip {
-  min-width: 64px;
-  padding: 1px 7px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 4px 1px 7px;
   border-radius: 4px;
   border: 1.5px solid var(--rule);
-  font-size: 12px;
-  font-weight: 850;
-  font-stretch: 100%;
-  text-align: center;
   color: var(--ink-2);
+}
+
+.aero-label {
+  font-size: 10px;
+  font-weight: 850;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.aero-glyph path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+}
+
+/* The bars tip flat as the wings open. */
+.aero-glyph g {
+  transform-box: view-box;
+  transform-origin: 12px 12px;
+  transition:
+    opacity 0.16s ease,
+    transform 0.24s ease;
+}
+
+.aero-straight {
+  opacity: 0;
+  transform: rotate(-60deg);
 }
 
 .aero-chip.on {
   background: #19c463;
   border-color: #19c463;
   color: #000;
+}
+
+.aero-chip.on .aero-corner {
+  opacity: 0;
+  transform: rotate(60deg);
+}
+
+.aero-chip.on .aero-straight {
+  opacity: 1;
+  transform: none;
 }
 
 .tyre-chip {

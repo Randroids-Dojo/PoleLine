@@ -15,7 +15,7 @@ import type { TrackArt } from '../render/track-art';
 import { COMPOUND_SPECS, ERS } from '../sim/car';
 import type { LapResult } from '../sim/lapsim';
 import type { Track } from '../sim/track';
-import { ICONS, h, setText, tyreBadge } from '../ui/dom';
+import { ICONS, h, setText, svg, tyreBadge } from '../ui/dom';
 
 export type SectorColour = 'purple' | 'green' | 'yellow';
 
@@ -39,6 +39,10 @@ export interface ReplayInfo {
   /** Who the ghost is, e.g. "Lando, P1" or "your best"; null without a ghost. */
   ghostName: string | null;
 }
+
+/** Active aero indicator, as on the 2026 broadcast: wing bars angled in corner mode, flat in straight mode. */
+const AERO_GLYPH =
+  '<svg class="aero-glyph" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><g class="aero-corner"><path d="M6.5 19.5L11 4.5M13 19.5L17.5 4.5"/></g><g class="aero-straight"><path d="M4 9h16M4 15h16"/></g></svg>';
 
 const RUN_UP = 2.6;
 const RUN_OUT = 2.2;
@@ -116,6 +120,7 @@ export class RaceScreen implements Screen {
   private gear: HTMLElement;
   private leds: HTMLElement[] = [];
   private aero: HTMLElement;
+  private aeroOn = false;
   private ersFill: HTMLElement;
   private ersBox: HTMLElement;
   private tyreTemp: HTMLElement;
@@ -154,7 +159,12 @@ export class RaceScreen implements Screen {
       this.leds.push(led);
       ledBox.append(led);
     }
-    this.aero = h('div', { class: 'aero-chip', title: 'Active aero: wings flat in straight mode on designated straights, closed in corner mode everywhere else' }, 'Corner');
+    this.aero = h(
+      'div',
+      { class: 'aero-chip', role: 'img', 'aria-label': 'Active aero: corner mode', title: 'Active aero: wings flat in straight mode on designated straights, angled in corner mode everywhere else' },
+      h('span', { class: 'aero-label' }, 'Active aero'),
+      svg(AERO_GLYPH),
+    );
     this.ersFill = h('i');
     this.ersBox = h('div', { class: 'ers', title: 'Battery' }, h('span', null, 'ERS'), h('div', { class: 'ers-bar' }, this.ersFill));
     this.tyreTemp = h('span', null, '');
@@ -275,8 +285,11 @@ export class RaceScreen implements Screen {
     const lit = Math.round(Math.max(0, Math.min(1, (rpm - 10300) / 1800)) * 15);
     for (let k = 0; k < 15; k++) this.leds[k].classList.toggle('on', k < lit);
     const straight = lap.straight[i] === 1;
-    this.aero.classList.toggle('on', straight);
-    setText(this.aero, straight ? 'Straight' : 'Corner');
+    if (straight !== this.aeroOn) {
+      this.aeroOn = straight;
+      this.aero.classList.toggle('on', straight);
+      this.aero.setAttribute('aria-label', `Active aero: ${straight ? 'straight' : 'corner'} mode`);
+    }
     const charge = Math.max(0, Math.min(1, lap.soc[i] / ERS.capacity));
     this.ersFill.style.transform = `scaleX(${charge.toFixed(3)})`;
     const clipping = lap.throttle[i] === 1 && lap.deploy[i] < 1000 && smp.v > lap.stats.clipSpeed - 2;
