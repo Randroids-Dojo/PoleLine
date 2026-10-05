@@ -4,33 +4,38 @@ import { averageGrid, gridSlot } from '../src/app/format';
 // A lap the given percentage off a 100 s pole.
 const at = (gapPct: number) => gridSlot(Math.round(100000 * (1 + gapPct / 100)), 100);
 
+describe('grid slot', () => {
+  it('places laps on the F1 grid', () => {
+    expect(at(-0.1)).toMatchObject({ stamp: 'P1', tier: 'pole' });
+    expect(at(0.18)).toMatchObject({ stamp: 'P4', tier: 'q3' });
+    expect(at(1.0)).toMatchObject({ stamp: 'P14', tier: 'q2' });
+    expect(at(1.85)).toMatchObject({ stamp: 'P20', tier: 'q1' });
+  });
+
+  it('lines up anything slower than P20 pace at P20', () => {
+    expect(at(4).stamp).toBe('P20');
+    expect(gridSlot(113984, 92.51).stamp).toBe('P20');
+    expect(gridSlot(173976, 101.117).stamp).toBe('P20');
+  });
+});
+
 describe('average grid', () => {
   it('is empty before the first lap', () => {
     expect(averageGrid([])).toBeNull();
   });
 
   it('is the slot itself for a single circuit', () => {
-    expect(gridSlot(113984, 92.51).stamp).toBe('F3 P26');
-    expect(averageGrid([gridSlot(113984, 92.51)])).toEqual({ stamp: 'F3 P26', tier: 'f3' });
+    expect(averageGrid([gridSlot(113984, 92.51)])).toEqual({ stamp: 'P20', tier: 'q1' });
     expect(averageGrid([at(-0.1)])).toEqual({ stamp: 'P1', tier: 'pole' });
-    expect(averageGrid([at(4)])).toEqual({ stamp: '107%', tier: 'f1' });
-    expect(averageGrid([at(40)])).toEqual({ stamp: 'Club P22', tier: 'club' });
-    // Far off the pace shares the back of the club grid.
-    expect(averageGrid([gridSlot(173976, 101.117)])).toEqual({ stamp: 'Club P40', tier: 'club' });
   });
 
-  it('averages F1 positions to one decimal', () => {
-    // P1 and P4.
-    expect(at(0.18).stamp).toBe('P4');
+  it('averages positions to one decimal', () => {
     expect(averageGrid([at(-0.1), at(0.18)])).toEqual({ stamp: 'P2.5', tier: 'q3' });
+    expect(averageGrid([at(-0.1), at(40)])).toEqual({ stamp: 'P10.5', tier: 'q2' });
+    expect(averageGrid([at(-0.1), at(0.18), at(40)])).toEqual({ stamp: 'P8.3', tier: 'q3' });
     // Pole only stays purple when every circuit is a pole.
     expect(averageGrid([at(-0.1), at(-0.2)])?.tier).toBe('pole');
-  });
-
-  it('averages across series on one ladder', () => {
-    // Pole (rung 1) and F3 P26 (rung 69) meet in the middle of the F2 grid.
-    expect(averageGrid([at(-0.1), gridSlot(113984, 92.51)])).toEqual({ stamp: 'F2 P14', tier: 'f2' });
-    // F3 P26 (rung 69) and club P40 (rung 113) average into the club grid.
-    expect(averageGrid([gridSlot(113984, 92.51), gridSlot(173976, 101.117)])).toEqual({ stamp: 'Club P18', tier: 'club' });
+    const nearlyAllPoles = [...Array(10)].map(() => at(-0.1)).concat(at(0.03));
+    expect(averageGrid(nearlyAllPoles)).toEqual({ stamp: 'P1.1', tier: 'q3' });
   });
 });

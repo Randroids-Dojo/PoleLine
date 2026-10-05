@@ -185,8 +185,7 @@ export class HomeScreen implements Screen {
 }
 
 function badge(slot: GridSlot): HTMLElement {
-  const f1 = slot.tier === 'pole' || slot.tier === 'q3' || slot.tier === 'q2' || slot.tier === 'q1';
-  return h('span', { class: `round-pb tier-${slot.tier}` }, f1 ? slot.stamp : slot.stamp.split(' ')[0]);
+  return h('span', { class: `round-pb tier-${slot.tier}` }, slot.stamp);
 }
 
 /** Average of the best grid slot on every circuit with a lap; hidden until the first lap. */
