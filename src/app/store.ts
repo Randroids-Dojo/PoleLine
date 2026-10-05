@@ -116,6 +116,12 @@ export interface Settings {
   panCoachSeen: boolean;
   /** Car livery id (see src/render/liveries.ts). */
   livery: string;
+  /** The after-lap "add to home screen" prompt has been shown. */
+  installPrompted: boolean;
+  /** The after-lap lap alerts prompt has been shown. */
+  alertsPrompted: boolean;
+  /** Push a notification when someone beats one of this player's times. */
+  alerts: boolean;
 }
 
 export const SCROLL_SPEED_MIN = 0.25;
@@ -154,6 +160,9 @@ export function getSettings(): Settings {
     autoRotate: true,
     panCoachSeen: false,
     livery: 'poleline',
+    installPrompted: false,
+    alertsPrompted: false,
+    alerts: false,
     ...stored,
   };
   if (s.scrollMode !== 'pause' && s.scrollMode !== 'continuous') s.scrollMode = 'pause';

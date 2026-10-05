@@ -9,6 +9,7 @@ import { engineerNotes } from '../app/engineer';
 import { formatDelta, formatLap, formatSector, gridSlot, kmh } from '../app/format';
 import { getPlayer, markSubmitted, setPlayerName, type PersonalBest } from '../app/store';
 import { flushUnsubmitted } from '../app/sync';
+import { promptAfterLap } from './prompts';
 import { Camera, easeInOutCubic, lerpAngle } from '../render/camera';
 import { speedPaths } from '../render/line-art';
 import type { TrackArt } from '../render/track-art';
@@ -45,6 +46,7 @@ export class ResultsScreen implements Screen {
   private opened = performance.now();
   private bounds: { minX: number; minY: number; maxX: number; maxY: number };
   private confetti: Particle[] | null = null;
+  private promptTimer = 0;
   private fit: CamSnapshot = { cx: 0, cy: 0, zoom: 1, angle: 0, ay: 0.5 };
 
   constructor(
@@ -130,6 +132,14 @@ export class ResultsScreen implements Screen {
       this.confetti = makeConfetti(app.w, slot.tier === 'pole' ? 170 : 90);
     }
     this.leaderboardBlock();
+    // Install and lap alert prompts wait for the result to land. A first lap
+    // waits for the name form, so they follow the lap reaching the board.
+    if (!(input.isPb && !getPlayer().name)) this.queuePrompts(2400);
+  }
+
+  private queuePrompts(delay: number): void {
+    if (this.promptTimer) return;
+    this.promptTimer = window.setTimeout(() => void promptAfterLap(this.app), delay);
   }
 
   private share(btn: HTMLButtonElement, stamp: string): void {
@@ -167,6 +177,7 @@ export class ResultsScreen implements Screen {
           if (r.timeMs !== lap.timeMs) console.warn('server time differs', r.timeMs, lap.timeMs);
           setText(status, r.rank ? `World #${r.rank} of ${r.total} on ${this.track.meta.short}` : 'Posted.');
           status.classList.add('is-rank');
+          this.queuePrompts(1200);
         })
         .catch((err: Error) => setText(status, `Not posted: ${err.message}. Your time is saved on this device.`));
     };
@@ -282,6 +293,7 @@ export class ResultsScreen implements Screen {
   }
 
   destroy(): void {
+    clearTimeout(this.promptTimer);
     this.el.remove();
   }
 }

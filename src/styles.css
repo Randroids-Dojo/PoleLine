@@ -1792,6 +1792,67 @@ button:disabled {
   animation: sheet-up 0.32s cubic-bezier(0.2, 0.9, 0.3, 1);
 }
 
+.ask-sheet {
+  width: 100%;
+  max-width: 520px;
+  border-radius: 14px 14px 0 0;
+  border-top: 2px solid var(--ink);
+  padding: 22px 20px calc(14px + var(--safe-bottom));
+  text-align: center;
+  animation: sheet-up 0.32s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+
+.ask-icon {
+  display: grid;
+  place-items: center;
+  margin-bottom: 10px;
+}
+
+.ask-icon img {
+  border-radius: 12px;
+}
+
+.ask-bell {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--purple);
+  color: #fff;
+}
+
+.ask-sheet h2 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 900;
+  font-stretch: 125%;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+
+.ask-body {
+  margin: 8px auto 18px;
+  max-width: 34ch;
+  font-size: 15px;
+  line-height: 1.4;
+  color: var(--ink-2);
+}
+
+.ask-share {
+  vertical-align: -3px;
+  color: var(--ink);
+}
+
+.ask-actions {
+  display: grid;
+  gap: 4px;
+}
+
+.ask-actions .btn-primary:disabled {
+  opacity: 0.6;
+}
+
 .settings-sheet .board-head {
   align-items: center;
 }

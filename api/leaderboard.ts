@@ -16,8 +16,11 @@
 //   records      hash, slug -> {name, compound, timeMs}
 //   wr:<slug>    string, the record lap's line (for a future ghost)
 //   rl:<ip>      rate-limit counter
+//
+// A new best also alerts the players it passed (api/_push.ts), after the
+// response has gone.
 
-import { Redis } from '@upstash/redis';
+import { waitUntil } from '@vercel/functions';
 import { z } from 'zod';
 import { CATALOG } from '../src/data/catalog.js';
 import { GEOMETRY } from '../src/data/geometry-all.js';
@@ -25,6 +28,8 @@ import { simulateLap } from '../src/sim/lapsim.js';
 import { MAX_POINTS, decodePath, validatePath } from '../src/sim/path.js';
 import { buildTrack, type Track } from '../src/sim/track.js';
 import { SIM_VERSION } from '../src/sim/version.js';
+import { alertPassed } from './_push.js';
+import { redis } from './_redis.js';
 
 interface Req {
   method?: string;
@@ -72,16 +77,6 @@ const boardSchema = z.object({
   player: z.string().regex(/^[a-f0-9-]{16,40}$/).optional(),
   limit: z.coerce.number().int().min(1).max(MAX_LIMIT).optional(),
 });
-
-let client: Redis | null = null;
-function redis(): Redis {
-  if (client) return client;
-  const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
-  if (!url || !token) throw new Error('Leaderboard store is not configured');
-  client = new Redis({ url, token });
-  return client;
-}
 
 const tracks = new Map<string, Track>();
 function track(slug: string): Track {
@@ -194,6 +189,7 @@ async function post(req: Req, res: Res): Promise<Res> {
   const timeMs = scored.timeMs;
 
   const key = `${PREFIX}lb:${body.track}`;
+  const before = await kv.zscore(key, body.playerId);
   const changed = (await kv.zadd(key, { lt: true, ch: true }, { score: timeMs, member: body.playerId })) as number | null;
   const improved = Number(changed ?? 0) > 0;
   const meta: Meta = { name, compound: body.compound, timeMs, date: new Date().toISOString() };
@@ -215,6 +211,15 @@ async function post(req: Req, res: Res): Promise<Res> {
   if (improved && rank === 1) {
     await kv.hset(`${PREFIX}records`, { [body.track]: JSON.stringify(meta) });
     await kv.set(`${PREFIX}wr:${body.track}`, JSON.stringify({ playerId: body.playerId, compound: body.compound, timeMs, line: body.line }));
+  }
+  if (improved) {
+    const short = CATALOG.find((m) => m.slug === body.track)!.short;
+    const beforeMs = before === null || before === undefined ? null : Number(before);
+    waitUntil(
+      alertPassed(kv, { board: key, slug: body.track, track: short, by: name, timeMs, beforeMs }).catch((err) =>
+        console.error('lap alerts failed', err instanceof Error ? err.message : err),
+      ),
+    );
   }
   return res.status(200).json({ timeMs, rank, total, improved, bestMs });
 }

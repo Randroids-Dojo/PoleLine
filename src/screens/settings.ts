@@ -5,6 +5,7 @@ import type { App } from '../app/app';
 import { setSoundEnabled, sfx, unlockAudio } from '../app/audio';
 import { SCROLL_SPEED_MAX, SCROLL_SPEED_MIN, getSettings, saveSettings, type ScrollMode, type Settings } from '../app/store';
 import { setKeepAwake } from '../app/wake';
+import { alertsBlocked, alertsSupported, disableAlerts, enableAlerts, isInstalled, isIos } from '../app/pwa';
 import { CORNER_DAMPING_OPTIONS } from '../app/damping';
 import { ICONS, h } from '../ui/dom';
 
@@ -118,10 +119,41 @@ export function openSettings(app: App, onChange?: (s: Settings) => void): void {
         changed({ keepAwake: v });
         setKeepAwake(v);
       }),
+      alertsRow(s.alerts),
     ),
   );
   const overlay = h('div', { class: 'overlay', onclick: (e: Event) => e.target === overlay && close() }, sheet);
   app.root.append(overlay);
   document.addEventListener('keydown', onKey);
   closeBtn.focus();
+}
+
+/** Lap alerts switch: asks for notification permission when turned on. */
+function alertsRow(on: boolean): HTMLElement {
+  const detail = 'A notification when someone beats one of your times.';
+  const input = h('input', { type: 'checkbox', role: 'switch', class: 'switch' }) as HTMLInputElement;
+  const small = h('small', null, detail);
+  input.checked = on && alertsSupported() && !alertsBlocked();
+  if (!alertsSupported()) {
+    input.disabled = true;
+    small.textContent = isIos() && !isInstalled() ? 'Add PoleLine to your home screen first (Share, then Add to Home Screen).' : 'This browser cannot show notifications.';
+  } else if (alertsBlocked()) {
+    input.disabled = true;
+    small.textContent = 'Notifications are blocked for PoleLine in your browser’s site settings.';
+  }
+  input.addEventListener('change', async () => {
+    input.disabled = true;
+    if (!input.checked) {
+      await disableAlerts();
+      input.disabled = false;
+      return;
+    }
+    small.textContent = 'Turning on…';
+    const r = await enableAlerts();
+    input.checked = r === 'on';
+    input.disabled = r === 'denied';
+    small.textContent =
+      r === 'on' ? detail : r === 'denied' ? 'Notifications are blocked for PoleLine in your browser’s site settings.' : 'Lap alerts could not be turned on right now. Try again later.';
+  });
+  return h('label', { class: 'set-row' }, h('span', { class: 'set-text' }, h('b', null, 'Lap alerts'), small), input);
 }

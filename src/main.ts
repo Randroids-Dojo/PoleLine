@@ -10,6 +10,8 @@ import { RaceScreen, type CamSnapshot } from './screens/race';
 import { ResultsScreen } from './screens/results';
 import { openLeaderboard } from './screens/leaderboard';
 import { flushUnsubmitted } from './app/sync';
+import { initPwa } from './app/pwa';
+import { CATALOG } from './data/catalog';
 import { simulateLap } from './sim/lapsim';
 import { decodePath, encodePath, validatePath } from './sim/path';
 import type { Track } from './sim/track';
@@ -82,5 +84,26 @@ if (import.meta.env.DEV || new URLSearchParams(location.search).has('debug')) {
   (window as unknown as { __pl: unknown }).__pl = { app, race };
 }
 
-home();
+/** Links from lap alerts: `?track=<slug>&board=1` opens that circuit's leaderboard. */
+function openLink(search: string): boolean {
+  const q = new URLSearchParams(search);
+  const slug = q.get('track');
+  if (!slug || !CATALOG.some((m) => m.slug === slug)) return false;
+  // Never throw away a lap being drawn or raced.
+  const cur = app.current;
+  if ((cur instanceof DrawScreen && cur.status === 'drawing') || cur instanceof RaceScreen) return true;
+  home(slug);
+  if (q.has('board')) openLeaderboard(app, slug);
+  return true;
+}
+
+if (openLink(location.search)) {
+  const q = new URLSearchParams(location.search);
+  q.delete('track');
+  q.delete('board');
+  history.replaceState(history.state, '', `${location.pathname}${q.size ? `?${q}` : ''}`);
+} else {
+  home();
+}
+initPwa((search) => void openLink(search));
 void flushUnsubmitted();
