@@ -1292,13 +1292,15 @@ button:disabled {
 }
 
 .aero-chip {
+  min-width: 64px;
   padding: 1px 7px;
   border-radius: 4px;
   border: 1.5px solid var(--rule);
   font-size: 12px;
   font-weight: 850;
   font-stretch: 100%;
-  color: var(--ink-3);
+  text-align: center;
+  color: var(--ink-2);
 }
 
 .aero-chip.on {

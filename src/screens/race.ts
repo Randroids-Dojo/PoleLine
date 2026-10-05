@@ -144,7 +144,7 @@ export class RaceScreen implements Screen {
       this.leds.push(led);
       ledBox.append(led);
     }
-    this.aero = h('div', { class: 'aero-chip', title: 'Active aero: wings flat in straight mode' }, 'Straight');
+    this.aero = h('div', { class: 'aero-chip', title: 'Active aero: wings flat in straight mode on designated straights, closed in corner mode everywhere else' }, 'Corner');
     this.ersFill = h('i');
     this.ersBox = h('div', { class: 'ers', title: 'Battery' }, h('span', null, 'ERS'), h('div', { class: 'ers-bar' }, this.ersFill));
     this.tyreTemp = h('span', null, '');
@@ -259,7 +259,9 @@ export class RaceScreen implements Screen {
     const rpm = lap.rpm[i];
     const lit = Math.round(Math.max(0, Math.min(1, (rpm - 10300) / 1800)) * 15);
     for (let k = 0; k < 15; k++) this.leds[k].classList.toggle('on', k < lit);
-    this.aero.classList.toggle('on', lap.straight[i] === 1);
+    const straight = lap.straight[i] === 1;
+    this.aero.classList.toggle('on', straight);
+    setText(this.aero, straight ? 'Straight' : 'Corner');
     const charge = Math.max(0, Math.min(1, lap.soc[i] / ERS.capacity));
     this.ersFill.style.transform = `scaleX(${charge.toFixed(3)})`;
     const clipping = lap.throttle[i] === 1 && lap.deploy[i] < 1000 && smp.v > lap.stats.clipSpeed - 2;
