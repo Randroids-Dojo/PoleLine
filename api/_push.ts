@@ -122,5 +122,6 @@ export async function alertPassed(
       }
     }),
   );
+  console.log(`lap alerts on ${a.slug}: passed ${passed.length}, sent ${sent}`);
   return sent;
 }
