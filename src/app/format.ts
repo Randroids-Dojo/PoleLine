@@ -29,6 +29,8 @@ const F1_GAPS = [0.05, 0.12, 0.2, 0.27, 0.34, 0.42, 0.5, 0.58, 0.68, 0.78, 0.86,
 /** Feeder series pole pace relative to F1 pole, and how spread out their grids are. */
 const F2 = { pole: 13, spread: 2.2, cars: 22 };
 const F3 = { pole: 21, spread: 2.6, cars: 30 };
+/** Track day pace past the back of the F3 grid, spread wide; the slowest share the last slot. */
+const CLUB = { from: F3.pole + F3.spread, spread: 30, cars: 40 };
 
 export type Tier = 'pole' | 'q3' | 'q2' | 'q1' | 'f1' | 'f2' | 'f3' | 'club';
 
@@ -73,16 +75,17 @@ export function gridSlot(timeMs: number, poleRefSeconds: number): GridSlot {
     const f = feeder(gapPct, F3, 'F3');
     return { stamp: `F3 P${f.position}`, position: f.position, label: f.label, tier: 'f3', gapPct, ladder };
   }
-  return { stamp: 'Club', position: null, label: 'Track day pace', tier: 'club', gapPct, ladder };
+  const p = Math.min(CLUB.cars, 1 + Math.floor(((gapPct - CLUB.from) / CLUB.spread) * CLUB.cars));
+  return { stamp: `Club P${p}`, position: p, label: 'Track day pace', tier: 'club', gapPct, ladder };
 }
 
 // One ordinal ladder across every series so grid slots can be averaged:
-// F1 P1..P20, then 107%, then the F2 grid, the F3 grid, and club pace.
+// F1 P1..P20, then 107%, then the F2, F3 and club grids.
 const F1_CARS = F1_GAPS.length + 1;
 const RUNG_107 = F1_CARS + 1;
 const F2_FIRST = RUNG_107 + 1;
 const F3_FIRST = F2_FIRST + F2.cars;
-const RUNG_CLUB = F3_FIRST + F3.cars;
+const CLUB_FIRST = F3_FIRST + F3.cars;
 
 function gridRung(slot: GridSlot): number {
   switch (slot.tier) {
@@ -98,11 +101,11 @@ function gridRung(slot: GridSlot): number {
     case 'f3':
       return F3_FIRST + (slot.position ?? 1) - 1;
     default:
-      return RUNG_CLUB;
+      return CLUB_FIRST + (slot.position ?? 1) - 1;
   }
 }
 
-/** Mean of several grid slots, read back onto the ladder: "P4.5", "F2 P13", "107%". */
+/** Mean of several grid slots, read back onto the ladder: "P4.5", "F2 P13", "Club P12.5". */
 export function averageGrid(slots: GridSlot[]): { stamp: string; tier: Tier } | null {
   if (!slots.length) return null;
   let sum = 0;
@@ -119,8 +122,8 @@ export function averageGrid(slots: GridSlot[]): { stamp: string; tier: Tier } | 
   }
   if (r === RUNG_107) return { stamp: '107%', tier: 'f1' };
   if (r < F3_FIRST) return { stamp: `F2 P${pos(F2_FIRST, F2.cars)}`, tier: 'f2' };
-  if (r < RUNG_CLUB) return { stamp: `F3 P${pos(F3_FIRST, F3.cars)}`, tier: 'f3' };
-  return { stamp: 'Club', tier: 'club' };
+  if (r < CLUB_FIRST) return { stamp: `F3 P${pos(F3_FIRST, F3.cars)}`, tier: 'f3' };
+  return { stamp: `Club P${pos(CLUB_FIRST, CLUB.cars)}`, tier: 'club' };
 }
 
 export function kmh(ms: number): number {
