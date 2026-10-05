@@ -36,6 +36,8 @@ npm run build
 
 The leaderboard route (`api/leaderboard.ts`) runs on Vercel and needs Upstash Redis credentials (`KV_REST_API_URL`, `KV_REST_API_TOKEN`), which the Vercel Marketplace integration injects. Use `vercel dev` to run it locally. Without them the game still works and keeps personal bests on the device.
 
+Each build bakes in its version (the deployed commit) and writes it to `/version.json`, which is never cached. An open game checks that file every minute and when it returns to the foreground; when a newer deploy is live it offers a refresh banner on the home and results screens (never mid-lap).
+
 Lap alerts (`api/push.ts`, `api/_push.ts`, `public/sw.js`) use Web Push with VAPID keys in `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT`. A new best alerts every player it passed on that circuit's board, at most once per player and circuit every 15 minutes. Generate a key pair with `npx web-push generate-vapid-keys`; without keys the route reports alerts as unavailable and nothing is sent.
 
 Track geometry is generated:

@@ -1867,6 +1867,54 @@ button.board-row {
   animation: sheet-up 0.32s cubic-bezier(0.2, 0.9, 0.3, 1);
 }
 
+.update-banner {
+  pointer-events: auto;
+  position: fixed;
+  top: calc(8px + var(--safe-top));
+  left: 50%;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: min(520px, calc(100% - 20px));
+  padding: 6px 4px 6px 16px;
+  border-radius: 10px;
+  background: var(--ink);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 650;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  transform: translateX(-50%);
+  animation: banner-down 0.32s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+
+.update-banner span {
+  flex: 1;
+  line-height: 1.25;
+}
+
+.update-go {
+  flex: none;
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 6px;
+  background: var(--purple);
+  color: #fff;
+  font-weight: 800;
+  font-stretch: 112%;
+}
+
+.update-close {
+  flex: none;
+  color: #fff;
+}
+
+@keyframes banner-down {
+  from {
+    transform: translate(-50%, -140%);
+  }
+}
+
 .ask-sheet {
   width: 100%;
   max-width: 520px;

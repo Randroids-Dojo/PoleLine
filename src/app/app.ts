@@ -69,9 +69,13 @@ export class App {
     return this.screen;
   }
 
+  /** Runs after every screen change (the update banner only shows on calm screens). */
+  onShow: ((screen: Screen) => void) | null = null;
+
   show(screen: Screen): void {
     if (this.screen) this.screen.destroy();
     this.screen = screen;
+    this.onShow?.(screen);
   }
 
   setCanvasVisible(on: boolean): void {

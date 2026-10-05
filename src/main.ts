@@ -11,6 +11,8 @@ import { ResultsScreen } from './screens/results';
 import { openLeaderboard } from './screens/leaderboard';
 import { flushUnsubmitted } from './app/sync';
 import { initPwa } from './app/pwa';
+import { watchForUpdates } from './app/update';
+import { UpdateBanner } from './screens/update-banner';
 import { CATALOG } from './data/catalog';
 import { simulateLap } from './sim/lapsim';
 import { decodePath, encodePath, validatePath } from './sim/path';
@@ -18,6 +20,8 @@ import type { Track } from './sim/track';
 import type { Compound } from './sim/types';
 
 const app = new App();
+const updates = new UpdateBanner(app, (s) => s instanceof HomeScreen || s instanceof ResultsScreen);
+app.onShow = () => updates.sync();
 setSoundEnabled(getSettings().sound);
 setKeepAwake(getSettings().keepAwake);
 let currentSlug = getSettings().lastTrack;
@@ -108,4 +112,5 @@ if (openLink(location.search)) {
   home();
 }
 initPwa((search) => void openLink(search));
+watchForUpdates(() => updates.available());
 void flushUnsubmitted();
