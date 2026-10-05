@@ -76,6 +76,53 @@ export function gridSlot(timeMs: number, poleRefSeconds: number): GridSlot {
   return { stamp: 'Club', position: null, label: 'Track day pace', tier: 'club', gapPct, ladder };
 }
 
+// One ordinal ladder across every series so grid slots can be averaged:
+// F1 P1..P20, then 107%, then the F2 grid, the F3 grid, and club pace.
+const F1_CARS = F1_GAPS.length + 1;
+const RUNG_107 = F1_CARS + 1;
+const F2_FIRST = RUNG_107 + 1;
+const F3_FIRST = F2_FIRST + F2.cars;
+const RUNG_CLUB = F3_FIRST + F3.cars;
+
+function gridRung(slot: GridSlot): number {
+  switch (slot.tier) {
+    case 'pole':
+    case 'q3':
+    case 'q2':
+    case 'q1':
+      return slot.position ?? 1;
+    case 'f1':
+      return RUNG_107;
+    case 'f2':
+      return F2_FIRST + (slot.position ?? 1) - 1;
+    case 'f3':
+      return F3_FIRST + (slot.position ?? 1) - 1;
+    default:
+      return RUNG_CLUB;
+  }
+}
+
+/** Mean of several grid slots, read back onto the ladder: "P4.5", "F2 P13", "107%". */
+export function averageGrid(slots: GridSlot[]): { stamp: string; tier: Tier } | null {
+  if (!slots.length) return null;
+  let sum = 0;
+  for (const s of slots) sum += gridRung(s);
+  const rung = sum / slots.length;
+  const r = Math.round(rung);
+  const pos = (first: number, cars: number) => {
+    const p = Math.min(cars, Math.max(1, Math.round((rung - first + 1) * 10) / 10));
+    return Number.isInteger(p) ? String(p) : p.toFixed(1);
+  };
+  if (r <= F1_CARS) {
+    const tier: Tier = rung === 1 ? 'pole' : r <= 10 ? 'q3' : r <= 15 ? 'q2' : 'q1';
+    return { stamp: `P${pos(1, F1_CARS)}`, tier };
+  }
+  if (r === RUNG_107) return { stamp: '107%', tier: 'f1' };
+  if (r < F3_FIRST) return { stamp: `F2 P${pos(F2_FIRST, F2.cars)}`, tier: 'f2' };
+  if (r < RUNG_CLUB) return { stamp: `F3 P${pos(F3_FIRST, F3.cars)}`, tier: 'f3' };
+  return { stamp: 'Club', tier: 'club' };
+}
+
 export function kmh(ms: number): number {
   return Math.round(ms * 3.6);
 }

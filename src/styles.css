@@ -174,17 +174,18 @@ button:disabled {
   gap: 4px;
 }
 
-.poles {
+.avg-grid {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 2px;
+  white-space: nowrap;
+}
+
+.avg-grid-label {
   font-size: 13px;
   font-weight: 600;
   color: var(--ink-2);
-}
-
-.poles b {
-  font-size: 16px;
-  font-weight: 900;
-  font-stretch: 125%;
-  color: var(--purple-ink);
 }
 
 .wordmark {

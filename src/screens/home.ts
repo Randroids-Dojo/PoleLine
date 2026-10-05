@@ -8,7 +8,7 @@ import { openGarage } from './garage';
 import { liveryPreview } from '../render/car-art';
 import { liveryById } from '../render/liveries';
 import { downforceLabel, gripLabel, outlinePath, outlineViewBox, tyreHint, windText } from '../app/describe';
-import { formatLap, gridSlot, type GridSlot } from '../app/format';
+import { averageGrid, formatLap, gridSlot, type GridSlot } from '../app/format';
 import { getBest, getSettings, getTyre, saveSettings, setTyre } from '../app/store';
 import { CATALOG } from '../data/catalog';
 import { COMPOUND_SPECS } from '../sim/car';
@@ -45,13 +45,7 @@ export class HomeScreen implements Screen {
 
   private render(): void {
     const gearBtn = h('button', { class: 'icon-btn', 'aria-label': 'Settings', html: ICONS.gear, onclick: () => openSettings(this.app) });
-    const poles = polesTaken();
-    const header = h(
-      'header',
-      { class: 'home-head' },
-      h('h1', { class: 'wordmark' }, 'PoleLine'),
-      h('div', { class: 'head-right' }, h('span', { class: 'poles', title: 'Circuits where you beat real pole pace' }, h('b', null, String(poles)), ` of ${CATALOG.length} poles`), gearBtn),
-    );
+    const header = h('header', { class: 'home-head' }, h('h1', { class: 'wordmark' }, 'PoleLine'), h('div', { class: 'head-right' }, averageStat(), gearBtn));
     this.strip = h('nav', { class: 'rounds', 'aria-label': 'Circuits' });
     CATALOG.forEach((m, i) => {
       const pb = getBest(m.slug);
@@ -195,11 +189,22 @@ function badge(slot: GridSlot): HTMLElement {
   return h('span', { class: `round-pb tier-${slot.tier}` }, f1 ? slot.stamp : slot.stamp.split(' ')[0]);
 }
 
-function polesTaken(): number {
-  return CATALOG.filter((m) => {
+/** Average of the best grid slot on every circuit with a lap; hidden until the first lap. */
+function averageStat(): HTMLElement | null {
+  const slots: GridSlot[] = [];
+  for (const m of CATALOG) {
     const pb = getBest(m.slug);
-    return pb && pb.timeMs <= m.poleRef * 1000;
-  }).length;
+    if (pb) slots.push(gridSlot(pb.timeMs, m.poleRef));
+  }
+  const avg = averageGrid(slots);
+  if (!avg) return null;
+  const across = `${slots.length} ${slots.length === 1 ? 'circuit' : 'circuits'}`;
+  return h(
+    'span',
+    { class: 'avg-grid', title: `Average of your best grid slot on ${across}`, 'aria-label': `Average grid ${avg.stamp} across ${across}` },
+    h('span', { class: 'avg-grid-label' }, 'Avg grid'),
+    h('span', { class: `slot tier-${avg.tier}` }, avg.stamp),
+  );
 }
 
 function fact(label: string, value: string, extra?: Node): HTMLElement {
