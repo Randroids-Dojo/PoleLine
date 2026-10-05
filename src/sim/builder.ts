@@ -2,8 +2,10 @@
 // track metres) into a LineBuilder, which only ever stores points that pass the
 // same checks the server's validatePath runs. Ink only flows forward: a finger
 // dragged backwards simply stops adding points. A segment that would leave the
-// track is refused (the line stops at the last legal point and `offTrack`
-// records where it went off); the player undoes the stroke or carries on.
+// track runs only as far as the white line (touching it is legal) and `offTrack`
+// records where it went over, so a track-limits hit always happens at the end
+// of the line, whatever the scroll mode. The player undoes the stroke or
+// carries on from there.
 
 import { MAX_POINTS, MIN_POINT_SPACING, UNITS_PER_METRE, cloneState, quantize, startState, walkSegment, type WalkState } from './path.js';
 import { projectNear, type Track } from './track.js';
@@ -127,7 +129,7 @@ export class LineBuilder {
     const r = walkSegment(this.track, last.x, last.y, bx, by, trial);
     if (r.kind === 'backward') return 'backward';
     if (r.kind === 'offtrack') {
-      this.offTrack = { x: r.x, y: r.y };
+      this.runToLimit(last, bx, by);
       return 'offtrack';
     }
     if (r.kind === 'finish') {
@@ -149,6 +151,39 @@ export class LineBuilder {
     this.state = trial;
     this.offTrack = null;
     return 'ok';
+  }
+
+  /**
+   * The segment from the tip towards (bx, by) leaves the track: run the line
+   * along it to the white line and mark where it crosses. Every stored point
+   * still passes the same walk the server's validator runs.
+   */
+  private runToLimit(last: { x: number; y: number }, bx: number, by: number): void {
+    const state = this.state!;
+    const dx = bx - last.x;
+    const dy = by - last.y;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    const inside = (u: number) => walkSegment(this.track, last.x, last.y, last.x + dx * u, last.y + dy * u, cloneState(state)).kind === 'ok';
+    let lo = 0;
+    let hi = 1;
+    for (let i = 0; i < 14; i++) {
+      const mid = (lo + hi) / 2;
+      if (inside(mid)) lo = mid;
+      else hi = mid;
+    }
+    this.offTrack = { x: last.x + dx * hi, y: last.y + dy * hi };
+    // Back off a few centimetres so the quantised point stays inside the line.
+    for (let back = 0.05; back < 1; back += 0.1) {
+      const reach = lo * len - back;
+      if (reach < MIN_POINT_SPACING) return;
+      const qx = quantize(last.x + (dx * reach) / len);
+      const qy = quantize(last.y + (dy * reach) / len);
+      const check = cloneState(state);
+      if (walkSegment(this.track, last.x, last.y, qx / UNITS_PER_METRE, qy / UNITS_PER_METRE, check).kind !== 'ok') continue;
+      this.pts.push(qx, qy);
+      this.state = check;
+      return;
+    }
   }
 
   reset(): void {

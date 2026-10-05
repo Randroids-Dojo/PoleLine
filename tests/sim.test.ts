@@ -5,7 +5,7 @@ import monaco from '../src/data/geometry/monaco';
 import { LineBuilder } from '../src/sim/builder';
 import { simulateLap } from '../src/sim/lapsim';
 import { decodePath, encodePath, validatePath } from '../src/sim/path';
-import { buildTrack } from '../src/sim/track';
+import { buildTrack, projectGlobal } from '../src/sim/track';
 import { minCurvatureOffsets, offsetsToLine, wobble } from '../scripts/optimal';
 
 const silverMeta = CATALOG.find((m) => m.slug === 'silverstone')!;
@@ -134,7 +134,7 @@ describe('line builder', () => {
     expect(lap.timeMs).toBeLessThan(80000);
   });
 
-  it('stops the line at the track limit and lets the player undo or carry on', () => {
+  it('runs the line to the white line on a track-limits hit, then allows undo or carrying on', () => {
     const b = new LineBuilder(mc);
     expect(b.start(mc.x[0], mc.y[0])).toBe(true);
     expect(b.extend(mc.x[10], mc.y[10])).toBe('ok');
@@ -145,16 +145,43 @@ describe('line builder', () => {
     const r = b.extend(mc.x[k] + mc.nx[k] * (mc.limit + 2), mc.y[k] + mc.ny[k] * (mc.limit + 2));
     expect(r).toBe('offtrack');
     expect(b.status).toBe('drawing');
-    expect(b.count).toBe(before);
-    expect(b.offTrack).not.toBeNull();
-    // Carrying on from the tip inside the limits works and clears the marker.
-    expect(b.extend(mc.x[20], mc.y[20])).toBe('ok');
+    // The line now ends at the white line, and the marker sits at its end.
+    expect(b.count).toBe(before + 1);
+    const tip = b.lastPoint!;
+    const edge = projectGlobal(mc, tip.x, tip.y).dist;
+    expect(edge).toBeLessThanOrEqual(mc.limit);
+    expect(edge).toBeGreaterThan(mc.limit - 0.4);
+    expect(Math.hypot(b.offTrack!.x - tip.x, b.offTrack!.y - tip.y)).toBeLessThan(0.4);
+    // Carrying on from the wall works and clears the marker.
+    expect(b.extend(mc.x[30], mc.y[30])).toBe('ok');
     expect(b.offTrack).toBeNull();
     // Or undo the stroke that went wide.
-    b.extend(mc.x[k] + mc.nx[k] * (mc.limit + 2), mc.y[k] + mc.ny[k] * (mc.limit + 2));
+    b.extend(mc.x[38] + mc.nx[38] * (mc.limit + 2), mc.y[38] + mc.ny[38] * (mc.limit + 2));
     expect(b.undoStroke()).toBe(true);
     expect(b.offTrack).toBeNull();
     expect(b.count).toBeLessThan(before);
+  });
+
+  it('keeps a line that touched the wall valid for the server', () => {
+    const alpha = minCurvatureOffsets(mc);
+    const b = new LineBuilder(mc);
+    expect(b.start(mc.x[0] + alpha[0] * mc.nx[0], mc.y[0] + alpha[0] * mc.ny[0])).toBe(true);
+    let walls = 0;
+    for (let i = 3; i <= mc.n + 3; i += 3) {
+      const k = i % mc.n;
+      if (i % 300 === 0) {
+        // Swing out over the white line a little way ahead, then carry on.
+        const j = (k + 6) % mc.n;
+        const side = alpha[j] >= 0 ? 1 : -1;
+        if (b.extend(mc.x[j] + mc.nx[j] * side * (mc.limit + 3), mc.y[j] + mc.ny[j] * side * (mc.limit + 3)) === 'offtrack') walls++;
+      }
+      const r = b.extend(mc.x[k] + alpha[k] * mc.nx[k], mc.y[k] + alpha[k] * mc.ny[k]);
+      if (r === 'finish') break;
+      expect(r === 'ok' || r === 'skip' || r === 'backward').toBe(true);
+    }
+    expect(walls).toBeGreaterThan(2);
+    expect(b.status).toBe('done');
+    expect(validatePath(mc, decodePath(encodePath(b.points as number[]))).ok).toBe(true);
   });
 
   it('ignores backwards strokes and supports undo', () => {

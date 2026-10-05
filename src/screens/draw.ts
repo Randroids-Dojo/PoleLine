@@ -69,7 +69,7 @@ const HINTS = {
   lifted: 'Lift whenever you like. Carry on from the purple tip.',
   advance: 'The map moved on. Lift your finger, then carry on from the purple tip.',
   resume: 'Carry on from the purple tip.',
-  limits: 'Undo the stroke, or carry on from the purple tip.',
+  limits: 'Undo the stroke, or carry on from the wall.',
   panTap: 'Drag on the grass to move the map.',
   autoOff: 'Auto-rotate is off, so the map stays at your angle. Tap Auto to bring it back.',
   width: 'Use the whole width: wide on entry, clip the apex, wide on exit.',
@@ -778,6 +778,8 @@ export class DrawScreen implements Screen {
       if (r === 'finish') this.finish();
       this.updateHud();
     } else if (r === 'offtrack') {
+      // The line has run up to the white line: show that last stretch.
+      this.appendInk();
       this.leftTrack();
     } else if (r === 'backward') {
       this.backwardRun++;
@@ -908,7 +910,7 @@ export class DrawScreen implements Screen {
       this.limitsCard = h(
         'div',
         { class: 'limits-card', role: 'alert' },
-        h('div', { class: 'limits-text' }, h('strong', null, 'Track limits'), h('span', null, 'That stroke went over the white line. Scroll or rotation settings can make tricky corners easier.')),
+        h('div', { class: 'limits-text' }, h('strong', null, 'Track limits'), h('span', null, 'Your line ran into the white line. Scroll or rotation settings can make tricky corners easier.')),
         h('div', { class: 'limits-actions' }, undoBtn, settingsBtn),
       );
       this.el.append(this.limitsCard);
