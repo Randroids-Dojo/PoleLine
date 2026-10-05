@@ -216,6 +216,18 @@ describe('leaderboard api', () => {
     expect(entries.find((e) => e.name === 'Odd')?.setup).toBeNull();
   });
 
+  it('only takes tutorial laps that start from the line drawn for the player', async () => {
+    const { TUTORIAL } = await import('../src/data/tutorial');
+    const ok = await call('POST', {}, { track: TUTORIAL.slug, compound: 'medium', line: TUTORIAL.line, playerId: P1, name: 'Rookie' });
+    expect(ok.status).toBe(200);
+    // Same corner, different opening: refused.
+    const bent = TUTORIAL.line.slice();
+    bent[10] += 3;
+    bent[12] -= 3;
+    const no = await call('POST', {}, { track: TUTORIAL.slug, compound: 'medium', line: bent, playerId: P2, name: 'Sneaky' });
+    expect(no.status).toBe(422);
+  });
+
   it('rejects malformed submissions', async () => {
     const r = await call('POST', {}, { track: 'nowhere', compound: 'soft', line: [1, 2], playerId: P1, name: 'X' });
     expect(r.status).toBe(400);

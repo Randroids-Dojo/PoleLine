@@ -24,6 +24,8 @@ export class LineBuilder {
   private pts: number[] = [];
   private state: WalkState | null = null;
   private strokes: { count: number; state: WalkState }[] = [];
+  /** Points that belong to a line drawn for the player (the tutorial); undo never removes them. */
+  private base = 1;
   /** Where the most recent refused segment left the track. Cleared on undo or the next accepted point. */
   offTrack: { x: number; y: number } | null = null;
 
@@ -111,7 +113,38 @@ export class LineBuilder {
   }
 
   get canUndo(): boolean {
-    return this.status === 'drawing' && this.count > 1;
+    return this.status === 'drawing' && this.count > this.base;
+  }
+
+  /** Points drawn for the player before they take over (0 without a preloaded line). */
+  get preloaded(): number {
+    return this.base > 1 ? this.base : 0;
+  }
+
+  /**
+   * Begin from a line already drawn for the player (decimetre points, flat
+   * [x, y, ...]). It is walked exactly as the server's validator walks it, and
+   * undo stops at its end. Returns false if it is not a legal opening.
+   */
+  preload(points: readonly number[]): boolean {
+    this.reset();
+    if (points.length < 4 || points.length % 2) return false;
+    const st = startState(this.track, points[0] / UNITS_PER_METRE, points[1] / UNITS_PER_METRE);
+    if (!st) return false;
+    const state = st.state;
+    for (let i = 2; i < points.length; i += 2) {
+      const r = walkSegment(this.track, points[i - 2] / UNITS_PER_METRE, points[i - 1] / UNITS_PER_METRE, points[i] / UNITS_PER_METRE, points[i + 1] / UNITS_PER_METRE, state);
+      if (r.kind !== 'ok') {
+        this.reset();
+        return false;
+      }
+    }
+    this.pts = points.slice();
+    this.state = state;
+    this.status = 'drawing';
+    this.base = this.count;
+    this.strokes = [{ count: this.count, state: cloneState(state) }];
+    return true;
   }
 
   extend(x: number, y: number): ExtendResult {
@@ -192,5 +225,6 @@ export class LineBuilder {
     this.state = null;
     this.strokes = [];
     this.offTrack = null;
+    this.base = 1;
   }
 }

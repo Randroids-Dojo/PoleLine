@@ -6,6 +6,7 @@ PoleLine is a mobile web game set on 24 real Formula 1 circuits. You draw your r
 
 ## How it plays
 
+- **Learn on the Rookie Ring.** First launch opens a guided walkthrough on a made-up 1.6 km tutorial circuit (pole 30.000 s, so a whole lap is worth watching). The lap is drawn for you up to the final corner: a welcome, a flight along the drawn line, a tyre choice (it is 55°C on track, so mediums are quickest), then you draw the last corner with a dotted guide and live tips, watch the car run it with captions, and choose to try again or continue to the 24 rounds. Skipping or finishing is remembered, so later launches open on the circuit list. The Rookie Ring stays first in that list, marked Tutorial: draw the last corner again or replay the walkthrough. It has its own leaderboard and replays, and the server only accepts tutorial laps that start from the drawn line, so the board is about that one corner.
 - **Pick tyres, then draw.** Before your first stroke the bar at the bottom of the drawing screen picks soft, medium or hard (it remembers your choice per circuit, and shows that circuit's tyre tip). Start on the chequered line and drag along the track. The map is zoomed to a comfortable finger width and turns so the road ahead points up. When you near the edge of the screen your stroke ends and the map glides on; lift and carry on from the purple tip. Swipe on the grass to look around at any time; a button glides you back to the tip. The compass in the corner turns the map: tap it to put north, east, south or west at the top, or drag it to any angle. Auto-rotation (the road ahead points up) can be switched off with the compass's Auto pill or in Settings. Prefer one long stroke? Settings has a continuous mode where the map scrolls under your finger, with a speed slider (0.35x by default) and an optional "Slow down near corners" setting with four styles to experiment with. Cross the white line and your stroke stops at the edge; undo that stroke and try the corner again. Only a line that stays inside the limits can be raced.
 - **Your car.** A 2026-shape car in PoleLine purple or the colours of any of the eleven 2026 teams (loose colour impressions, no logos). Switch it under Your car in Settings.
 - **Race.** The screen stays awake (Screen Wake Lock) while you play. The car runs your line in real time: flying lap, live sector colours, delta to your personal best ghost, gear, revs, active aero (straight mode), the battery and tyre temperature.
@@ -44,9 +45,12 @@ Lap alerts (`api/push.ts`, `api/_push.ts`, `public/sw.js`) use Web Push with VAP
 Track geometry is generated:
 
 ```bash
-npm run tracks:build       # data-src/*.geojson -> src/data
+npm run tracks:build       # data-src/*.geojson -> src/data, then the tutorial line (src/data/tutorial.ts)
 npm run tracks:calibrate   # recompute per-circuit grip, then run tracks:build again
+npx tsx scripts/rookie-ring.ts   # regenerate the tutorial circuit's outline from its plan of straights and arcs
 ```
+
+The tutorial circuit is calibrated on mediums (its conditions are chosen so they are the quickest tyre); every other circuit is calibrated on softs.
 
 ## Data and credits
 

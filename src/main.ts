@@ -6,7 +6,7 @@ import { setKeepAwake } from './app/wake';
 import { bumpAttempts, currentSetup, getBest, getBestSectors, getSettings, getTyre, saveSettings, setBest, updateBestSectors } from './app/store';
 import { HomeScreen } from './screens/home';
 import { DrawScreen } from './screens/draw';
-import { RaceScreen, type CamSnapshot } from './screens/race';
+import { RaceScreen, timeAtProgress, type CamSnapshot, type RaceCaption } from './screens/race';
 import { ResultsScreen } from './screens/results';
 import { openLeaderboard } from './screens/leaderboard';
 import { flushUnsubmitted } from './app/sync';
@@ -17,6 +17,8 @@ import { initPwa } from './app/pwa';
 import { watchForUpdates } from './app/update';
 import { UpdateBanner } from './screens/update-banner';
 import { CATALOG } from './data/catalog';
+import { TUTORIAL } from './data/tutorial';
+import type { DrawTutorial } from './screens/draw';
 import { simulateLap } from './sim/lapsim';
 import { decodePath, encodePath, validatePath } from './sim/path';
 import type { Track } from './sim/track';
@@ -31,7 +33,47 @@ let currentSlug = getSettings().lastTrack;
 
 function home(slug = currentSlug): void {
   currentSlug = slug;
-  app.show(new HomeScreen(app, { draw: (s, c) => void draw(s, c), leaderboard: (s) => board(s) }, slug));
+  app.show(new HomeScreen(app, { draw: (s, c, walkthrough) => void draw(s, c, walkthrough), leaderboard: (s) => board(s) }, slug));
+}
+
+// Tutorial -----------------------------------------------------------------
+
+/** Absolute decimetre points from delta code. */
+function absolute(code: readonly number[]): number[] {
+  const out: number[] = [];
+  let x = 0, y = 0;
+  for (let i = 0; i < code.length; i += 2) {
+    x += code[i];
+    y += code[i + 1];
+    out.push(x, y);
+  }
+  return out;
+}
+
+function tutorialFor(walkthrough: boolean): DrawTutorial {
+  return {
+    prefix: absolute(TUTORIAL.line).slice(0, TUTORIAL.prefixPoints * 2),
+    handoff: TUTORIAL.handoff,
+    cornerIn: TUTORIAL.cornerIn,
+    apex: TUTORIAL.apex,
+    cornerOut: TUTORIAL.cornerOut,
+    walkthrough,
+  };
+}
+
+/** The ideal way through the last corner, from the handover to the line (metres), as a dotted guide. */
+function idealFinish(): Float64Array {
+  return decodePath(TUTORIAL.line).slice((TUTORIAL.prefixPoints - 1) * 2);
+}
+
+function endTutorial(state: 'done' | 'skipped'): void {
+  if (!getSettings().tutorial) saveSettings({ tutorial: state });
+}
+
+/** Where the championship picks up: the last real circuit played, else round 1. */
+function championshipSlug(): string {
+  const last = app.meta(getSettings().lastTrack);
+  return last.tutorial ? CATALOG.find((m) => !m.tutorial)!.slug : last.slug;
 }
 
 /** A circuit's leaderboard, from wherever it is opened. */
@@ -79,18 +121,34 @@ async function watch(slug: string, rank: number): Promise<void> {
   app.show(new RaceScreen(app, track, app.art(track), result, ghost, ghost ? ghost.sectorsMs : null, { finished: back, exit: back }, { driver: lap.name, rank, ghostName }));
 }
 
-async function draw(slug: string, compound: Compound): Promise<void> {
+async function draw(slug: string, compound: Compound, walkthrough = false): Promise<void> {
   currentSlug = slug;
-  saveSettings({ lastTrack: slug });
+  const meta = app.meta(slug);
+  if (!meta.tutorial) saveSettings({ lastTrack: slug });
   if (history.state?.screen !== 'session') history.pushState({ screen: 'session' }, '');
   const track = await app.track(slug);
   const art = app.art(track);
   const best = getBest(slug);
-  const guide = best ? decodePath(best.code) : null;
-  app.show(new DrawScreen(app, track, art, compound, { complete: (pts, tyre) => race(track, tyre, pts), exit: () => home(slug) }, guide));
+  // The walkthrough shows a fast way through the last corner; otherwise your best lap is the guide.
+  const guide = walkthrough ? idealFinish() : best ? decodePath(best.code) : null;
+  const leave = () => {
+    if (walkthrough) endTutorial('skipped');
+    home(walkthrough ? championshipSlug() : slug);
+  };
+  app.show(
+    new DrawScreen(
+      app,
+      track,
+      art,
+      compound,
+      { complete: (pts, tyre) => race(track, tyre, pts, walkthrough), exit: leave, skip: leave },
+      guide,
+      meta.tutorial ? tutorialFor(walkthrough) : null,
+    ),
+  );
 }
 
-function race(track: Track, compound: Compound, pts: number[]): void {
+function race(track: Track, compound: Compound, pts: number[], walkthrough = false): void {
   const slug = track.meta.slug;
   const art = app.art(track);
   const code = encodePath(pts);
@@ -112,16 +170,30 @@ function race(track: Track, compound: Compound, pts: number[]): void {
     setBest(slug, { timeMs: lap.timeMs, compound, sectorsMs: lap.sectorsMs, code, date: new Date().toISOString(), submitted: false, setup });
   }
   updateBestSectors(slug, lap.sectorsMs);
-  const showResults = (from: CamSnapshot) =>
+  const showResults = (from: CamSnapshot) => {
+    // Finishing the walkthrough lap completes the tutorial.
+    if (walkthrough) endTutorial('done');
     app.show(
-      new ResultsScreen(app, track, art, { lap, points, code, previous, bestSectorsBefore, isPb, attempt, setup }, {
+      new ResultsScreen(app, track, art, { lap, points, code, previous, bestSectorsBefore, isPb, attempt, setup, walkthrough }, {
         // The tyre chosen for this circuit, which copying a setup from the leaderboard can change.
         again: () => void draw(slug, getTyre(slug)),
         leaderboard: () => board(slug),
         home: () => home(slug),
+        continueGame: walkthrough ? () => home(championshipSlug()) : undefined,
       }, from),
     );
-  app.show(new RaceScreen(app, track, art, lap, ghost, bestSectorsBefore, { finished: showResults, exit: () => home(slug) }));
+  };
+  // The walkthrough narrates the first lap it shows.
+  const yours = walkthrough ? timeAtProgress(lap, TUTORIAL.handoff) : 0;
+  const captions: RaceCaption[] = walkthrough
+    ? [
+        { at: -2.4, dur: 3.2, text: 'Here it comes on a flying lap, driving the line exactly.' },
+        { at: 2.5, dur: 4.5, text: 'Speed, gear, battery and tyres live in the bar below.' },
+        { at: 9, dur: 4.5, text: 'Sectors turn purple when they beat real pole pace.' },
+        { at: yours - 0.8, dur: 4.5, text: 'Now the corner you drew.' },
+      ]
+    : [];
+  app.show(new RaceScreen(app, track, art, lap, ghost, bestSectorsBefore, { finished: showResults, exit: () => home(slug) }, null, captions));
 }
 
 window.addEventListener('popstate', () => {
@@ -135,7 +207,7 @@ window.addEventListener('popstate', () => {
 });
 
 if (import.meta.env.DEV || new URLSearchParams(location.search).has('debug')) {
-  (window as unknown as { __pl: unknown }).__pl = { app, race };
+  (window as unknown as { __pl: unknown }).__pl = { app, race, draw };
 }
 
 /** Links from lap alerts: `?track=<slug>&board=1` opens that circuit's leaderboard. */
@@ -156,6 +228,9 @@ if (openLink(location.search)) {
   q.delete('track');
   q.delete('board');
   history.replaceState(history.state, '', `${location.pathname}${q.size ? `?${q}` : ''}`);
+} else if (!getSettings().tutorial) {
+  // First launch: the walkthrough on the tutorial circuit, until it is finished or skipped.
+  void draw(TUTORIAL.slug, getTyre(TUTORIAL.slug), true);
 } else {
   home();
 }

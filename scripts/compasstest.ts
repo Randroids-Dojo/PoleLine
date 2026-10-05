@@ -7,7 +7,7 @@ const b = await chromium.launch();
 const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
 const p = await ctx.newPage();
 p.on('pageerror', (e) => console.log('[pageerror]', e.message));
-await p.addInitScript(() => localStorage.setItem('poleline:v1:settings', JSON.stringify({ v: 2, sound: false, lastTrack: 'silverstone' })));
+await p.addInitScript(() => localStorage.setItem('poleline:v1:settings', JSON.stringify({ v: 2, tutorial: 'done', sound: false, lastTrack: 'silverstone' })));
 await p.goto('http://localhost:5199/');
 await p.waitForTimeout(600);
 await p.getByRole('button', { name: 'Draw a lap' }).click();

@@ -33,6 +33,7 @@ import { packLine } from '../src/sim/pack.js';
 import { MAX_POINTS, decodePath, validatePath } from '../src/sim/path.js';
 import { buildTrack, type Track } from '../src/sim/track.js';
 import { SIM_VERSION } from '../src/sim/version.js';
+import { TUTORIAL } from '../src/data/tutorial.js';
 import { alertPassed } from './_push.js';
 import { redis } from './_redis.js';
 
@@ -111,12 +112,21 @@ function track(slug: string): Track {
 /** Pure scoring step, exported for tests: line in, server-authoritative lap out. */
 export function scoreLine(slug: string, line: number[], compound: 'soft' | 'medium' | 'hard'): { ok: true; timeMs: number } | { ok: false; error: string } {
   const t = track(slug);
+  if (slug === TUTORIAL.slug && !startsWithTutorialPrefix(line)) return { ok: false, error: 'line rejected (tutorial laps start from the drawn line)' };
   const pts = decodePath(line);
   const v = validatePath(t, pts);
   if (!v.ok) return { ok: false, error: `line rejected (${v.error})` };
   const lap = simulateLap(t, pts, compound);
   if (!Number.isFinite(lap.timeMs) || lap.timeMs < t.meta.poleRef * 1000 * 0.8) return { ok: false, error: 'lap time out of range' };
   return { ok: true, timeMs: lap.timeMs };
+}
+
+/** The tutorial board is about the last corner: everything before it is the same line for everyone. */
+function startsWithTutorialPrefix(line: number[]): boolean {
+  const n = TUTORIAL.prefixPoints * 2;
+  if (line.length <= n) return false;
+  for (let i = 0; i < n; i++) if (line[i] !== TUTORIAL.line[i]) return false;
+  return true;
 }
 
 function first(v: string | string[] | undefined): string | undefined {

@@ -23,6 +23,8 @@ export interface ResultsActions {
   again(): void;
   leaderboard(): void;
   home(): void;
+  /** End of the tutorial walkthrough: on to the championship. */
+  continueGame?(): void;
 }
 
 export interface ResultsInput {
@@ -34,6 +36,8 @@ export interface ResultsInput {
   isPb: boolean;
   attempt: number;
   setup: DrawSetup;
+  /** The first, guided lap of the tutorial. */
+  walkthrough?: boolean;
 }
 
 const NAME_RE = /^[A-Za-z0-9 _.-]{2,14}$/;
@@ -112,18 +116,31 @@ export class ResultsScreen implements Screen {
       notes.length ? h('div', { class: 'res-notes' }, h('p', null, notes[0])) : null,
       h('details', { class: 'res-details' }, h('summary', null, h('span', null, 'Lap details'), h('span', { class: 'res-details-icon', html: ICONS.chevron })), facts),
       this.world,
-      h(
-        'div',
-        { class: 'res-actions' },
-        h('button', { class: 'btn-primary', onclick: () => this.actions.again() }, 'Draw again'),
-        h(
-          'div',
-          { class: 'res-secondary' },
-          h('button', { class: 'btn-quiet', onclick: () => this.actions.leaderboard() }, 'Leaderboard'),
-          h('button', { class: 'btn-quiet', onclick: (e: Event) => this.share(e.currentTarget as HTMLButtonElement, slot.stamp) }, 'Share'),
-          h('button', { class: 'btn-quiet', onclick: () => this.actions.home() }, 'Circuits'),
-        ),
-      ),
+      input.walkthrough && this.actions.continueGame
+        ? h(
+            'div',
+            { class: 'res-actions' },
+            h('p', { class: 'res-tutorial' }, 'That is the whole game: draw a line, watch it run, find time. 24 real circuits are waiting.'),
+            h('button', { class: 'btn-primary', onclick: () => this.actions.continueGame!() }, 'Continue to the circuits'),
+            h(
+              'div',
+              { class: 'res-secondary' },
+              h('button', { class: 'btn-quiet', onclick: () => this.actions.again() }, 'Try the corner again'),
+              h('button', { class: 'btn-quiet', onclick: () => this.actions.leaderboard() }, 'Leaderboard'),
+            ),
+          )
+        : h(
+            'div',
+            { class: 'res-actions' },
+            h('button', { class: 'btn-primary', onclick: () => this.actions.again() }, 'Draw again'),
+            h(
+              'div',
+              { class: 'res-secondary' },
+              h('button', { class: 'btn-quiet', onclick: () => this.actions.leaderboard() }, 'Leaderboard'),
+              h('button', { class: 'btn-quiet', onclick: (e: Event) => this.share(e.currentTarget as HTMLButtonElement, slot.stamp) }, 'Share'),
+              h('button', { class: 'btn-quiet', onclick: () => this.actions.home() }, 'Circuits'),
+            ),
+          ),
     );
     this.el = h('div', { class: 'results' }, this.sheet);
     app.root.append(this.el);
@@ -136,7 +153,8 @@ export class ResultsScreen implements Screen {
     this.leaderboardBlock();
     // Install and lap alert prompts wait for the result to land. A first lap
     // waits for the name form, so they follow the lap reaching the board.
-    if (!(input.isPb && !getPlayer().name)) this.queuePrompts(2400);
+    // The walkthrough's ending stays uncluttered; the prompts follow the next lap.
+    if (!input.walkthrough && !(input.isPb && !getPlayer().name)) this.queuePrompts(2400);
   }
 
   private queuePrompts(delay: number): void {
@@ -179,7 +197,7 @@ export class ResultsScreen implements Screen {
           if (r.timeMs !== lap.timeMs) console.warn('server time differs', r.timeMs, lap.timeMs);
           setText(status, r.rank ? `World #${r.rank} of ${r.total} on ${this.track.meta.short}` : 'Posted.');
           status.classList.add('is-rank');
-          this.queuePrompts(1200);
+          if (!this.input.walkthrough) this.queuePrompts(1200);
         })
         .catch((err: Error) => setText(status, `Not posted: ${err.message}. Your time is saved on this device.`));
     };

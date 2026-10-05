@@ -32,6 +32,13 @@ export interface RaceActions {
   exit(): void;
 }
 
+/** A line of coaching shown during the race (tutorial), from `at` seconds of lap time for `dur` seconds. */
+export interface RaceCaption {
+  at: number;
+  dur: number;
+  text: string;
+}
+
 /** Watching a leaderboard lap instead of running your own. */
 export interface ReplayInfo {
   driver: string;
@@ -126,6 +133,8 @@ export class RaceScreen implements Screen {
   private tyreTemp: HTMLElement;
   private tyreChip: HTMLElement;
   private banner: HTMLElement;
+  private caption: HTMLElement;
+  private captionOn = -1;
   private sectors: HTMLElement[] = [];
   private sectorDone = [false, false, false];
   private finishedFlag = false;
@@ -143,6 +152,7 @@ export class RaceScreen implements Screen {
     private bestSectors: [number, number, number] | null,
     private actions: RaceActions,
     private replay: ReplayInfo | null = null,
+    private captions: RaceCaption[] = [],
   ) {
     app.setCanvasVisible(true);
     this.path = polyPath(Array.from({ length: lap.n * 2 }, (_, k) => (k % 2 === 0 ? lap.x[k >> 1] : lap.y[k >> 1])));
@@ -170,6 +180,7 @@ export class RaceScreen implements Screen {
     this.tyreTemp = h('span', null, '');
     this.tyreChip = h('div', { class: 'tyre-chip', html: tyreBadge(lap.compound, 24) }, this.tyreTemp);
     this.banner = h('div', { class: 'race-banner' }, replay ? `${replay.driver}, P${replay.rank}` : 'Flying lap');
+    this.caption = h('p', { class: 'race-caption', role: 'status', hidden: true });
 
     this.el = h(
       'div',
@@ -181,6 +192,7 @@ export class RaceScreen implements Screen {
         h('div', { class: 'sectors' }, ...this.sectors),
       ),
       this.banner,
+      this.caption,
       // Skip sits above the bottom strip, where a thumb already is, clear of the timing card.
       h(
         'div',
@@ -308,6 +320,17 @@ export class RaceScreen implements Screen {
     updateEngine(rpm, lap.throttle[i], smp.v);
 
     if (elapsed > 0.6 && !this.banner.classList.contains('is-gone')) this.banner.classList.add('is-gone');
+    if (this.captions.length) {
+      let on = -1;
+      this.captions.forEach((c, k) => {
+        if (elapsed >= c.at && elapsed < c.at + c.dur) on = k;
+      });
+      if (on !== this.captionOn) {
+        this.captionOn = on;
+        this.caption.hidden = on < 0;
+        if (on >= 0) setText(this.caption, this.captions[on].text);
+      }
+    }
 
     if (this.ghost && elapsed > 0.2 && elapsed < T && !this.finishedFlag) {
       const gt = timeAtProgress(this.ghost, smp.s);

@@ -287,6 +287,43 @@ button:disabled {
   background: var(--sheet);
 }
 
+/* The tutorial circuit leads the strip, set apart from the championship rounds. */
+.round.is-tutorial {
+  width: 96px;
+  margin-right: 10px;
+  background: var(--purple-tint);
+  color: var(--purple-ink);
+}
+
+.round.is-tutorial .round-n {
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--purple);
+  color: #fff;
+  font-size: 10px;
+}
+
+.round.is-tutorial.is-on {
+  background: var(--sheet);
+  box-shadow: inset 0 0 0 2px var(--purple);
+}
+
+.tutorial-tag {
+  margin-right: 4px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--purple);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.launch-replay {
+  justify-self: center;
+  min-height: 40px;
+  color: var(--purple-ink);
+}
+
 .round.is-on::after {
   content: '';
   position: absolute;
@@ -629,6 +666,112 @@ button:disabled {
 .strip[hidden],
 .draw-tyre[hidden] {
   display: none;
+}
+
+/* Tutorial walkthrough: a coach card and a spotlight on what to touch. */
+.coach {
+  pointer-events: auto;
+  position: absolute;
+  left: 50%;
+  z-index: 6;
+  display: grid;
+  gap: 6px;
+  width: min(360px, calc(100% - 32px));
+  padding: 16px 16px 10px;
+  border-radius: 12px;
+  border: 2px solid var(--ink);
+  background: var(--sheet);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.3);
+  transform: translateX(-50%);
+  animation: coach-in 0.28s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+
+.coach.is-center {
+  top: 50%;
+  transform: translate(-50%, -50%);
+  animation: coach-pop 0.3s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+
+.coach strong {
+  font-size: 20px;
+  font-weight: 900;
+  font-stretch: 125%;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+.coach p {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.4;
+  color: var(--ink-2);
+}
+
+.coach-step {
+  font-size: 12px;
+  font-weight: 750;
+  color: var(--purple-ink);
+}
+
+.coach-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.coach-actions .btn-ink {
+  min-height: 44px;
+  padding: 0 22px;
+}
+
+.coach-skip {
+  min-height: 40px;
+  margin-left: auto;
+  padding: 0 4px;
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--ink-2);
+}
+
+.coach-dim,
+.coach-spot {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.coach-dim {
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  animation: fade-in 0.2s ease;
+}
+
+.coach-spot {
+  border-radius: 10px;
+  box-shadow:
+    0 0 0 3px var(--purple),
+    0 0 0 200vmax rgba(0, 0, 0, 0.42);
+  animation: fade-in 0.2s ease;
+}
+
+.coach-spot.is-round {
+  border-radius: 50%;
+}
+
+@keyframes coach-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 12px);
+  }
+}
+
+@keyframes coach-pop {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -46%);
+  }
 }
 
 .draw-tyres {
@@ -1209,6 +1352,29 @@ button:disabled {
   }
 }
 
+.race-caption {
+  pointer-events: none;
+  position: absolute;
+  top: calc(118px + var(--safe-top));
+  left: 50%;
+  width: min(360px, calc(100% - 32px));
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--ink);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.35;
+  text-align: center;
+  transform: translateX(-50%);
+  animation: coach-in 0.28s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+
+.race-caption[hidden] {
+  display: none;
+}
+
 .race-foot {
   position: absolute;
   left: 10px;
@@ -1659,6 +1825,13 @@ button:disabled {
   font-weight: 850;
   font-stretch: 112%;
   font-variant-numeric: tabular-nums;
+}
+
+.res-tutorial {
+  margin: 0 0 4px;
+  font-size: 15px;
+  line-height: 1.4;
+  color: var(--ink-2);
 }
 
 .res-details {

@@ -192,6 +192,7 @@ for (const cfg of TRACKS) {
     straights: straightZones(center, length / center.length),
     size: [Math.round(maxX - minX), Math.round(maxY - minY)],
     outline,
+    ...(cfg.tutorial ? { tutorial: true } : {}),
   };
   catalog.push(entry);
   console.log(

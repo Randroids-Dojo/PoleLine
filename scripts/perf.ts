@@ -4,7 +4,7 @@ import { chromium } from 'playwright-core';
 const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
 const page = await ctx.newPage();
-await page.addInitScript(() => localStorage.setItem('poleline:v1:settings', JSON.stringify({ lastTrack: 'silverstone', sound: false })));
+await page.addInitScript(() => localStorage.setItem('poleline:v1:settings', JSON.stringify({ tutorial: 'done', lastTrack: 'silverstone', sound: false })));
 await page.goto('http://localhost:5199/');
 await page.waitForTimeout(600);
 const cdp = await ctx.newCDPSession(page);

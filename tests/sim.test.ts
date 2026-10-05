@@ -16,8 +16,9 @@ const idealSilver = minCurvatureOffsets(silver);
 const idealCode = encodePath(offsetsToLine(silver, idealSilver));
 
 describe('track catalog', () => {
-  it('has 24 circuits with sane lengths', () => {
-    expect(CATALOG).toHaveLength(24);
+  it('has 24 rounds plus the tutorial circuit, all with sane lengths', () => {
+    expect(CATALOG).toHaveLength(25);
+    expect(CATALOG.filter((m) => m.tutorial).map((m) => m.slug)).toEqual(['rookie-ring']);
     for (const m of CATALOG) {
       expect(Math.abs(m.length - m.officialLength) / m.officialLength).toBeLessThan(0.02);
       // Energy-hungry circuits need more grip to match pre-2026 pole pace.

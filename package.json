@@ -10,7 +10,7 @@
     "preview": "vite preview --host 0.0.0.0",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "tracks:build": "tsx scripts/build-tracks.ts",
+    "tracks:build": "tsx scripts/build-tracks.ts && tsx scripts/build-tutorial.ts",
     "tracks:calibrate": "tsx scripts/calibrate.ts"
   },
   "dependencies": {

@@ -29,7 +29,7 @@ const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, de
 const page = await ctx.newPage();
 page.on('pageerror', (e) => console.log('[pageerror]', e.message));
 await page.addInitScript((s) => {
-  localStorage.setItem('poleline:v1:settings', JSON.stringify({ lastTrack: s, sound: false }));
+  localStorage.setItem('poleline:v1:settings', JSON.stringify({ tutorial: 'done', lastTrack: s, sound: false }));
   (window as unknown as { __types: Record<string, number> }).__types = {};
   window.addEventListener(
     'pointerdown',

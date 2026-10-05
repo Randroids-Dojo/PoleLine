@@ -33,6 +33,20 @@ import { CornerDamper, type CornerDamping } from '../app/damping';
 export interface DrawActions {
   complete(points: number[], compound: Compound): void;
   exit(): void;
+  /** The player skipped the tutorial walkthrough. */
+  skip?(): void;
+}
+
+/** The tutorial circuit: most of the lap is drawn for the player. */
+export interface DrawTutorial {
+  /** The line drawn for the player, absolute decimetre points [x, y, ...]. */
+  prefix: number[];
+  handoff: number;
+  cornerIn: number;
+  apex: number;
+  cornerOut: number;
+  /** First run: a guided walkthrough with coaching. */
+  walkthrough: boolean;
 }
 
 interface CamState {
@@ -52,6 +66,8 @@ interface Rect {
 }
 
 const TIP_GRAB_RADIUS = 58;
+
+const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 /** A touch this far outside the white line (metres) counts as grass and pans the map. */
 const GRASS_MARGIN = 0.6;
 /** Help tips stay up this long (plus a little per character), then fade. */
@@ -78,7 +94,18 @@ const HINTS = {
   closing: 'Cross the line where you started for a clean flying lap.',
   backward: 'The line only flows forward.',
   grab: 'Carry on from the end of your line.',
+  tutorialStart: 'Put your finger on the purple tip and draw to the finish line.',
 };
+
+/** Coaching while the walkthrough player draws the final corner: [lap metres, tip]. */
+function cornerTips(t: DrawTutorial): [number, string][] {
+  return [
+    [t.handoff + 4, 'Stay out wide as the corner comes up.'],
+    [t.cornerIn - 14, 'Now turn in, aiming for the inside kerb.'],
+    [t.apex - 12, 'Clip the apex, right against the inside.'],
+    [t.cornerOut - 24, 'Let it run out wide, then straight to the line.'],
+  ];
+}
 
 export class DrawScreen implements Screen {
   private builder: LineBuilder;
@@ -86,6 +113,17 @@ export class DrawScreen implements Screen {
   private glide: { from: CamState; to: CamState; t0: number; dur: number } | null = null;
   private ink = new Path2D();
   private inkFrom = 0;
+  private inkStart = 0;
+  /** Tutorial: the part of the lap drawn for the player, and lap progress where theirs begins. */
+  private givenInk: Path2D | null = null;
+  private given = 0;
+  private tipsShown = 0;
+  /** Walkthrough: drawing waits until the coach hands over. */
+  private locked = false;
+  private coachCard: HTMLElement | null = null;
+  private coachSpot: HTMLElement | null = null;
+  private waitTyre: (() => void) | null = null;
+  private waitDraw: (() => void) | null = null;
   private pointerId: number | null = null;
   private drawing = false;
   private zoom: number;
@@ -154,9 +192,16 @@ export class DrawScreen implements Screen {
     private compound: Compound,
     private actions: DrawActions,
     guide: Float64Array | null = null,
+    private tutorial: DrawTutorial | null = null,
   ) {
     this.builder = new LineBuilder(track);
     if (guide) this.guidePath = polyPath(guide);
+    if (tutorial) {
+      if (!this.builder.preload(tutorial.prefix)) throw new Error('tutorial line is not a legal opening');
+      this.given = this.builder.progress;
+      this.givenInk = polyPath(Array.from(tutorial.prefix, (v) => v / UNITS_PER_METRE));
+      this.rebuildInk();
+    }
     const settings = getSettings();
     this.mode = settings.scrollMode;
     this.scrollSpeed = settings.scrollSpeed;
@@ -172,7 +217,8 @@ export class DrawScreen implements Screen {
     app.setCanvasVisible(true);
     this.zoom = this.drawZoom();
 
-    this.hint = h('p', { class: 'draw-hint', role: 'status' }, HINTS.start);
+    // The walkthrough introduces itself; no start hint underneath it.
+    this.hint = h('p', { class: `draw-hint${tutorial?.walkthrough ? ' is-hidden' : ''}`, role: 'status' }, tutorial ? '' : HINTS.start);
     this.bar = h('i');
     this.pct = h('span', { class: 'draw-pct' }, '0%');
     this.undoBtn = h('button', { class: 'icon-btn', 'aria-label': 'Undo last stroke', html: ICONS.undo, onclick: () => this.undo() }) as HTMLButtonElement;
@@ -184,7 +230,7 @@ export class DrawScreen implements Screen {
       'div',
       { class: 'strip strip-top' },
       h('button', { class: 'icon-btn', 'aria-label': 'Back to circuits', html: ICONS.close, onclick: () => this.actions.exit() }),
-      h('div', { class: 'draw-title' }, h('strong', null, track.meta.short), (this.subtitle = h('span', null, 'Draw your lap'))),
+      h('div', { class: 'draw-title' }, h('strong', null, track.meta.short), (this.subtitle = h('span', null, tutorial ? 'Draw the last corner' : 'Draw your lap'))),
       h('button', { class: 'icon-btn', 'aria-label': 'Settings', html: ICONS.gear, onclick: () => openSettings(this.app, (s) => this.applySettings(s)) }),
       (this.tyreMark = h('span', { class: 'draw-tyre', title: COMPOUND_SPECS[compound].label, html: tyreBadge(compound, 26) })),
     );
@@ -222,11 +268,19 @@ export class DrawScreen implements Screen {
     );
     app.root.append(this.el);
     this.resize();
-    this.showHint(HINTS.start);
     this.updateSubtitle(this.cornerFactor());
-    this.setCam(this.startFrame());
     this.syncTyres();
     this.updateHud();
+    if (tutorial?.walkthrough) {
+      this.setCam(this.startFrame());
+      void this.walkthrough();
+    } else if (tutorial) {
+      this.setCam(this.frameFor(this.builder.progress, this.builder.lastPoint!));
+      this.showHint(HINTS.tutorialStart);
+    } else {
+      this.setCam(this.startFrame());
+      this.showHint(HINTS.start);
+    }
 
     const c = app.canvas;
     this.listen(c, 'pointerdown', (e) => this.onDown(e as PointerEvent));
@@ -543,6 +597,7 @@ export class DrawScreen implements Screen {
     this.dismissCoach();
     const p = this.local(e);
     const w = this.cam.toWorld(p.x, p.y);
+    if (this.locked) return;
     if (this.builder.status === 'idle') {
       if (this.builder.canStartAt(w.x, w.y)) {
         this.glide = null;
@@ -579,6 +634,7 @@ export class DrawScreen implements Screen {
     this.glide = null;
     this.awaitLift = false;
     this.closeLimits();
+    this.waitDraw?.();
     this.builder.beginStroke();
     this.strokes++;
     this.strokeFrom = this.builder.progress;
@@ -766,7 +822,7 @@ export class DrawScreen implements Screen {
     const s = this.cam.toScreen(anchor.x, anchor.y);
     const { top, bottom, left, right } = this.safe;
     const off = s.x < left || s.x > right || s.y < top - 20 || s.y > bottom + 40;
-    const show = off && !this.glide;
+    const show = off && !this.glide && !this.locked;
     if (show !== this.recenterShown) {
       this.recenterShown = show;
       this.recenterBtn.classList.toggle('is-hidden', !show);
@@ -789,6 +845,7 @@ export class DrawScreen implements Screen {
     if (r !== 'backward' && r !== 'skip') this.backwardRun = 0;
     if (r === 'ok' || r === 'finish') {
       this.appendInk();
+      this.cornerCoaching();
       const ds = this.builder.progress - before;
       if (r === 'ok' && ds > 0) {
         if (this.mode === 'continuous') this.conveyor(ds);
@@ -835,7 +892,7 @@ export class DrawScreen implements Screen {
     const rate = live ? Math.round(this.scrollSpeed * factor * 100) / 100 : -1;
     if (rate === this.scrollShown) return;
     this.scrollShown = rate;
-    setText(this.subtitle, live ? `Scroll ${rate.toFixed(2)}× near here` : 'Draw your lap');
+    setText(this.subtitle, live ? `Scroll ${rate.toFixed(2)}× near here` : this.tutorial ? 'Draw the last corner' : 'Draw your lap');
   }
 
   /** Continuous mode: feed the map forward while the tip is running out of room ahead. */
@@ -857,7 +914,8 @@ export class DrawScreen implements Screen {
 
   private rebuildInk(): void {
     this.ink = new Path2D();
-    this.inkFrom = 0;
+    // The player's ink starts where the line drawn for them ends.
+    this.inkFrom = this.inkStart = Math.max(0, this.builder.preloaded - 1);
     this.appendInk();
   }
 
@@ -867,7 +925,7 @@ export class DrawScreen implements Screen {
     for (let i = this.inkFrom; i < n; i++) {
       const x = pts[i * 2] / UNITS_PER_METRE;
       const y = pts[i * 2 + 1] / UNITS_PER_METRE;
-      if (i === 0) this.ink.moveTo(x, y);
+      if (i === this.inkStart) this.ink.moveTo(x, y);
       else this.ink.lineTo(x, y);
     }
     this.inkFrom = n;
@@ -893,6 +951,7 @@ export class DrawScreen implements Screen {
   }
 
   private pickTyre(c: Compound): void {
+    this.waitTyre?.();
     sfx.tap();
     this.compound = c;
     setTyre(this.track.meta.slug, c);
@@ -914,11 +973,21 @@ export class DrawScreen implements Screen {
     if (this.drawing) return;
     sfx.tap();
     this.closeLimits();
-    this.builder.reset();
     this.awaitLift = false;
+    this.strokes = 0;
+    if (this.tutorial) {
+      // Back to the end of the line drawn for the player.
+      this.builder.preload(this.tutorial.prefix);
+      this.rebuildInk();
+      this.tipsShown = 0;
+      this.glideToTip();
+      this.showHint(HINTS.tutorialStart);
+      this.updateHud();
+      return;
+    }
+    this.builder.reset();
     this.ink = new Path2D();
     this.inkFrom = 0;
-    this.strokes = 0;
     this.glideTo(this.startFrame(), 600);
     this.showHint(HINTS.start);
     this.updateHud();
@@ -995,14 +1064,154 @@ export class DrawScreen implements Screen {
     this.hint.classList.add('is-flash');
   }
 
+  // Walkthrough --------------------------------------------------------------
+
+  /**
+   * The guided first run on the tutorial circuit: welcome, a flight along the
+   * line drawn for the player, the tyre choice, then their turn at the tip.
+   */
+  private async walkthrough(): Promise<void> {
+    this.locked = true;
+    const welcome = await this.coachStep({
+      title: 'Welcome to PoleLine',
+      body: 'You draw the racing line, and a 2026 F1 car drives it flat out. We have drawn this lap for you as far as the last corner. You finish it.',
+      primary: 'Show me',
+    });
+    if (welcome === 'skip') return this.skipWalkthrough();
+    await this.tour();
+    if (this.closed) return;
+    const tyres = this.coachStep({
+      step: 'Step 1 of 2',
+      title: 'Pick your tyres',
+      body: `It is ${this.track.meta.trackTemp}°C on track. Softs grip most but overheat, hards never get warm. Mediums are made for days like this.`,
+      target: () => this.tyreStrip.getBoundingClientRect(),
+    });
+    const picked = new Promise<'next'>((r) => (this.waitTyre = () => {
+      this.waitTyre = null;
+      r('next');
+    }));
+    if ((await Promise.race([tyres, picked])) === 'skip') return this.skipWalkthrough();
+    this.closeCoach();
+    this.locked = false;
+    this.glideToTip();
+    await wait(520);
+    if (this.closed) return;
+    const turn = this.coachStep({
+      step: 'Step 2 of 2',
+      title: 'Your turn',
+      body: 'Put your finger on the purple tip and draw through the last corner to the chequered line. The dotted line is one fast way round.',
+      target: () => {
+        const tip = this.builder.lastPoint;
+        if (!tip) return null;
+        const t = this.cam.toScreen(tip.x, tip.y);
+        return new DOMRect(t.x - 30, t.y - 30, 60, 60);
+      },
+      round: true,
+    });
+    const started = new Promise<'next'>((r) => (this.waitDraw = () => {
+      this.waitDraw = null;
+      r('next');
+    }));
+    if ((await Promise.race([turn, started])) === 'skip') return this.skipWalkthrough();
+    this.closeCoach();
+    this.showHint(HINTS.drawing);
+  }
+
+  private closed = false;
+
+  private skipWalkthrough(): void {
+    this.closeCoach();
+    this.actions.skip?.();
+  }
+
+  /** Fly the camera along the line drawn for the player, start line to handover. */
+  private async tour(): Promise<void> {
+    this.showHint('The purple line is drawn for you, from the start to the last corner.');
+    const z = this.zoom * 0.5;
+    for (const f of [0.18, 0.4, 0.62, 0.82, 1]) {
+      if (this.closed) return;
+      const s = this.given * f;
+      const a = frameAt(this.track, s);
+      const b = frameAt(this.track, s + 80);
+      this.glideTo({ cx: a.x, cy: a.y, zoom: z, angle: angleForHeading(b.x - a.x, b.y - a.y), ax: 0.5, ay: 0.58 }, 820);
+      await wait(820);
+    }
+  }
+
+  private coachStep(o: { step?: string; title: string; body: string; primary?: string; target?: () => DOMRect | null; round?: boolean }): Promise<'next' | 'skip'> {
+    this.closeCoach();
+    return new Promise((resolve) => {
+      const done = (r: 'next' | 'skip') => {
+        this.closeCoach();
+        resolve(r);
+      };
+      const card = h(
+        'div',
+        { class: 'coach', role: 'dialog', 'aria-label': o.title },
+        o.step ? h('span', { class: 'coach-step' }, o.step) : null,
+        h('strong', null, o.title),
+        h('p', null, o.body),
+        h(
+          'div',
+          { class: 'coach-actions' },
+          o.primary ? h('button', { class: 'btn-ink', onclick: () => done('next') }, o.primary) : null,
+          h('button', { class: 'coach-skip', onclick: () => done('skip') }, 'Skip tutorial'),
+        ),
+      );
+      const r = o.target?.() ?? null;
+      if (r) {
+        // A ring around the thing to touch; everything else dims, and touches still pass through.
+        const pad = o.round ? 0 : 6;
+        this.coachSpot = h('div', {
+          class: `coach-spot${o.round ? ' is-round' : ''}`,
+          style: `left:${r.left - pad}px;top:${r.top - pad}px;width:${r.width + pad * 2}px;height:${r.height + pad * 2}px`,
+        });
+        this.el.append(this.coachSpot);
+        const below = r.top < this.app.h / 2;
+        card.classList.add(below ? 'is-below' : 'is-above');
+        card.style.setProperty(below ? 'top' : 'bottom', `${below ? r.bottom + 18 : this.app.h - r.top + 18}px`);
+      } else {
+        card.classList.add('is-center');
+        this.coachSpot = h('div', { class: 'coach-dim' });
+        this.el.append(this.coachSpot);
+      }
+      this.coachCard = card;
+      this.el.append(card);
+    });
+  }
+
+  private closeCoach(): void {
+    this.coachCard?.remove();
+    this.coachSpot?.remove();
+    this.coachCard = this.coachSpot = null;
+  }
+
+  /** Walkthrough: one tip per stage of the final corner, as the line gets there. */
+  private cornerCoaching(): void {
+    if (!this.tutorial?.walkthrough) return;
+    const tips = cornerTips(this.tutorial);
+    const s = this.builder.progress;
+    while (this.tipsShown < tips.length && s >= tips[this.tipsShown][0]) {
+      if (this.tipsShown === tips.length - 1 || s < tips[this.tipsShown + 1][0]) this.showHint(tips[this.tipsShown][1]);
+      this.tipsShown++;
+    }
+  }
+
+  /** Before the first stroke (or, on the tutorial, before the player adds to the drawn line). */
+  private get fresh(): boolean {
+    return this.builder.status === 'idle' || (this.builder.preloaded > 0 && this.builder.status === 'drawing' && this.builder.count === this.builder.preloaded);
+  }
+
   private updateHud(): void {
-    const f = Math.min(1, this.builder.progress / this.track.length);
+    // The tutorial counts only the player's part of the lap.
+    const span = this.track.length - this.given;
+    const f = Math.min(1, Math.max(0, (this.builder.progress - this.given) / span));
     const pc = this.builder.status === 'done' ? 100 : Math.floor(f * 100);
     this.bar.style.transform = `scaleX(${f})`;
     setText(this.pct, `${pc}%`);
     this.undoBtn.disabled = !this.builder.canUndo;
     // The tyre choice belongs to the start; once ink is down the bar is for drawing.
-    const idle = this.builder.status === 'idle';
+    const idle = this.fresh;
     this.tyreStrip.hidden = !idle;
     this.bottomStrip.hidden = idle;
     this.tyreMark.hidden = idle;
@@ -1148,6 +1357,7 @@ export class DrawScreen implements Screen {
     }
     if (status === 'idle') this.drawStartCue(ctx, now);
     if (status === 'drawing') this.drawEdgeWarning(ctx);
+    if (this.givenInk) strokeInk(ctx, this.givenInk, this.cam.zoom, INK, 0.45);
     if (status !== 'idle') {
       strokeInk(ctx, this.ink, this.cam.zoom, INK);
     }
@@ -1309,6 +1519,8 @@ export class DrawScreen implements Screen {
   }
 
   destroy(): void {
+    this.closed = true;
+    this.closeCoach();
     if (this.hintTimer) clearTimeout(this.hintTimer);
     if (this.coachTimer) clearTimeout(this.coachTimer);
     for (const [type, fn] of this.listeners) this.app.canvas.removeEventListener(type, fn);

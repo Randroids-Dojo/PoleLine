@@ -124,6 +124,8 @@ export interface Settings {
   alertsPrompted: boolean;
   /** Push a notification when someone beats one of this player's times. */
   alerts: boolean;
+  /** The tutorial walkthrough: '' until the player finishes or skips it. */
+  tutorial: '' | 'done' | 'skipped';
 }
 
 export const SCROLL_SPEED_MIN = 0.25;
@@ -165,6 +167,7 @@ export function getSettings(): Settings {
     installPrompted: false,
     alertsPrompted: false,
     alerts: false,
+    tutorial: '',
     ...stored,
   };
   if (s.scrollMode !== 'pause' && s.scrollMode !== 'continuous') s.scrollMode = 'pause';

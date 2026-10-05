@@ -9,7 +9,7 @@ p.on('pageerror', (e) => console.log('[pageerror]', e.message));
 // Simulate a player from before this change: v1 settings with an implicit 1x speed.
 await p.addInitScript(() => {
   if (!localStorage.getItem('seeded')) {
-    localStorage.setItem('poleline:v1:settings', JSON.stringify({ sound: false, tutorialDone: true, lastTrack: 'spielberg', attempts: 0, scrollMode: 'pause', scrollSpeed: 1, keepAwake: true }));
+    localStorage.setItem('poleline:v1:settings', JSON.stringify({ sound: false, tutorial: 'done', tutorialDone: true, lastTrack: 'spielberg', attempts: 0, scrollMode: 'pause', scrollSpeed: 1, keepAwake: true }));
     localStorage.setItem('seeded', '1');
   }
 });

@@ -39,11 +39,13 @@ export class App {
   }
 
   meta(slug: string): TrackMeta {
-    return CATALOG.find((m) => m.slug === slug) ?? CATALOG[0];
+    return CATALOG.find((m) => m.slug === slug) ?? CATALOG.find((m) => !m.tutorial)!;
   }
 
+  /** Championship round number (the tutorial circuit is not a round: 0). */
   round(slug: string): number {
-    return CATALOG.findIndex((m) => m.slug === slug) + 1;
+    const rounds = CATALOG.filter((m) => !m.tutorial);
+    return rounds.findIndex((m) => m.slug === slug) + 1;
   }
 
   async track(slug: string): Promise<Track> {

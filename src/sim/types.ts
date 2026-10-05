@@ -39,6 +39,8 @@ export interface TrackMeta {
   size: [number, number];
   /** Thumbnail outline, flat [x, y, ...] in a 0..1000 box. */
   outline: number[];
+  /** The made-up tutorial circuit, not a championship round. */
+  tutorial?: boolean;
 }
 
 export interface Vec {

@@ -6,7 +6,8 @@
 // poleRef: modern-era (2024/2025) dry qualifying pole pace in seconds.
 // windFrom: meteorological direction the wind blows FROM (degrees, 0 = north).
 // downforce: 1 (Monza trim) .. 5 (Monaco trim).
-// Listed in 2025 calendar order; the index is the round number.
+// Listed in 2025 calendar order after the tutorial circuit; championship rounds
+// skip the tutorial when they are numbered.
 
 export interface TrackConfig {
   slug: string;
@@ -27,9 +28,14 @@ export interface TrackConfig {
   night: boolean;
   downforce: 1 | 2 | 3 | 4 | 5;
   street: boolean;
+  /** The made-up tutorial circuit: listed first, not a championship round. */
+  tutorial?: boolean;
 }
 
 export const TRACKS: TrackConfig[] = [
+  // Made-up tutorial circuit (scripts/rookie-ring.ts): short, so a whole lap is
+  // worth watching, and hot enough that mediums are the right call.
+  { slug: 'rookie-ring', source: 'poleline-rookie-ring', name: 'PoleLine Rookie Ring', short: 'Rookie Ring', country: 'Tutorial', flag: '🏁', width: 12, poleRef: 30.0, turns: 6, airTemp: 35, trackTemp: 55, windSpeed: 2, windFrom: 200, night: false, downforce: 3, street: false, tutorial: true },
   { slug: 'melbourne', source: 'au-1953', name: 'Albert Park Circuit', short: 'Melbourne', country: 'Australia', flag: '🇦🇺', width: 13, poleRef: 75.096, turns: 14, airTemp: 20, trackTemp: 31, windSpeed: 4, windFrom: 190, night: false, downforce: 3, street: true },
   { slug: 'shanghai', source: 'cn-2004', name: 'Shanghai International Circuit', short: 'Shanghai', country: 'China', flag: '🇨🇳', width: 15, poleRef: 90.641, turns: 16, airTemp: 17, trackTemp: 25, windSpeed: 3, windFrom: 90, night: false, downforce: 3, street: false },
   { slug: 'suzuka', source: 'jp-1962', name: 'Suzuka International Racing Course', short: 'Suzuka', country: 'Japan', flag: '🇯🇵', width: 11.5, poleRef: 86.983, turns: 18, airTemp: 18, trackTemp: 29, windSpeed: 3.5, windFrom: 260, night: false, downforce: 4, street: false },

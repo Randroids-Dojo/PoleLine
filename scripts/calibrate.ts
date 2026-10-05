@@ -1,5 +1,6 @@
 // Calibrates each circuit's surface grip so that a minimum-curvature line on
-// soft tyres lands just under real-world pole pace, then reports how compounds
+// soft tyres (mediums on the tutorial circuit, which is set up for them) lands
+// just under real-world pole pace, then reports how compounds
 // and imperfect lines compare. Writes scripts/calibration.json; re-run
 // `npm run tracks:build` afterwards to bake the values into the catalog.
 //
@@ -42,24 +43,26 @@ for (const meta of CATALOG) {
     continue;
   }
   const target = meta.poleRef * 1000 * IDEAL_MARGIN;
+  const ref = meta.tutorial ? 'medium' : 'soft';
   let grip = reportOnly ? meta.grip : existing[meta.slug]?.grip ?? 1;
   if (!reportOnly) {
     // Secant iterations on surface grip.
-    let g0 = grip, t0 = simulateLap(track, line, 'soft', { surfaceGrip: g0 }).timeMs;
+    let g0 = grip, t0 = simulateLap(track, line, ref, { surfaceGrip: g0 }).timeMs;
     let g1 = grip * (t0 > target ? 1.03 : 0.97);
-    let t1 = simulateLap(track, line, 'soft', { surfaceGrip: g1 }).timeMs;
+    let t1 = simulateLap(track, line, ref, { surfaceGrip: g1 }).timeMs;
     for (let it = 0; it < 12 && Math.abs(t1 - target) > 2; it++) {
       const g2 = g1 + ((target - t1) * (g1 - g0)) / (t1 - t0 || 1);
       g0 = g1; t0 = t1;
       g1 = g2;
-      t1 = simulateLap(track, line, 'soft', { surfaceGrip: g1 }).timeMs;
+      t1 = simulateLap(track, line, ref, { surfaceGrip: g1 }).timeMs;
     }
     grip = Number(g1.toFixed(5));
   }
   const soft = simulateLap(track, line, 'soft', { surfaceGrip: grip });
+  const best = ref === 'soft' ? soft : simulateLap(track, line, ref, { surfaceGrip: grip });
   if (!reportOnly) {
-    const f = soft.sectorsMs.map((x) => Number((x / soft.timeMs).toFixed(5))) as [number, number, number];
-    const clip = Number.isFinite(soft.stats.clipSpeed) ? Number(soft.stats.clipSpeed.toFixed(2)) : undefined;
+    const f = best.sectorsMs.map((x) => Number((x / best.timeMs).toFixed(5))) as [number, number, number];
+    const clip = Number.isFinite(best.stats.clipSpeed) ? Number(best.stats.clipSpeed.toFixed(2)) : undefined;
     result[meta.slug] = { grip, sectors: f, clipRef: clip };
   }
   const med = simulateLap(track, line, 'medium', { surfaceGrip: grip });

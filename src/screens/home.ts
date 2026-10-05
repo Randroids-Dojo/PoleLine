@@ -13,7 +13,8 @@ import type { Compound, TrackMeta } from '../sim/types';
 import { ICONS, clear, h, svg } from '../ui/dom';
 
 export interface HomeActions {
-  draw(slug: string, compound: Compound): void;
+  /** `walkthrough` replays the guided tutorial on the tutorial circuit. */
+  draw(slug: string, compound: Compound, walkthrough?: boolean): void;
   leaderboard(slug: string): void;
 }
 
@@ -44,12 +45,18 @@ export class HomeScreen implements Screen {
     const gearBtn = h('button', { class: 'icon-btn', 'aria-label': 'Settings', html: ICONS.gear, onclick: () => openSettings(this.app) });
     const header = h('header', { class: 'home-head' }, h('h1', { class: 'wordmark' }, 'PoleLine'), h('div', { class: 'head-right' }, averageStat(), gearBtn));
     this.strip = h('nav', { class: 'rounds', 'aria-label': 'Circuits' });
-    CATALOG.forEach((m, i) => {
+    CATALOG.forEach((m) => {
       const pb = getBest(m.slug);
+      const round = this.app.round(m.slug);
       const btn = h(
         'button',
-        { class: `round${m.slug === this.slug ? ' is-on' : ''}`, 'data-slug': m.slug, 'aria-label': `Round ${i + 1}, ${m.short}`, onclick: () => this.select(m.slug) },
-        h('span', { class: 'round-top' }, h('span', { class: 'round-n' }, `R${i + 1}`), pb ? badge(gridSlot(pb.timeMs, m.poleRef)) : null),
+        {
+          class: `round${m.tutorial ? ' is-tutorial' : ''}${m.slug === this.slug ? ' is-on' : ''}`,
+          'data-slug': m.slug,
+          'aria-label': m.tutorial ? `Tutorial, ${m.short}` : `Round ${round}, ${m.short}`,
+          onclick: () => this.select(m.slug),
+        },
+        h('span', { class: 'round-top' }, h('span', { class: 'round-n' }, m.tutorial ? 'Tutorial' : `R${round}`), pb && !m.tutorial ? badge(gridSlot(pb.timeMs, m.poleRef)) : null),
         svg(`<svg class="round-map" viewBox="${outlineViewBox(m, 90)}" aria-hidden="true"><path d="${outlinePath(m)}"/></svg>`),
         h('span', { class: 'round-name' }, m.short),
       );
@@ -119,36 +126,39 @@ export class HomeScreen implements Screen {
       h('span', { class: 'times-go', html: ICONS.chevronRight }),
     );
 
-    const go = h(
-      'button',
-      {
-        class: 'btn-primary',
-        onclick: () => {
-          unlockAudio();
-          sfx.tap();
-          this.actions.draw(m.slug, getTyre(m.slug));
-        },
-      },
-      'Draw a lap',
-    );
+    const start = (walkthrough: boolean) => {
+      unlockAudio();
+      sfx.tap();
+      this.actions.draw(m.slug, getTyre(m.slug), walkthrough);
+    };
+    const go = h('button', { class: 'btn-primary', onclick: () => start(false) }, m.tutorial ? 'Draw the last corner' : 'Draw a lap');
+    const replay = m.tutorial ? h('button', { class: 'btn-quiet launch-replay', onclick: () => start(true) }, 'Replay the walkthrough') : null;
 
     this.event.append(
       h(
         'div',
         { class: 'event-title' },
-        h(
-          'p',
-          { class: 'event-round' },
-          `Round ${round} of ${CATALOG.length}`,
-          h('span', { class: 'flag' }, m.flag),
-          m.country,
-          h('button', { class: 'event-info', onclick: () => openConditions(this.app, m) }, 'Conditions'),
-        ),
+        m.tutorial
+          ? h(
+              'p',
+              { class: 'event-round' },
+              h('span', { class: 'tutorial-tag' }, 'Tutorial'),
+              'The lap is drawn, you finish it',
+              h('button', { class: 'event-info', onclick: () => openConditions(this.app, m) }, 'Conditions'),
+            )
+          : h(
+              'p',
+              { class: 'event-round' },
+              `Round ${round} of ${CATALOG.filter((x) => !x.tutorial).length}`,
+              h('span', { class: 'flag' }, m.flag),
+              m.country,
+              h('button', { class: 'event-info', onclick: () => openConditions(this.app, m) }, 'Conditions'),
+            ),
         h('h2', null, m.short),
       ),
       map,
       times,
-      h('div', { class: 'launch' }, go),
+      h('div', { class: 'launch' }, go, replay),
     );
   }
 
@@ -165,6 +175,7 @@ function badge(slot: GridSlot): HTMLElement {
 function averageStat(): HTMLElement | null {
   const slots: GridSlot[] = [];
   for (const m of CATALOG) {
+    if (m.tutorial) continue;
     const pb = getBest(m.slug);
     if (pb) slots.push(gridSlot(pb.timeMs, m.poleRef));
   }
