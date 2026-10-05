@@ -9,16 +9,27 @@ interface InstallPromptEvent extends Event {
 }
 
 let deferred: InstallPromptEvent | null = null;
+const installListeners = new Set<() => void>();
+
+/** Called when installing becomes possible or the game gets installed. Returns an unsubscribe. */
+export function onInstallChange(fn: () => void): () => void {
+  installListeners.add(fn);
+  return () => installListeners.delete(fn);
+}
+
+const installChanged = () => installListeners.forEach((fn) => fn());
 
 export function initPwa(onOpen: (search: string) => void): void {
   window.addEventListener('beforeinstallprompt', (e) => {
     // Hold the browser's install prompt for our own moment, after a lap.
     e.preventDefault();
     deferred = e as InstallPromptEvent;
+    installChanged();
   });
   window.addEventListener('appinstalled', () => {
     deferred = null;
     saveSettings({ installPrompted: true });
+    installChanged();
   });
   if (!('serviceWorker' in navigator)) return;
   navigator.serviceWorker.addEventListener('message', (e) => {

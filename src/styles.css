@@ -2033,6 +2033,15 @@ button.board-row {
   gap: 2px;
 }
 
+.set-row-static {
+  cursor: default;
+}
+
+.set-install {
+  flex: none;
+  min-height: 40px;
+}
+
 .set-text b {
   font-size: 16px;
   font-weight: 750;

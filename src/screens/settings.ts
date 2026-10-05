@@ -5,7 +5,7 @@ import type { App } from '../app/app';
 import { setSoundEnabled, sfx, unlockAudio } from '../app/audio';
 import { SCROLL_SPEED_MAX, SCROLL_SPEED_MIN, getSettings, saveSettings, type ScrollMode, type Settings } from '../app/store';
 import { setKeepAwake } from '../app/wake';
-import { alertsBlocked, alertsSupported, disableAlerts, enableAlerts, isInstalled, isIos } from '../app/pwa';
+import { alertsBlocked, alertsSupported, canPromptInstall, disableAlerts, enableAlerts, isInstalled, isIos, onInstallChange, promptInstall } from '../app/pwa';
 import { CORNER_DAMPING_OPTIONS } from '../app/damping';
 import { ICONS, h } from '../ui/dom';
 
@@ -120,6 +120,7 @@ export function openSettings(app: App, onChange?: (s: Settings) => void): void {
         setKeepAwake(v);
       }),
       alertsRow(s.alerts),
+      installRow(),
     ),
   );
   const overlay = h('div', { class: 'overlay', onclick: (e: Event) => e.target === overlay && close() }, sheet);
@@ -156,4 +157,42 @@ function alertsRow(on: boolean): HTMLElement {
       r === 'on' ? detail : r === 'denied' ? 'Notifications are blocked for PoleLine in your browser’s site settings.' : 'Lap alerts could not be turned on right now. Try again later.';
   });
   return h('label', { class: 'set-row' }, h('span', { class: 'set-text' }, h('b', null, 'Lap alerts'), small), input);
+}
+
+/** Add to home screen: the browser's install prompt where there is one, otherwise how to do it. */
+function installRow(): HTMLElement {
+  const small = h('small');
+  const btn = h('button', { class: 'btn-ink set-install' }, 'Install') as HTMLButtonElement;
+  const row = h('div', { class: 'set-row set-row-static' }, h('span', { class: 'set-text' }, h('b', null, 'Add to home screen'), small), btn);
+  const render = () => {
+    btn.hidden = true;
+    if (isInstalled()) {
+      small.textContent = 'You’re playing the home screen app.';
+    } else if (canPromptInstall()) {
+      small.textContent = 'Opens full screen like an app, one tap from your next lap.';
+      btn.hidden = false;
+      btn.disabled = false;
+    } else if (isIos()) {
+      small.textContent = 'Tap Share, then Add to Home Screen.';
+    } else {
+      small.textContent = 'Use your browser’s menu: Install app or Add to Home screen.';
+    }
+  };
+  btn.onclick = async () => {
+    btn.disabled = true;
+    const accepted = await promptInstall().catch(() => false);
+    if (accepted) {
+      btn.hidden = true;
+      small.textContent = 'Installing. Open PoleLine from your home screen.';
+    } else {
+      render();
+    }
+  };
+  // Follows the browser offering (or completing) an install while settings are open.
+  const off = onInstallChange(() => {
+    if (row.isConnected) render();
+    else off();
+  });
+  render();
+  return row;
 }
