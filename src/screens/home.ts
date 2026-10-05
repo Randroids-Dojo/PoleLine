@@ -58,10 +58,9 @@ export class HomeScreen implements Screen {
       const btn = h(
         'button',
         { class: `round${m.slug === this.slug ? ' is-on' : ''}`, 'data-slug': m.slug, 'aria-label': `Round ${i + 1}, ${m.short}`, onclick: () => this.select(m.slug) },
-        h('span', { class: 'round-n' }, `R${i + 1}`),
+        h('span', { class: 'round-top' }, h('span', { class: 'round-n' }, `R${i + 1}`), pb ? badge(gridSlot(pb.timeMs, m.poleRef)) : null),
         svg(`<svg class="round-map" viewBox="${outlineViewBox(m, 90)}" aria-hidden="true"><path d="${outlinePath(m)}"/></svg>`),
         h('span', { class: 'round-name' }, m.short),
-        pb ? badge(gridSlot(pb.timeMs, m.poleRef)) : null,
       );
       this.strip.append(btn);
     });
