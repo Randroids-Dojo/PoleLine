@@ -16,7 +16,7 @@ import type { TrackArt } from '../render/track-art';
 import { COMPOUND_SPECS } from '../sim/car';
 import type { LapResult } from '../sim/lapsim';
 import { frameAt, type Track } from '../sim/track';
-import { h, setText, tyreBadge } from '../ui/dom';
+import { ICONS, h, setText, tyreBadge } from '../ui/dom';
 import { sectorColour, type CamSnapshot } from './race';
 
 export interface ResultsActions {
@@ -108,8 +108,9 @@ export class ResultsScreen implements Screen {
       ),
       h('p', { class: `res-delta${input.isPb ? ' is-pb' : ''}` }, deltaText),
       sectors,
-      facts,
-      h('div', { class: 'res-notes' }, ...notes.map((n) => h('p', null, n))),
+      // The engineer's most useful note leads; the numbers wait under Lap details.
+      notes.length ? h('div', { class: 'res-notes' }, h('p', null, notes[0])) : null,
+      h('details', { class: 'res-details' }, h('summary', null, h('span', null, 'Lap details'), h('span', { class: 'res-details-icon', html: ICONS.chevron })), facts),
       this.world,
       h(
         'div',

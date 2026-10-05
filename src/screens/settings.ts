@@ -8,6 +8,9 @@ import { setKeepAwake } from '../app/wake';
 import { alertsBlocked, alertsSupported, canPromptInstall, disableAlerts, enableAlerts, isInstalled, isIos, onInstallChange, promptInstall } from '../app/pwa';
 import { CORNER_DAMPING_OPTIONS } from '../app/damping';
 import { ICONS, h } from '../ui/dom';
+import { openGarage } from './garage';
+import { liveryPreview } from '../render/car-art';
+import { liveryById } from '../render/liveries';
 
 export function openSettings(app: App, onChange?: (s: Settings) => void): void {
   const changed = (patch: Partial<Settings>) => {
@@ -99,6 +102,8 @@ export function openSettings(app: App, onChange?: (s: Settings) => void): void {
       { class: 'settings-body' },
       h('h3', null, 'When the map scrolls while you draw'),
       modeGroup,
+      h('h3', null, 'Car'),
+      h('div', { class: 'set-group' }, carRow(app)),
       h('h3', null, 'Map'),
       h(
         'div',
@@ -200,4 +205,23 @@ function installRow(): HTMLElement {
   });
   render();
   return row;
+}
+
+/** The livery: a preview and the garage one tap away. */
+function carRow(app: App): HTMLElement {
+  const img = h('img', { class: 'set-car-img', alt: '' }) as HTMLImageElement;
+  const name = h('small');
+  const render = () => {
+    const l = liveryById(getSettings().livery);
+    img.src = liveryPreview(l, 'up');
+    name.textContent = l.name;
+  };
+  render();
+  return h(
+    'button',
+    { class: 'set-row set-car', onclick: () => openGarage(app, () => render()) },
+    img,
+    h('span', { class: 'set-text' }, h('b', null, 'Your car'), name),
+    h('span', { class: 'set-chevron', html: ICONS.chevronRight }),
+  );
 }

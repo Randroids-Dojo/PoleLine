@@ -87,7 +87,7 @@ async function draw(slug: string, compound: Compound): Promise<void> {
   const art = app.art(track);
   const best = getBest(slug);
   const guide = best ? decodePath(best.code) : null;
-  app.show(new DrawScreen(app, track, art, compound, { complete: (pts) => race(track, compound, pts), exit: () => home(slug) }, guide));
+  app.show(new DrawScreen(app, track, art, compound, { complete: (pts, tyre) => race(track, tyre, pts), exit: () => home(slug) }, guide));
 }
 
 function race(track: Track, compound: Compound, pts: number[]): void {

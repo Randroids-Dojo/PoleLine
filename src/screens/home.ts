@@ -4,16 +4,13 @@ import type { App, Screen } from '../app/app';
 import { fetchRecords, type Records } from '../app/api';
 import { sfx, unlockAudio } from '../app/audio';
 import { openSettings } from './settings';
-import { openGarage } from './garage';
-import { liveryPreview } from '../render/car-art';
-import { liveryById } from '../render/liveries';
-import { downforceLabel, gripLabel, outlinePath, outlineViewBox, tyreHint, windText } from '../app/describe';
+import { openConditions } from './conditions';
+import { outlinePath, outlineViewBox } from '../app/describe';
 import { averageGrid, formatLap, gridSlot, type GridSlot } from '../app/format';
-import { getBest, getSettings, getTyre, saveSettings, setTyre } from '../app/store';
+import { getBest, getSettings, getTyre, saveSettings } from '../app/store';
 import { CATALOG } from '../data/catalog';
-import { COMPOUND_SPECS } from '../sim/car';
-import { COMPOUNDS, type Compound, type TrackMeta } from '../sim/types';
-import { ICONS, clear, h, svg, tyreBadge } from '../ui/dom';
+import type { Compound, TrackMeta } from '../sim/types';
+import { ICONS, clear, h, svg } from '../ui/dom';
 
 export interface HomeActions {
   draw(slug: string, compound: Compound): void;
@@ -91,7 +88,6 @@ export class HomeScreen implements Screen {
     const round = this.app.round(m.slug);
     const pb = getBest(m.slug);
     const rec = this.records[m.slug];
-    const tyre = getTyre(m.slug);
     clear(this.event);
 
     const map = svg(`<svg class="hero-map" viewBox="${outlineViewBox(m)}" role="img" aria-label="${m.name} layout">
@@ -100,67 +96,28 @@ export class HomeScreen implements Screen {
       <circle class="hero-start" cx="${m.outline[0]}" cy="${m.outline[1]}" r="18"/>
     </svg>`);
 
+    // One row of times; the whole row opens the leaderboard.
     const slot = pb ? gridSlot(pb.timeMs, m.poleRef) : null;
-    const times = h(
-      'section',
-      { class: 'times-block', 'aria-label': 'Lap times' },
+    const stat = (label: string, value: string, extra: Node | null, sub: string | null, empty = false) =>
       h(
-        'div',
-        { class: 'times-head' },
-        h('span', null, 'Lap times'),
-        h('button', { class: 'times-board', onclick: () => this.actions.leaderboard(m.slug), html: `<span>Leaderboard</span>${ICONS.chevronRight}` }),
-      ),
-      h(
-        'dl',
-        { class: 'times' },
-        h('div', null, h('dt', null, 'Pole pace'), h('dd', null, formatLap(m.poleRef * 1000))),
-        h(
-          'div',
-          { class: pb ? '' : 'is-empty' },
-          h('dt', null, 'Your best', slot ? h('span', { class: `slot tier-${slot.tier}` }, slot.stamp) : null),
-          h('dd', null, pb ? formatLap(pb.timeMs) : 'No lap yet'),
-        ),
-        h('div', { class: rec ? '' : 'is-empty' }, h('dt', null, 'World record'), h('dd', null, rec ? formatLap(rec.timeMs) : 'Open'), rec ? h('p', { class: 'holder' }, rec.name) : null),
-      ),
-    );
-
-    const facts = h(
-      'dl',
-      { class: 'facts' },
-      fact('Air', `${m.airTemp}°C`),
-      fact('Track', `${m.trackTemp}°C`),
-      fact('Wind', windText(m), h('span', { class: 'wind-arrow', style: `transform: rotate(${m.windFrom + 180}deg)`, 'aria-hidden': 'true' }, '↑')),
-      fact('Straight mode', `${m.straights.length} ${m.straights.length === 1 ? 'zone' : 'zones'}`),
-      fact('Downforce', downforceLabel(m)),
-      fact('Grip', gripLabel(m)),
-      fact('Length', `${(m.length / 1000).toFixed(3)} km`),
-      fact('Turns', String(m.turns)),
-    );
-
-    const tyres = h('div', { class: 'tyres', role: 'radiogroup', 'aria-label': 'Tyre compound' });
-    const hint = h('p', { class: 'tyre-hint' }, tyreHint(m));
-    for (const c of COMPOUNDS) {
-      const b = h(
-        'button',
-        {
-          class: `tyre${c === tyre ? ' is-on' : ''}`,
-          role: 'radio',
-          'aria-checked': c === tyre ? 'true' : 'false',
-          onclick: () => {
-            sfx.tap();
-            setTyre(m.slug, c);
-            tyres.querySelectorAll('.tyre').forEach((el) => {
-              const on = (el as HTMLElement).dataset.c === c;
-              el.classList.toggle('is-on', on);
-              el.setAttribute('aria-checked', on ? 'true' : 'false');
-            });
-          },
-          'data-c': c,
-          html: `${tyreBadge(c, 30)}<span>${COMPOUND_SPECS[c].label}</span>`,
-        },
+        'span',
+        { class: `stat${empty ? ' is-empty' : ''}` },
+        h('span', { class: 'stat-label' }, label, extra),
+        h('span', { class: 'stat-value' }, value),
+        sub ? h('span', { class: 'stat-sub' }, sub) : null,
       );
-      tyres.append(b);
-    }
+    const times = h(
+      'button',
+      { class: 'times-block', 'aria-label': `Lap times. Open the ${m.short} leaderboard`, onclick: () => this.actions.leaderboard(m.slug) },
+      h(
+        'span',
+        { class: 'times' },
+        stat('Pole', formatLap(m.poleRef * 1000), null, null),
+        stat('Your best', pb ? formatLap(pb.timeMs) : 'No lap yet', slot ? h('span', { class: `slot tier-${slot.tier}` }, slot.stamp) : null, null, !pb),
+        stat('Record', rec ? formatLap(rec.timeMs) : 'Open', null, rec ? rec.name : null, !rec),
+      ),
+      h('span', { class: 'times-go', html: ICONS.chevronRight }),
+    );
 
     const go = h(
       'button',
@@ -175,20 +132,23 @@ export class HomeScreen implements Screen {
       'Draw a lap',
     );
 
-    const livery = liveryById(getSettings().livery);
-    const car = h(
-      'button',
-      { class: 'car-btn', 'aria-label': `Your car: ${livery.name}. Change livery`, title: `Your car: ${livery.name}`, onclick: () => openGarage(this.app, () => this.renderEvent()) },
-      h('img', { src: liveryPreview(livery, 'up'), alt: '' }),
-    );
-
     this.event.append(
-      h('div', { class: 'event-title' }, h('p', { class: 'event-round' }, `Round ${round} of ${CATALOG.length}`, h('span', { class: 'flag' }, m.flag), m.country), h('h2', null, m.short), h('p', { class: 'event-name' }, m.name)),
+      h(
+        'div',
+        { class: 'event-title' },
+        h(
+          'p',
+          { class: 'event-round' },
+          `Round ${round} of ${CATALOG.length}`,
+          h('span', { class: 'flag' }, m.flag),
+          m.country,
+          h('button', { class: 'event-info', onclick: () => openConditions(this.app, m) }, 'Conditions'),
+        ),
+        h('h2', null, m.short),
+      ),
       map,
       times,
-      facts,
-      hint,
-      h('div', { class: 'launch' }, tyres, h('div', { class: 'launch-go' }, car, go)),
+      h('div', { class: 'launch' }, go),
     );
   }
 
@@ -219,8 +179,5 @@ function averageStat(): HTMLElement | null {
   );
 }
 
-function fact(label: string, value: string, extra?: Node): HTMLElement {
-  return h('div', null, h('dt', null, label), h('dd', null, value, extra ?? null));
-}
 
 export type { TrackMeta };

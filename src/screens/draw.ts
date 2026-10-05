@@ -15,7 +15,9 @@
 
 import type { App, Screen } from '../app/app';
 import { buzz, sfx, unlockAudio } from '../app/audio';
-import { getSettings, saveSettings, type ScrollMode, type Settings } from '../app/store';
+import { getSettings, saveSettings, setTyre, type ScrollMode, type Settings } from '../app/store';
+import { tyreHint } from '../app/describe';
+import { COMPOUND_SPECS } from '../sim/car';
 import { openSettings } from './settings';
 import { Camera, angleForHeading, easeInOutCubic, lerpAngle } from '../render/camera';
 import { INK, polyPath, strokeInk } from '../render/line-art';
@@ -23,13 +25,13 @@ import type { TrackArt } from '../render/track-art';
 import { LineBuilder, START_TOUCH_RANGE } from '../sim/builder';
 import { UNITS_PER_METRE } from '../sim/path';
 import { frameAt, projectGlobal, projectNear, type Track } from '../sim/track';
-import type { Compound } from '../sim/types';
+import { COMPOUNDS, type Compound } from '../sim/types';
 import { ICONS, h, setText, tyreBadge } from '../ui/dom';
 import { Compass, angleForBearing, bearingAtTop, nextCardinal } from '../ui/compass';
 import { CornerDamper, type CornerDamping } from '../app/damping';
 
 export interface DrawActions {
-  complete(points: number[]): void;
+  complete(points: number[], compound: Compound): void;
   exit(): void;
 }
 
@@ -92,6 +94,9 @@ export class DrawScreen implements Screen {
   private bar: HTMLElement;
   private pct: HTMLElement;
   private undoBtn: HTMLButtonElement;
+  /** Before the first stroke the bottom bar picks the tyre; it only matters once the lap is raced. */
+  private tyreStrip!: HTMLElement;
+  private tyreMark!: HTMLElement;
   private mini: HTMLCanvasElement;
   private miniCtx: CanvasRenderingContext2D;
   private miniOutline: Path2D;
@@ -146,7 +151,7 @@ export class DrawScreen implements Screen {
     private app: App,
     private track: Track,
     private art: TrackArt,
-    compound: Compound,
+    private compound: Compound,
     private actions: DrawActions,
     guide: Float64Array | null = null,
   ) {
@@ -181,8 +186,19 @@ export class DrawScreen implements Screen {
       h('button', { class: 'icon-btn', 'aria-label': 'Back to circuits', html: ICONS.close, onclick: () => this.actions.exit() }),
       h('div', { class: 'draw-title' }, h('strong', null, track.meta.short), (this.subtitle = h('span', null, 'Draw your lap'))),
       h('button', { class: 'icon-btn', 'aria-label': 'Settings', html: ICONS.gear, onclick: () => openSettings(this.app, (s) => this.applySettings(s)) }),
-      h('span', { class: 'draw-tyre', html: tyreBadge(compound, 26) }),
+      (this.tyreMark = h('span', { class: 'draw-tyre', title: COMPOUND_SPECS[compound].label, html: tyreBadge(compound, 26) })),
     );
+    this.tyreStrip = h('div', { class: 'strip strip-bottom draw-tyres', role: 'radiogroup', 'aria-label': 'Tyre for this lap' });
+    for (const c of COMPOUNDS) {
+      const b = h('button', {
+        class: 'draw-tyre-pick',
+        role: 'radio',
+        'data-c': c,
+        html: `${tyreBadge(c, 24)}<span>${COMPOUND_SPECS[c].label}</span>`,
+        onclick: () => this.pickTyre(c),
+      });
+      this.tyreStrip.append(b);
+    }
     this.bottomStrip = h(
       'div',
       { class: 'strip strip-bottom' },
@@ -202,12 +218,14 @@ export class DrawScreen implements Screen {
       this.mini,
       this.hint,
       this.bottomStrip,
+      this.tyreStrip,
     );
     app.root.append(this.el);
     this.resize();
     this.showHint(HINTS.start);
     this.updateSubtitle(this.cornerFactor());
     this.setCam(this.startFrame());
+    this.syncTyres();
     this.updateHud();
 
     const c = app.canvas;
@@ -529,6 +547,7 @@ export class DrawScreen implements Screen {
       if (this.builder.canStartAt(w.x, w.y)) {
         this.glide = null;
         this.builder.start(w.x, w.y);
+        this.updateHud();
         sfx.penDown();
         buzz(8);
         this.pointerId = e.pointerId;
@@ -873,6 +892,24 @@ export class DrawScreen implements Screen {
     }
   }
 
+  private pickTyre(c: Compound): void {
+    sfx.tap();
+    this.compound = c;
+    setTyre(this.track.meta.slug, c);
+    this.syncTyres();
+    this.showHint(tyreHint(this.track.meta));
+  }
+
+  private syncTyres(): void {
+    this.tyreStrip.querySelectorAll<HTMLElement>('.draw-tyre-pick').forEach((b) => {
+      const on = b.dataset.c === this.compound;
+      b.classList.toggle('is-on', on);
+      b.setAttribute('aria-checked', on ? 'true' : 'false');
+    });
+    this.tyreMark.innerHTML = tyreBadge(this.compound, 26);
+    this.tyreMark.title = COMPOUND_SPECS[this.compound].label;
+  }
+
   private restart(): void {
     if (this.drawing) return;
     sfx.tap();
@@ -947,7 +984,7 @@ export class DrawScreen implements Screen {
     this.stamp = h('div', { class: 'stamp' }, 'Lap drawn');
     this.el.append(this.stamp);
     const pts = this.builder.points.slice();
-    setTimeout(() => this.actions.complete(pts), 750);
+    setTimeout(() => this.actions.complete(pts, this.compound), 750);
   }
 
   private flashHint(text: string): void {
@@ -964,6 +1001,11 @@ export class DrawScreen implements Screen {
     this.bar.style.transform = `scaleX(${f})`;
     setText(this.pct, `${pc}%`);
     this.undoBtn.disabled = !this.builder.canUndo;
+    // The tyre choice belongs to the start; once ink is down the bar is for drawing.
+    const idle = this.builder.status === 'idle';
+    this.tyreStrip.hidden = !idle;
+    this.bottomStrip.hidden = idle;
+    this.tyreMark.hidden = idle;
   }
 
   // Minimap ----------------------------------------------------------------
