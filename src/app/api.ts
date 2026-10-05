@@ -12,7 +12,18 @@ export interface BoardEntry {
   date: string;
   /** How they drew their best lap; null for laps posted before setups were recorded. */
   setup: DrawSetup | null;
+  /** The lap's line is stored, so it can be watched. */
+  replay: boolean;
   you: boolean;
+}
+
+/** A leaderboard lap to watch: its line packed with packLine. */
+export interface ReplayLap {
+  rank: number;
+  name: string;
+  compound: Compound;
+  timeMs: number;
+  line: string;
 }
 
 export interface Board {
@@ -49,6 +60,11 @@ async function request<T>(url: string, init?: RequestInit, timeoutMs = 8000): Pr
 export function fetchBoard(track: string, playerId: string, limit = 50): Promise<Board> {
   const q = new URLSearchParams({ track, player: playerId, limit: String(limit) });
   return request<Board>(`/api/leaderboard?${q}`);
+}
+
+export function fetchLap(track: string, rank: number): Promise<ReplayLap> {
+  const q = new URLSearchParams({ track, lap: String(rank) });
+  return request<ReplayLap>(`/api/leaderboard?${q}`, undefined, 12000);
 }
 
 let recordsCache: { at: number; data: Records } | null = null;

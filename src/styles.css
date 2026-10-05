@@ -1056,6 +1056,17 @@ button:disabled {
   color: var(--ink-3);
 }
 
+.race-who {
+  margin-top: 3px;
+  max-width: 46vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--purple-ink);
+}
+
 .race-delta[data-sign='up'] {
   color: var(--green-ink);
 }
@@ -1764,9 +1775,36 @@ button.board-row {
 }
 
 .board-setup-status {
+  flex-basis: 100%;
   font-size: 13px;
   color: var(--green-ink);
   font-weight: 600;
+}
+
+.board-setup-status:empty {
+  display: none;
+}
+
+.board-setup-status.is-error {
+  color: var(--red);
+}
+
+.board-watch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--ink);
+}
+
+.btn-ink-quiet {
+  background: var(--sheet);
+  color: var(--purple-ink);
+  box-shadow: inset 0 0 0 2px var(--purple-ink);
+}
+
+.board-entry.is-you > .board-row {
+  background: var(--purple-tint);
+  box-shadow: inset 4px 0 0 var(--purple);
 }
 
 .board-row.is-you {

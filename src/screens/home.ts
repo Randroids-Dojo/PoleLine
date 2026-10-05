@@ -17,8 +17,7 @@ import { ICONS, clear, h, svg, tyreBadge } from '../ui/dom';
 
 export interface HomeActions {
   draw(slug: string, compound: Compound): void;
-  /** `copied` runs after the player copies someone's setup, so the tyre picker can catch up. */
-  leaderboard(slug: string, copied: () => void): void;
+  leaderboard(slug: string): void;
 }
 
 export class HomeScreen implements Screen {
@@ -79,6 +78,11 @@ export class HomeScreen implements Screen {
     saveSettings({ lastTrack: slug });
     this.strip.querySelectorAll('.round').forEach((b) => b.classList.toggle('is-on', (b as HTMLElement).dataset.slug === slug));
     this.scrollStripTo(slug, true);
+    this.renderEvent();
+  }
+
+  /** Redraw the selected circuit (after a copied setup changed its tyre). */
+  refresh(): void {
     this.renderEvent();
   }
 
@@ -160,7 +164,7 @@ export class HomeScreen implements Screen {
       },
       'Draw a lap',
     );
-    const board = h('button', { class: 'btn-quiet', onclick: () => this.actions.leaderboard(m.slug, () => this.renderEvent()), html: `${ICONS.board}<span>Leaderboard</span>` });
+    const board = h('button', { class: 'btn-quiet', onclick: () => this.actions.leaderboard(m.slug), html: `${ICONS.board}<span>Leaderboard</span>` });
 
     const livery = liveryById(getSettings().livery);
     const car = h(

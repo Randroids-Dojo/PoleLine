@@ -2,6 +2,7 @@
 //
 // GET  /api/leaderboard?track=<slug>&player=<id>&limit=50  -> board for a circuit
 // GET  /api/leaderboard?summary=1                          -> fastest lap per circuit
+// GET  /api/leaderboard?track=<slug>&lap=<rank>            -> that lap's line, to replay
 // POST /api/leaderboard {track, compound, line, playerId, name, setup?}
 // PATCH /api/leaderboard {playerId, name}                   -> rename everywhere
 //
@@ -16,7 +17,8 @@
 //   lb:<slug>    sorted set, member = playerId, score = lap ms
 //   meta:<slug>  hash, playerId -> {name, compound, timeMs, date, setup?}
 //   records      hash, slug -> {name, compound, timeMs}
-//   wr:<slug>    string, the record lap's line (for a future ghost)
+//   wr:<slug>    string, the record lap's line (P1's replay and ghost)
+//   line:<slug>  hash, playerId -> packed line of their best, top 100 only
 //   rl:<ip>      rate-limit counter
 //
 // A new best also alerts the players it passed (api/_push.ts), after the
@@ -27,6 +29,7 @@ import { z } from 'zod';
 import { CATALOG } from '../src/data/catalog.js';
 import { GEOMETRY } from '../src/data/geometry-all.js';
 import { simulateLap } from '../src/sim/lapsim.js';
+import { packLine } from '../src/sim/pack.js';
 import { MAX_POINTS, decodePath, validatePath } from '../src/sim/path.js';
 import { buildTrack, type Track } from '../src/sim/track.js';
 import { SIM_VERSION } from '../src/sim/version.js';
@@ -48,6 +51,8 @@ interface Res {
 
 const PREFIX = `poleline:v${SIM_VERSION}:`;
 const MAX_LIMIT = 100;
+/** Lines kept for replays: the top of each board. */
+export const MAX_REPLAYS = 100;
 const RATE_WINDOW = 60;
 const RATE_MAX = 20;
 const SLUGS = CATALOG.map((m) => m.slug) as [string, ...string[]];
@@ -90,6 +95,8 @@ const boardSchema = z.object({
   limit: z.coerce.number().int().min(1).max(MAX_LIMIT).optional(),
 });
 
+const lapSchema = z.object({ track: z.enum(SLUGS), lap: z.coerce.number().int().min(1).max(MAX_REPLAYS) });
+
 const tracks = new Map<string, Track>();
 function track(slug: string): Track {
   let t = tracks.get(slug);
@@ -127,6 +134,8 @@ interface Meta {
   timeMs: number;
   date: string;
   setup?: Setup;
+  /** Posted with its line stored for replays. */
+  replay?: boolean;
 }
 
 function parseMeta(v: unknown): Meta | null {
@@ -176,7 +185,9 @@ async function getBoard(req: Req, res: Res): Promise<Res> {
   const metas = ids.length ? ((await kv.hmget(`${PREFIX}meta:${slug}`, ...ids)) as Record<string, unknown> | null) : null;
   const entries = ids.map((id, i) => {
     const m = parseMeta(metas?.[id]);
-    return { rank: i + 1, name: m?.name ?? 'Driver', timeMs: scores[i], compound: m?.compound ?? 'soft', date: m?.date ?? '', setup: m?.setup ?? null, you: id === player };
+    // P1's line is always kept (wr:<slug>), even from before replays were stored.
+    const replay = i === 0 || m?.replay === true;
+    return { rank: i + 1, name: m?.name ?? 'Driver', timeMs: scores[i], compound: m?.compound ?? 'soft', date: m?.date ?? '', setup: m?.setup ?? null, replay, you: id === player };
   });
   let you: { rank: number; timeMs: number } | null = null;
   if (player && out[2] !== null && out[2] !== undefined) you = { rank: Number(out[2]) + 1, timeMs: Number(out[3]) };
@@ -206,7 +217,7 @@ async function post(req: Req, res: Res): Promise<Res> {
   const changed = (await kv.zadd(key, { lt: true, ch: true }, { score: timeMs, member: body.playerId })) as number | null;
   const improved = Number(changed ?? 0) > 0;
   const setup = setupSchema.safeParse(body.setup);
-  const meta: Meta = { name, compound: body.compound, timeMs, date: new Date().toISOString(), ...(setup.success ? { setup: setup.data } : {}) };
+  const meta: Meta = { name, compound: body.compound, timeMs, date: new Date().toISOString(), ...(setup.success ? { setup: setup.data } : {}), replay: true };
   const p = kv.pipeline();
   if (improved) p.hset(`${PREFIX}meta:${body.track}`, { [body.playerId]: JSON.stringify(meta) });
   else p.hget(`${PREFIX}meta:${body.track}`, body.playerId);
@@ -222,6 +233,7 @@ async function post(req: Req, res: Res): Promise<Res> {
   const rank = out[1] === null || out[1] === undefined ? null : Number(out[1]) + 1;
   const total = Number(out[2] ?? 0);
   const bestMs = Number(out[3] ?? timeMs);
+  if (improved) await keepReplay(key, body.track, body.playerId, rank, body.line);
   if (improved && rank === 1) {
     await kv.hset(`${PREFIX}records`, { [body.track]: JSON.stringify(meta) });
     await kv.set(`${PREFIX}wr:${body.track}`, JSON.stringify({ playerId: body.playerId, compound: body.compound, timeMs, line: body.line }));
@@ -236,6 +248,42 @@ async function post(req: Req, res: Res): Promise<Res> {
     );
   }
   return res.status(200).json({ timeMs, rank, total, improved, bestMs });
+}
+
+/** Store a new best's line while it sits in the top of the board, and drop any lap pushed out. */
+async function keepReplay(board: string, slug: string, playerId: string, rank: number | null, line: number[]): Promise<void> {
+  const kv = redis();
+  const lines = `${PREFIX}line:${slug}`;
+  if (rank !== null && rank <= MAX_REPLAYS) await kv.hset(lines, { [playerId]: packLine(line) });
+  // A new entry pushes at most one lap past the cut; sweep a few in case.
+  const out = (await kv.zrange(board, MAX_REPLAYS, MAX_REPLAYS + 4)) as string[];
+  if (out.length) await kv.hdel(lines, ...out.map(String));
+}
+
+/** One lap's line by board position, for watching it. Player ids never leave the server. */
+async function getLap(req: Req, res: Res): Promise<Res> {
+  const parsed = lapSchema.safeParse({ track: first(req.query.track), lap: first(req.query.lap) });
+  if (!parsed.success) return res.status(400).json({ error: 'bad query' });
+  const { track: slug, lap: rank } = parsed.data;
+  const kv = redis();
+  const at = (await kv.zrange(`${PREFIX}lb:${slug}`, rank - 1, rank - 1, { withScores: true })) as (string | number)[];
+  if (!at.length) return res.status(404).json({ error: 'no lap at that position' });
+  const id = String(at[0]);
+  const timeMs = Number(at[1]);
+  const p = kv.pipeline();
+  p.hget(`${PREFIX}line:${slug}`, id);
+  p.hget(`${PREFIX}meta:${slug}`, id);
+  const [packed, rawMeta] = (await p.exec()) as unknown[];
+  let line = typeof packed === 'string' && packed ? packed : null;
+  if (!line && rank === 1) {
+    const wr = (await kv.get(`${PREFIX}wr:${slug}`)) as unknown;
+    const rec = typeof wr === 'string' ? (JSON.parse(wr) as { playerId?: string; line?: number[] }) : (wr as { playerId?: string; line?: number[] } | null);
+    if (rec?.playerId === id && Array.isArray(rec.line)) line = packLine(rec.line);
+  }
+  if (!line) return res.status(404).json({ error: 'no replay for this lap' });
+  const m = parseMeta(rawMeta);
+  res.setHeader('Cache-Control', 'public, s-maxage=15, stale-while-revalidate=60');
+  return res.status(200).json({ rank, name: m?.name ?? 'Driver', compound: m?.compound ?? 'soft', timeMs, line });
 }
 
 const renameSchema = z.object({ playerId: z.string().regex(/^[a-f0-9-]{16,40}$/), name: z.string().max(64) });
@@ -276,7 +324,11 @@ export default async function handler(req: Req, res: Res): Promise<Res> {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.status(200).end();
   try {
-    if (req.method === 'GET') return first(req.query.summary) ? await getSummary(res) : await getBoard(req, res);
+    if (req.method === 'GET') {
+      if (first(req.query.summary)) return await getSummary(res);
+      if (first(req.query.lap)) return await getLap(req, res);
+      return await getBoard(req, res);
+    }
     if (req.method === 'POST') return await post(req, res);
     if (req.method === 'PATCH') return await rename(req, res);
     return res.status(405).json({ error: 'method not allowed' });

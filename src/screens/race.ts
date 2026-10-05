@@ -1,6 +1,7 @@
 // Real-time playback of the simulated lap. The car comes through the final
 // corner on a flying lap, the clock starts at the line, sectors light up in
-// timing colours and the personal-best ghost runs alongside.
+// timing colours and the personal-best ghost runs alongside. The same screen
+// replays leaderboard laps, with the current P1 as the ghost.
 
 import type { App, Screen } from '../app/app';
 import { startEngine, stopEngine, sfx, updateEngine } from '../app/audio';
@@ -29,6 +30,14 @@ export interface CamSnapshot {
 export interface RaceActions {
   finished(from: CamSnapshot): void;
   exit(): void;
+}
+
+/** Watching a leaderboard lap instead of running your own. */
+export interface ReplayInfo {
+  driver: string;
+  rank: number;
+  /** Who the ghost is, e.g. "Lando, P1" or "your best"; null without a ghost. */
+  ghostName: string | null;
 }
 
 const RUN_UP = 2.6;
@@ -128,13 +137,14 @@ export class RaceScreen implements Screen {
     private ghost: LapResult | null,
     private bestSectors: [number, number, number] | null,
     private actions: RaceActions,
+    private replay: ReplayInfo | null = null,
   ) {
     app.setCanvasVisible(true);
     this.path = polyPath(Array.from({ length: lap.n * 2 }, (_, k) => (k % 2 === 0 ? lap.x[k >> 1] : lap.y[k >> 1])));
     this.zoomBase = Math.min(app.w, app.h) > 700 ? 1.15 : 1;
 
     this.timer = h('div', { class: 'race-time' }, formatLap(0));
-    this.delta = h('div', { class: 'race-delta' }, ghost ? 'vs best' : '');
+    this.delta = h('div', { class: 'race-delta' }, ghost ? (replay ? `vs ${replay.ghostName}` : 'vs best') : '');
     for (let k = 0; k < 3; k++) this.sectors.push(h('div', { class: 'sector' }, h('span', null, `S${k + 1}`), h('b', null, '')));
     this.speed = h('div', { class: 'speed' }, '0');
     this.gear = h('div', { class: 'gear' }, 'N');
@@ -149,12 +159,17 @@ export class RaceScreen implements Screen {
     this.ersBox = h('div', { class: 'ers', title: 'Battery' }, h('span', null, 'ERS'), h('div', { class: 'ers-bar' }, this.ersFill));
     this.tyreTemp = h('span', null, '');
     this.tyreChip = h('div', { class: 'tyre-chip', html: tyreBadge(lap.compound, 24) }, this.tyreTemp);
-    this.banner = h('div', { class: 'race-banner' }, 'Flying lap');
+    this.banner = h('div', { class: 'race-banner' }, replay ? `${replay.driver}, P${replay.rank}` : 'Flying lap');
 
     this.el = h(
       'div',
       { class: 'race-hud' },
-      h('div', { class: 'strip strip-top race-top' }, h('div', { class: 'race-clock' }, this.timer, this.delta), h('div', { class: 'sectors' }, ...this.sectors)),
+      h(
+        'div',
+        { class: 'strip strip-top race-top' },
+        h('div', { class: 'race-clock' }, this.timer, this.delta, replay ? h('div', { class: 'race-who' }, `Watching ${replay.driver}, P${replay.rank}`) : null),
+        h('div', { class: 'sectors' }, ...this.sectors),
+      ),
       h('button', { class: 'skip', onclick: () => this.skip(), html: `<span>Skip</span>${ICONS.skip}` }),
       this.banner,
       h('div', { class: 'strip strip-bottom race-bottom' }, h('div', { class: 'speedo' }, this.speed, h('small', null, 'km/h')), this.gear, h('div', { class: 'race-power' }, ledBox, this.ersBox), h('div', { class: 'race-chips' }, this.aero, this.tyreChip)),
@@ -309,7 +324,20 @@ export class RaceScreen implements Screen {
         setText(this.delta, formatDelta(d));
         this.delta.dataset.sign = d <= 0 ? 'up' : 'down';
       }
-      const sub = !g ? 'First timed lap' : d < 0 ? `Personal best ${formatDelta(d)}` : `${formatDelta(d)} to your best`;
+      const r = this.replay;
+      const sub = r
+        ? !g
+          ? `P${r.rank} on the world board`
+          : d < 0
+            ? `${formatDelta(d)} faster than ${r.ghostName}`
+            : d === 0
+              ? `Level with ${r.ghostName}`
+              : `${formatDelta(d)} to ${r.ghostName}`
+        : !g
+          ? 'First timed lap'
+          : d < 0
+            ? `Personal best ${formatDelta(d)}`
+            : `${formatDelta(d)} to your best`;
       this.el.append(
         h('div', { class: `race-finish${!g || d < 0 ? ' is-pb' : ''}`, role: 'status' }, h('b', null, formatLap(lap.timeMs)), h('span', null, sub)),
       );

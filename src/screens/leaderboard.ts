@@ -10,8 +10,14 @@ import { flushUnsubmitted } from '../app/sync';
 import { COMPOUND_SPECS } from '../sim/car';
 import { ICONS, h, tyreBadge } from '../ui/dom';
 
-/** `copied` runs after the player copies someone's setup. */
-export function openLeaderboard(app: App, slug: string, copied?: () => void): void {
+export interface BoardOptions {
+  /** Runs after the player copies someone's setup. */
+  copied?: () => void;
+  /** Start watching the lap at this rank; rejects when it cannot be replayed. */
+  watch?: (rank: number) => Promise<void>;
+}
+
+export function openLeaderboard(app: App, slug: string, opts: BoardOptions = {}): void {
   const meta = app.meta(slug);
   const player = getPlayer();
   const list = h('ol', { class: 'board' }, h('li', { class: 'board-status' }, 'Loading times…'));
@@ -45,8 +51,21 @@ export function openLeaderboard(app: App, slug: string, copied?: () => void): vo
         return;
       }
       const lead = b.entries[0].timeMs;
-      if (b.entries.some((e) => e.setup && !e.you)) list.append(h('li', { class: 'board-hint' }, 'Tap a driver to see how they drew their lap and copy their setup.'));
-      for (const e of b.entries) list.append(entryRow(e, lead, slug, copied));
+      const watchable = !!opts.watch && b.entries.some((e) => e.replay);
+      const copyable = b.entries.some((e) => e.setup && !e.you);
+      if (watchable || copyable) {
+        const what = watchable && copyable ? 'watch their lap or copy their setup' : watchable ? 'watch their lap' : 'see how they drew their lap and copy their setup';
+        list.append(h('li', { class: 'board-hint' }, `Tap a driver to ${what}.`));
+      }
+      const watch = opts.watch
+        ? (rank: number) =>
+            opts.watch!(rank).then(() => {
+              // The replay is on screen: get the sheet out of its way.
+              overlay.remove();
+              document.removeEventListener('keydown', onKey);
+            })
+        : undefined;
+      for (const e of b.entries) list.append(entryRow(e, lead, slug, { copied: opts.copied, watch }));
       if (b.you && !b.entries.some((e) => e.you)) {
         list.append(
           h('li', { class: 'board-gapline', 'aria-hidden': 'true' }, '⋯'),
@@ -87,8 +106,8 @@ function setupChips(setup: DrawSetup): string[] {
 
 let rowIds = 0;
 
-/** A board row. Other drivers' rows open to show their setup with a copy button. */
-function entryRow(e: BoardEntry, lead: number, slug: string, copied?: () => void): HTMLElement {
+/** A board row. Rows open to watch the lap and, for other drivers, see and copy their setup. */
+function entryRow(e: BoardEntry, lead: number, slug: string, opts: BoardOptions): HTMLElement {
   const cells = [
     h('span', { class: 'board-rank' }, String(e.rank)),
     h('span', { class: 'board-name' }, e.name),
@@ -96,38 +115,63 @@ function entryRow(e: BoardEntry, lead: number, slug: string, copied?: () => void
     h('span', { class: 'board-time' }, formatLap(e.timeMs)),
     h('span', { class: 'board-gap' }, e.rank === 1 ? '' : formatDelta(e.timeMs - lead)),
   ];
-  const setup = e.setup;
-  if (e.you || !setup) return h('li', { class: `board-row${e.you ? ' is-you' : ''}` }, ...cells);
+  const setup = e.you ? null : e.setup;
+  const canWatch = e.replay && !!opts.watch;
+  if (!setup && !canWatch) return h('li', { class: `board-row${e.you ? ' is-you' : ''}` }, ...cells);
 
   const id = `board-setup-${++rowIds}`;
   const status = h('span', { class: 'board-setup-status', role: 'status' });
-  const copy = h('button', { class: 'btn-ink' }, 'Copy setup') as HTMLButtonElement;
-  const sync = () => {
-    const same = sameSetup(currentSetup(), setup) && getTyre(slug) === e.compound;
-    copy.disabled = same;
-    copy.textContent = same ? 'You use this setup' : 'Copy setup';
-  };
-  copy.onclick = () => {
-    applySetup(setup);
-    setTyre(slug, e.compound);
-    sfx.tap();
-    copy.disabled = true;
-    copy.textContent = 'Copied';
-    status.textContent = 'Your next lap here draws with this setup.';
-    copied?.();
-  };
+  const actions = h('div', { class: 'board-setup-actions' });
+  let sync = () => {};
+  if (canWatch) {
+    const watch = h('button', { class: 'btn-ink board-watch', html: `${ICONS.play}<span>${e.rank === 1 ? 'Watch lap' : 'Watch vs P1'}</span>` }) as HTMLButtonElement;
+    watch.onclick = () => {
+      sfx.tap();
+      watch.disabled = true;
+      status.classList.remove('is-error');
+      status.textContent = 'Loading the lap…';
+      opts.watch!(e.rank).catch(() => {
+        watch.disabled = false;
+        status.classList.add('is-error');
+        status.textContent = 'That lap can’t be replayed right now.';
+      });
+    };
+    actions.append(watch);
+  }
+  if (setup) {
+    const copy = h('button', { class: 'btn-ink btn-ink-quiet' }, 'Copy setup') as HTMLButtonElement;
+    sync = () => {
+      const same = sameSetup(currentSetup(), setup) && getTyre(slug) === e.compound;
+      copy.disabled = same;
+      copy.textContent = same ? 'You use this setup' : 'Copy setup';
+    };
+    copy.onclick = () => {
+      applySetup(setup);
+      setTyre(slug, e.compound);
+      sfx.tap();
+      copy.disabled = true;
+      copy.textContent = 'Copied';
+      status.classList.remove('is-error');
+      status.textContent = 'Your next lap here draws with this setup.';
+      opts.copied?.();
+    };
+    actions.append(copy);
+  }
+  actions.append(status);
   const detail = h(
     'div',
     { class: 'board-setup', id, hidden: true },
-    h(
-      'ul',
-      { class: 'setup-chips', 'aria-label': `${e.name}'s setup` },
-      ...setupChips(setup).map((c) => h('li', null, c)),
-      h('li', { html: `${tyreBadge(e.compound, 14)}<span>${COMPOUND_SPECS[e.compound].label}</span>` }),
-    ),
-    h('div', { class: 'board-setup-actions' }, copy, status),
+    setup
+      ? h(
+          'ul',
+          { class: 'setup-chips', 'aria-label': `${e.name}'s setup` },
+          ...setupChips(setup).map((c) => h('li', null, c)),
+          h('li', { html: `${tyreBadge(e.compound, 14)}<span>${COMPOUND_SPECS[e.compound].label}</span>` }),
+        )
+      : null,
+    actions,
   );
-  const li = h('li', { class: 'board-entry' });
+  const li = h('li', { class: `board-entry${e.you ? ' is-you' : ''}` });
   const row = h(
     'button',
     {

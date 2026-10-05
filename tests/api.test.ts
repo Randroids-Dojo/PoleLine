@@ -44,8 +44,8 @@ const fake = {
   },
   zcard: async (key: string) => zset(key).size,
   zscore: async (key: string, member: string) => zset(key).get(member) ?? null,
-  zrange: async (key: string, a: number | string, b: number | string, o?: { byScore?: boolean; offset?: number; count?: number }) => {
-    if (!o?.byScore) return ranked(key).slice(Number(a), Number(b) + 1).flatMap(([m, s]) => [m, s]);
+  zrange: async (key: string, a: number | string, b: number | string, o?: { byScore?: boolean; withScores?: boolean; offset?: number; count?: number }) => {
+    if (!o?.byScore) return ranked(key).slice(Number(a), Number(b) + 1).flatMap(([m, s]) => (o?.withScores ? [m, s] : [m]));
     const lo = (v: number | string) => (score: number) => (String(v).startsWith('(') ? score > Number(String(v).slice(1)) : score >= Number(v));
     const hi = (v: number | string) => (score: number) => (v === '+inf' ? true : String(v).startsWith('(') ? score < Number(String(v).slice(1)) : score <= Number(v));
     const inRange = ranked(key).filter(([, sc]) => lo(a)(sc) && hi(b)(sc));
@@ -56,6 +56,7 @@ const fake = {
     return 1;
   },
   hget: async (key: string, f: string) => hash(key).get(f) ?? null,
+  hdel: async (key: string, ...f: string[]) => f.filter((x) => hash(key).delete(x)).length,
   hmget: async (key: string, ...f: string[]) => Object.fromEntries(f.map((x) => [x, hash(key).get(x) ?? null])),
   hgetall: async (key: string) => Object.fromEntries(hash(key).entries()),
   set: async (k: string, v: unknown, o?: { nx?: boolean }) => {
@@ -112,7 +113,10 @@ process.env.KV_REST_API_URL = 'https://example.test';
 process.env.KV_REST_API_TOKEN = 'token';
 process.env.VAPID_PUBLIC_KEY = 'public-key';
 process.env.VAPID_PRIVATE_KEY = 'private-key';
-const { default: handler, cleanName, scoreLine } = await import('../api/leaderboard');
+const { default: handler, cleanName, scoreLine, MAX_REPLAYS } = await import('../api/leaderboard');
+const { packLine, unpackLine } = await import('../src/sim/pack');
+const { simulateLap } = await import('../src/sim/lapsim');
+const { decodePath } = await import('../src/sim/path');
 const { default: pushHandler } = await import('../api/push');
 
 function call(method: string, query: Record<string, string> = {}, body?: unknown, route: typeof handler = handler) {
@@ -274,5 +278,60 @@ describe('lap alerts', () => {
     await call('POST', {}, { track: 'monaco', compound: 'soft', line: ideal, playerId: P2, name: 'Fast' });
     await settle();
     expect(store.s.has(`poleline:push:sub:${P1}`)).toBe(false);
+  });
+});
+
+describe('replays', () => {
+  beforeEach(() => {
+    store.z.clear();
+    store.h.clear();
+    store.s.clear();
+    store.n.clear();
+  });
+
+  it('packs lines compactly and losslessly', () => {
+    const code = [123456, -98765, 0, 1, -1, 63, -64, 64, 127, -128, 8191, -8192, 199999, -200000];
+    expect(unpackLine(packLine(code))).toEqual(code);
+    expect(unpackLine(packLine(ideal))).toEqual(ideal);
+    expect(packLine(ideal).length).toBeLessThan(JSON.stringify(ideal).length * 0.7);
+  });
+
+  it('serves a lap by rank that replays to its board time', async () => {
+    const slow = await call('POST', {}, { track: 'monaco', compound: 'medium', line: centre, playerId: P1, name: 'Slow' });
+    await call('POST', {}, { track: 'monaco', compound: 'soft', line: ideal, playerId: P2, name: 'Fast' });
+    const board = await call('GET', { track: 'monaco' });
+    expect((board.json.entries as { replay: boolean }[]).map((e) => e.replay)).toEqual([true, true]);
+    const lap = await call('GET', { track: 'monaco', lap: '2' });
+    expect(lap.status).toBe(200);
+    expect(lap.json).toMatchObject({ rank: 2, name: 'Slow', compound: 'medium', timeMs: slow.json.timeMs });
+    // Never leaks the player id.
+    expect(JSON.stringify(lap.json)).not.toContain(P1);
+    const line = unpackLine(lap.json.line as string);
+    expect(line).toEqual(centre);
+    expect(simulateLap(track, decodePath(line), 'medium').timeMs).toBe(slow.json.timeMs);
+    expect((await call('GET', { track: 'monaco', lap: '3' })).status).toBe(404);
+  });
+
+  it("falls back to the record line for a P1 set before replays were stored", async () => {
+    await call('POST', {}, { track: 'monaco', compound: 'soft', line: ideal, playerId: P1, name: 'Old' });
+    store.h.delete('poleline:v2:line:monaco');
+    const lap = await call('GET', { track: 'monaco', lap: '1' });
+    expect(lap.status).toBe(200);
+    expect(unpackLine(lap.json.line as string)).toEqual(ideal);
+  });
+
+  it('keeps lines only for the top of the board', async () => {
+    // A full board of slower laps, each with a stored line.
+    for (let i = 0; i < MAX_REPLAYS; i++) {
+      const id = `f${String(i).padStart(7, '0')}-0000-4000-8000-000000000000`;
+      zset('poleline:v2:lb:monaco').set(id, 200000 + i);
+      hash('poleline:v2:line:monaco').set(id, 'AAAA');
+    }
+    const last = `f${String(MAX_REPLAYS - 1).padStart(7, '0')}-0000-4000-8000-000000000000`;
+    await call('POST', {}, { track: 'monaco', compound: 'soft', line: ideal, playerId: P1, name: 'Newcomer' });
+    expect(hash('poleline:v2:line:monaco').has(P1)).toBe(true);
+    // The old 100th lap is now 101st: its line is gone.
+    expect(hash('poleline:v2:line:monaco').has(last)).toBe(false);
+    expect(hash('poleline:v2:line:monaco').size).toBe(MAX_REPLAYS);
   });
 });
