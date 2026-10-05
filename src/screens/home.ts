@@ -102,16 +102,26 @@ export class HomeScreen implements Screen {
 
     const slot = pb ? gridSlot(pb.timeMs, m.poleRef) : null;
     const times = h(
-      'dl',
-      { class: 'times' },
-      h('div', null, h('dt', null, 'Pole pace'), h('dd', null, formatLap(m.poleRef * 1000))),
+      'section',
+      { class: 'times-block', 'aria-label': 'Lap times' },
       h(
         'div',
-        { class: pb ? '' : 'is-empty' },
-        h('dt', null, 'Your best'),
-        h('dd', null, pb ? formatLap(pb.timeMs) : 'No lap yet', slot ? h('span', { class: `slot tier-${slot.tier}` }, slot.stamp) : null),
+        { class: 'times-head' },
+        h('span', null, 'Lap times'),
+        h('button', { class: 'times-board', onclick: () => this.actions.leaderboard(m.slug), html: `<span>Leaderboard</span>${ICONS.chevronRight}` }),
       ),
-      h('div', null, h('dt', null, 'World record'), h('dd', null, rec ? formatLap(rec.timeMs) : 'Open', rec ? h('span', { class: 'holder' }, rec.name) : null)),
+      h(
+        'dl',
+        { class: 'times' },
+        h('div', null, h('dt', null, 'Pole pace'), h('dd', null, formatLap(m.poleRef * 1000))),
+        h(
+          'div',
+          { class: pb ? '' : 'is-empty' },
+          h('dt', null, 'Your best', slot ? h('span', { class: `slot tier-${slot.tier}` }, slot.stamp) : null),
+          h('dd', null, pb ? formatLap(pb.timeMs) : 'No lap yet'),
+        ),
+        h('div', { class: rec ? '' : 'is-empty' }, h('dt', null, 'World record'), h('dd', null, rec ? formatLap(rec.timeMs) : 'Open'), rec ? h('p', { class: 'holder' }, rec.name) : null),
+      ),
     );
 
     const facts = h(
@@ -164,7 +174,6 @@ export class HomeScreen implements Screen {
       },
       'Draw a lap',
     );
-    const board = h('button', { class: 'btn-quiet', onclick: () => this.actions.leaderboard(m.slug), html: `${ICONS.board}<span>Leaderboard</span>` });
 
     const livery = liveryById(getSettings().livery);
     const car = h(
@@ -177,7 +186,6 @@ export class HomeScreen implements Screen {
       h('div', { class: 'event-title' }, h('p', { class: 'event-round' }, `Round ${round} of ${CATALOG.length}`, h('span', { class: 'flag' }, m.flag), m.country), h('h2', null, m.short), h('p', { class: 'event-name' }, m.name)),
       map,
       times,
-      board,
       facts,
       hint,
       h('div', { class: 'launch' }, tyres, h('div', { class: 'launch-go' }, car, go)),

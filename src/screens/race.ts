@@ -149,7 +149,7 @@ export class RaceScreen implements Screen {
     this.zoomBase = Math.min(app.w, app.h) > 700 ? 1.15 : 1;
 
     this.timer = h('div', { class: 'race-time' }, formatLap(0));
-    this.delta = h('div', { class: 'race-delta' }, ghost ? (replay ? `vs ${replay.ghostName}` : 'vs best') : '');
+    this.delta = h('div', { class: 'race-delta', hidden: !ghost }, ghost ? (replay ? `vs ${replay.ghostName}` : 'vs best') : '');
     for (let k = 0; k < 3; k++) this.sectors.push(h('div', { class: 'sector' }, h('span', null, `S${k + 1}`), h('b', null, '')));
     this.speed = h('div', { class: 'speed' }, '0');
     this.gear = h('div', { class: 'gear' }, 'N');
@@ -180,9 +180,14 @@ export class RaceScreen implements Screen {
         h('div', { class: 'race-clock' }, this.timer, this.delta, replay ? h('div', { class: 'race-who' }, `Watching ${replay.driver}, P${replay.rank}`) : null),
         h('div', { class: 'sectors' }, ...this.sectors),
       ),
-      h('button', { class: 'skip', onclick: () => this.skip(), html: `<span>Skip</span>${ICONS.skip}` }),
       this.banner,
-      h('div', { class: 'strip strip-bottom race-bottom' }, h('div', { class: 'speedo' }, this.speed, h('small', null, 'km/h')), this.gear, h('div', { class: 'race-power' }, ledBox, this.ersBox), h('div', { class: 'race-chips' }, this.aero, this.tyreChip)),
+      // Skip sits above the bottom strip, where a thumb already is, clear of the timing card.
+      h(
+        'div',
+        { class: 'race-foot' },
+        h('button', { class: 'skip', onclick: () => this.skip(), html: `<span>Skip</span>${ICONS.skip}` }),
+        h('div', { class: 'strip race-bottom' }, h('div', { class: 'speedo' }, this.speed, h('small', null, 'km/h')), this.gear, h('div', { class: 'race-power' }, ledBox, this.ersBox), h('div', { class: 'race-chips' }, this.aero, this.tyreChip)),
+      ),
     );
     app.root.append(this.el);
     this.resize();

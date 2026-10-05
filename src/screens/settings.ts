@@ -64,19 +64,17 @@ export function openSettings(app: App, onChange?: (s: Settings) => void): void {
     });
     damping.append(h('label', { class: 'set-damp' }, input, h('span', { class: 'set-text' }, h('b', null, o.label), h('small', null, o.detail))));
   }
-  const dampingRow = h('div', { class: 'set-speed set-damping-row' }, h('div', { class: 'set-speed-head' }, h('b', null, 'Slow down near corners')), damping);
+  const dampingRow = h('div', { class: 'set-damping-row' }, h('b', { class: 'set-sub' }, 'Slow down near corners'), damping);
+  // Scroll speed and corner slowdown only apply while the map scrolls under the finger.
+  const keepOptions = h('div', { class: 'set-nest' }, speedRow, dampingRow);
 
   const modes: { id: ScrollMode; label: string; detail: string }[] = [
     { id: 'pause', label: 'Pause my stroke', detail: 'The map glides on and your stroke ends. Lift, then carry on from the purple tip.' },
     { id: 'continuous', label: 'Keep drawing', detail: 'The map scrolls under your finger as you draw. Faster, but harder to control.' },
   ];
-  const modeGroup = h('div', { class: 'set-modes', role: 'radiogroup', 'aria-label': 'When the map scrolls' });
+  const modeGroup = h('div', { class: 'set-group', role: 'radiogroup', 'aria-label': 'When the map scrolls' });
   const syncSpeed = (mode: ScrollMode) => {
-    const on = mode === 'continuous';
-    speedRow.classList.toggle('is-off', !on);
-    speed.disabled = !on;
-    dampingRow.classList.toggle('is-off', !on);
-    dampingRow.querySelectorAll('input').forEach((i) => ((i as HTMLInputElement).disabled = !on));
+    keepOptions.hidden = mode !== 'continuous';
   };
   for (const m of modes) {
     const input = h('input', { type: 'radio', name: 'scroll-mode', value: m.id }) as HTMLInputElement;
@@ -88,6 +86,7 @@ export function openSettings(app: App, onChange?: (s: Settings) => void): void {
     });
     modeGroup.append(h('label', { class: 'set-mode' }, input, h('span', { class: 'set-text' }, h('b', null, m.label), h('small', null, m.detail))));
   }
+  modeGroup.append(keepOptions);
   syncSpeed(s.scrollMode);
 
   const closeBtn = h('button', { class: 'icon-btn', 'aria-label': 'Close settings', html: ICONS.close, onclick: close });
@@ -100,33 +99,39 @@ export function openSettings(app: App, onChange?: (s: Settings) => void): void {
       { class: 'settings-body' },
       h('h3', null, 'When the map scrolls while you draw'),
       modeGroup,
-      speedRow,
-      dampingRow,
       h('h3', null, 'Map'),
-      toggle('Rotate the map to follow the track', 'Turns the road ahead to point up. Off: the map stays where you put it with the compass.', s.autoRotate, (v) => {
-        changed({ autoRotate: v });
-      }),
+      h(
+        'div',
+        { class: 'set-group' },
+        toggle('Rotate the map to follow the track', 'Turns the road ahead to point up. Off: the map stays where you put it with the compass.', s.autoRotate, (v) => {
+          changed({ autoRotate: v });
+        }),
+      ),
       h('h3', null, 'Device'),
-      toggle('Sound', 'Engine, timing beeps and alerts.', s.sound, (v) => {
-        changed({ sound: v });
-        setSoundEnabled(v);
-        if (v) {
-          unlockAudio();
-          sfx.tap();
-        }
-      }),
-      toggle('Keep the screen awake', 'Stops the screen dimming while you play.', s.keepAwake, (v) => {
-        changed({ keepAwake: v });
-        setKeepAwake(v);
-      }),
-      alertsRow(s.alerts),
-      installRow(),
+      h(
+        'div',
+        { class: 'set-group' },
+        toggle('Sound', 'Engine, timing beeps and alerts.', s.sound, (v) => {
+          changed({ sound: v });
+          setSoundEnabled(v);
+          if (v) {
+            unlockAudio();
+            sfx.tap();
+          }
+        }),
+        toggle('Keep the screen awake', 'Stops the screen dimming while you play.', s.keepAwake, (v) => {
+          changed({ keepAwake: v });
+          setKeepAwake(v);
+        }),
+        alertsRow(s.alerts),
+        installRow(),
+      ),
     ),
   );
   const overlay = h('div', { class: 'overlay', onclick: (e: Event) => e.target === overlay && close() }, sheet);
   app.root.append(overlay);
   document.addEventListener('keydown', onKey);
-  closeBtn.focus();
+  closeBtn.focus({ focusVisible: false } as FocusOptions);
 }
 
 /** Lap alerts switch: asks for notification permission when turned on. */
