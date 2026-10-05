@@ -10,6 +10,7 @@ PoleLine is a mobile web game set on 24 real Formula 1 circuits. You draw your r
 - **Your car.** A 2026-shape car in PoleLine purple or the colours of any of the eleven 2026 teams (loose colour impressions, no logos). Tap the car next to Draw a lap to switch.
 - **Race.** The screen stays awake (Screen Wake Lock) while you play. The car runs your line in real time: flying lap, live sector colours, delta to your personal best ghost, gear, revs, active aero (straight mode), the battery and tyre temperature.
 - **Learn.** The results sheet shows a speed trace of the whole lap, your sectors, a grid slot (P1 to P20; anything slower lines up P20) and a race engineer's note on what to try next.
+- **Copy a rival.** Every best lap on a leaderboard carries the setup it was drawn with (scroll mode and speed, corner slowdown, map rotation and tyre). Tap a driver to see it and copy it in one tap; your next lap on that circuit draws the same way.
 - **Stay in the fight.** After your first lap the game offers to go on your home screen (the browser's install prompt on Android and desktop, Share then Add to Home Screen on iPhone), then to turn on lap alerts: a push notification when someone beats one of your times, which opens that circuit's leaderboard. Each prompt shows once; lap alerts can be switched on or off in Settings. On iPhone they work from the home screen app.
 
 ## The simulation

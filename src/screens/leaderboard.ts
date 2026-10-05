@@ -1,13 +1,17 @@
 // Per-circuit world leaderboard as a bottom sheet.
 
 import type { App } from '../app/app';
-import { fetchBoard, renamePlayer } from '../app/api';
+import { fetchBoard, renamePlayer, type BoardEntry } from '../app/api';
+import { sfx } from '../app/audio';
+import { CORNER_DAMPING_OPTIONS } from '../app/damping';
 import { formatDelta, formatLap } from '../app/format';
-import { getPlayer, setPlayerName } from '../app/store';
+import { applySetup, currentSetup, getPlayer, getTyre, sameSetup, setPlayerName, setTyre, type DrawSetup } from '../app/store';
 import { flushUnsubmitted } from '../app/sync';
+import { COMPOUND_SPECS } from '../sim/car';
 import { ICONS, h, tyreBadge } from '../ui/dom';
 
-export function openLeaderboard(app: App, slug: string): void {
+/** `copied` runs after the player copies someone's setup. */
+export function openLeaderboard(app: App, slug: string, copied?: () => void): void {
   const meta = app.meta(slug);
   const player = getPlayer();
   const list = h('ol', { class: 'board' }, h('li', { class: 'board-status' }, 'Loading times…'));
@@ -41,19 +45,8 @@ export function openLeaderboard(app: App, slug: string): void {
         return;
       }
       const lead = b.entries[0].timeMs;
-      for (const e of b.entries) {
-        list.append(
-          h(
-            'li',
-            { class: `board-row${e.you ? ' is-you' : ''}` },
-            h('span', { class: 'board-rank' }, String(e.rank)),
-            h('span', { class: 'board-name' }, e.name),
-            h('span', { class: 'board-tyre', html: tyreBadge(e.compound, 18) }),
-            h('span', { class: 'board-time' }, formatLap(e.timeMs)),
-            h('span', { class: 'board-gap' }, e.rank === 1 ? '' : formatDelta(e.timeMs - lead)),
-          ),
-        );
-      }
+      if (b.entries.some((e) => e.setup && !e.you)) list.append(h('li', { class: 'board-hint' }, 'Tap a driver to see how they drew their lap and copy their setup.'));
+      for (const e of b.entries) list.append(entryRow(e, lead, slug, copied));
       if (b.you && !b.entries.some((e) => e.you)) {
         list.append(
           h('li', { class: 'board-gapline', 'aria-hidden': 'true' }, '⋯'),
@@ -76,6 +69,83 @@ export function openLeaderboard(app: App, slug: string): void {
       list.append(h('li', { class: 'board-status' }, 'The leaderboard is unreachable right now. Your times are saved on this device.'));
     });
   void load();
+}
+
+/** Short labels for how a lap was drawn, in the settings' own words. */
+function setupChips(setup: DrawSetup): string[] {
+  const chips: string[] = [];
+  if (setup.scrollMode === 'pause') {
+    chips.push('Pause my stroke');
+  } else {
+    chips.push(`Keep drawing ${setup.scrollSpeed.toFixed(2)}×`);
+    const damping = CORNER_DAMPING_OPTIONS.find((o) => o.id === setup.cornerDamping);
+    chips.push(setup.cornerDamping === 'off' || !damping ? 'No corner slowdown' : damping.label);
+  }
+  chips.push(setup.autoRotate ? 'Map rotates' : 'Map fixed');
+  return chips;
+}
+
+let rowIds = 0;
+
+/** A board row. Other drivers' rows open to show their setup with a copy button. */
+function entryRow(e: BoardEntry, lead: number, slug: string, copied?: () => void): HTMLElement {
+  const cells = [
+    h('span', { class: 'board-rank' }, String(e.rank)),
+    h('span', { class: 'board-name' }, e.name),
+    h('span', { class: 'board-tyre', html: tyreBadge(e.compound, 18) }),
+    h('span', { class: 'board-time' }, formatLap(e.timeMs)),
+    h('span', { class: 'board-gap' }, e.rank === 1 ? '' : formatDelta(e.timeMs - lead)),
+  ];
+  const setup = e.setup;
+  if (e.you || !setup) return h('li', { class: `board-row${e.you ? ' is-you' : ''}` }, ...cells);
+
+  const id = `board-setup-${++rowIds}`;
+  const status = h('span', { class: 'board-setup-status', role: 'status' });
+  const copy = h('button', { class: 'btn-ink' }, 'Copy setup') as HTMLButtonElement;
+  const sync = () => {
+    const same = sameSetup(currentSetup(), setup) && getTyre(slug) === e.compound;
+    copy.disabled = same;
+    copy.textContent = same ? 'You use this setup' : 'Copy setup';
+  };
+  copy.onclick = () => {
+    applySetup(setup);
+    setTyre(slug, e.compound);
+    sfx.tap();
+    copy.disabled = true;
+    copy.textContent = 'Copied';
+    status.textContent = 'Your next lap here draws with this setup.';
+    copied?.();
+  };
+  const detail = h(
+    'div',
+    { class: 'board-setup', id, hidden: true },
+    h(
+      'ul',
+      { class: 'setup-chips', 'aria-label': `${e.name}'s setup` },
+      ...setupChips(setup).map((c) => h('li', null, c)),
+      h('li', { html: `${tyreBadge(e.compound, 14)}<span>${COMPOUND_SPECS[e.compound].label}</span>` }),
+    ),
+    h('div', { class: 'board-setup-actions' }, copy, status),
+  );
+  const li = h('li', { class: 'board-entry' });
+  const row = h(
+    'button',
+    {
+      class: 'board-row',
+      'aria-expanded': 'false',
+      'aria-controls': id,
+      onclick: () => {
+        const open = detail.hidden !== false;
+        detail.hidden = !open;
+        row.setAttribute('aria-expanded', String(open));
+        li.classList.toggle('is-open', open);
+        if (open) sync();
+      },
+    },
+    ...cells,
+  );
+  li.append(row, detail);
+  return li;
 }
 
 /** "Posting as X" with an inline rename. */

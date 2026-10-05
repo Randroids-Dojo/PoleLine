@@ -7,7 +7,7 @@ import { fetchBoard, submitLap } from '../app/api';
 import { sfx } from '../app/audio';
 import { engineerNotes } from '../app/engineer';
 import { formatDelta, formatLap, formatSector, gridSlot, kmh } from '../app/format';
-import { getPlayer, markSubmitted, setPlayerName, type PersonalBest } from '../app/store';
+import { getPlayer, markSubmitted, setPlayerName, type DrawSetup, type PersonalBest } from '../app/store';
 import { flushUnsubmitted } from '../app/sync';
 import { promptAfterLap } from './prompts';
 import { Camera, easeInOutCubic, lerpAngle } from '../render/camera';
@@ -33,6 +33,7 @@ export interface ResultsInput {
   bestSectorsBefore: [number, number, number] | null;
   isPb: boolean;
   attempt: number;
+  setup: DrawSetup;
 }
 
 const NAME_RE = /^[A-Za-z0-9 _.-]{2,14}$/;
@@ -170,7 +171,7 @@ export class ResultsScreen implements Screen {
     this.world.append(status);
     const post = (name: string) => {
       setText(status, 'Posting to the world leaderboard…');
-      submitLap({ track: slug, compound: lap.compound, line: code, playerId: player.id, name })
+      submitLap({ track: slug, compound: lap.compound, line: code, playerId: player.id, name, setup: this.input.setup })
         .then((r) => {
           markSubmitted(slug);
           void flushUnsubmitted(slug);

@@ -17,7 +17,8 @@ import { ICONS, clear, h, svg, tyreBadge } from '../ui/dom';
 
 export interface HomeActions {
   draw(slug: string, compound: Compound): void;
-  leaderboard(slug: string): void;
+  /** `copied` runs after the player copies someone's setup, so the tyre picker can catch up. */
+  leaderboard(slug: string, copied: () => void): void;
 }
 
 export class HomeScreen implements Screen {
@@ -159,7 +160,7 @@ export class HomeScreen implements Screen {
       },
       'Draw a lap',
     );
-    const board = h('button', { class: 'btn-quiet', onclick: () => this.actions.leaderboard(m.slug), html: `${ICONS.board}<span>Leaderboard</span>` });
+    const board = h('button', { class: 'btn-quiet', onclick: () => this.actions.leaderboard(m.slug, () => this.renderEvent()), html: `${ICONS.board}<span>Leaderboard</span>` });
 
     const livery = liveryById(getSettings().livery);
     const car = h(

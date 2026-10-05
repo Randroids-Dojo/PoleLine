@@ -18,7 +18,7 @@ export async function flushUnsubmitted(skip?: string): Promise<void> {
       const pb = getBest(m.slug);
       if (!pb || pb.submitted) continue;
       try {
-        await submitLap({ track: m.slug, compound: pb.compound, line: pb.code, playerId: p.id, name: p.name });
+        await submitLap({ track: m.slug, compound: pb.compound, line: pb.code, playerId: p.id, name: p.name, setup: pb.setup });
         markSubmitted(m.slug);
       } catch {
         break;

@@ -59,6 +59,8 @@ export interface PersonalBest {
   code: number[];
   date: string;
   submitted?: boolean;
+  /** Drawing settings the lap was drawn with (shared on the leaderboard). */
+  setup?: DrawSetup;
 }
 
 export function getBest(slug: string): PersonalBest | null {
@@ -175,6 +177,27 @@ export function getSettings(): Settings {
 export function saveSettings(patch: Partial<Settings>): Settings {
   write('settings', { ...storedSettings(), ...patch, v: SETTINGS_VERSION });
   return getSettings();
+}
+
+/** The settings that shape how a lap gets drawn; posted with each lap so others can copy them. */
+export interface DrawSetup {
+  scrollMode: ScrollMode;
+  scrollSpeed: number;
+  cornerDamping: CornerDamping;
+  autoRotate: boolean;
+}
+
+export function currentSetup(): DrawSetup {
+  const s = getSettings();
+  return { scrollMode: s.scrollMode, scrollSpeed: s.scrollSpeed, cornerDamping: s.cornerDamping, autoRotate: s.autoRotate };
+}
+
+export function sameSetup(a: DrawSetup, b: DrawSetup): boolean {
+  return a.scrollMode === b.scrollMode && Math.abs(a.scrollSpeed - b.scrollSpeed) < 0.005 && a.cornerDamping === b.cornerDamping && a.autoRotate === b.autoRotate;
+}
+
+export function applySetup(setup: DrawSetup): Settings {
+  return saveSettings({ scrollMode: setup.scrollMode, scrollSpeed: setup.scrollSpeed, cornerDamping: setup.cornerDamping, autoRotate: setup.autoRotate });
 }
 
 export function getTyre(slug: string): Compound {

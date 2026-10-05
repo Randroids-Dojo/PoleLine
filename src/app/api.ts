@@ -2,6 +2,7 @@
 // game is fully playable offline, the board just shows as unavailable.
 
 import type { Compound } from '../sim/types';
+import type { DrawSetup } from './store';
 
 export interface BoardEntry {
   rank: number;
@@ -9,6 +10,8 @@ export interface BoardEntry {
   timeMs: number;
   compound: Compound;
   date: string;
+  /** How they drew their best lap; null for laps posted before setups were recorded. */
+  setup: DrawSetup | null;
   you: boolean;
 }
 
@@ -57,7 +60,7 @@ export async function fetchRecords(force = false): Promise<Records> {
   return recordsCache.data;
 }
 
-export function submitLap(payload: { track: string; compound: Compound; line: number[]; playerId: string; name: string }): Promise<SubmitResult> {
+export function submitLap(payload: { track: string; compound: Compound; line: number[]; playerId: string; name: string; setup?: DrawSetup }): Promise<SubmitResult> {
   recordsCache = null;
   return request<SubmitResult>(
     '/api/leaderboard',

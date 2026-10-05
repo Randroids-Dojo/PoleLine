@@ -2,17 +2,19 @@
 //
 // GET  /api/leaderboard?track=<slug>&player=<id>&limit=50  -> board for a circuit
 // GET  /api/leaderboard?summary=1                          -> fastest lap per circuit
-// POST /api/leaderboard {track, compound, line, playerId, name}
+// POST /api/leaderboard {track, compound, line, playerId, name, setup?}
 // PATCH /api/leaderboard {playerId, name}                   -> rename everywhere
 //
 // A submission carries the drawn line itself (decimetre integer deltas), never
 // a claimed time. The server re-validates track limits and re-runs the same
 // deterministic simulation the browser ran, so the time on the board is the
-// server's. Each player keeps only their best lap per circuit.
+// server's. Each player keeps only their best lap per circuit, along with the
+// drawing setup it was drawn with (scroll mode and speed, corner damping,
+// auto-rotate) so others can copy it.
 //
 // Keys (shared store, so everything is prefixed `poleline:v<SIM_VERSION>:`):
 //   lb:<slug>    sorted set, member = playerId, score = lap ms
-//   meta:<slug>  hash, playerId -> {name, compound, timeMs, date}
+//   meta:<slug>  hash, playerId -> {name, compound, timeMs, date, setup?}
 //   records      hash, slug -> {name, compound, timeMs}
 //   wr:<slug>    string, the record lap's line (for a future ghost)
 //   rl:<ip>      rate-limit counter
@@ -70,7 +72,17 @@ const submitSchema = z.object({
     .refine((a) => a.length % 2 === 0, 'line must have x,y pairs'),
   playerId: z.string().regex(/^[a-f0-9-]{16,40}$/),
   name: z.string().max(64),
+  setup: z.unknown().optional(),
 });
+
+/** Drawing settings a lap was drawn with. A malformed setup is dropped, never the lap. */
+const setupSchema = z.object({
+  scrollMode: z.enum(['pause', 'continuous']),
+  scrollSpeed: z.number().min(0.25).max(2),
+  cornerDamping: z.enum(['off', 'gentle', 'early', 'hold', 'pace']),
+  autoRotate: z.boolean(),
+});
+type Setup = z.infer<typeof setupSchema>;
 
 const boardSchema = z.object({
   track: z.enum(SLUGS),
@@ -114,6 +126,7 @@ interface Meta {
   compound: string;
   timeMs: number;
   date: string;
+  setup?: Setup;
 }
 
 function parseMeta(v: unknown): Meta | null {
@@ -163,7 +176,7 @@ async function getBoard(req: Req, res: Res): Promise<Res> {
   const metas = ids.length ? ((await kv.hmget(`${PREFIX}meta:${slug}`, ...ids)) as Record<string, unknown> | null) : null;
   const entries = ids.map((id, i) => {
     const m = parseMeta(metas?.[id]);
-    return { rank: i + 1, name: m?.name ?? 'Driver', timeMs: scores[i], compound: m?.compound ?? 'soft', date: m?.date ?? '', you: id === player };
+    return { rank: i + 1, name: m?.name ?? 'Driver', timeMs: scores[i], compound: m?.compound ?? 'soft', date: m?.date ?? '', setup: m?.setup ?? null, you: id === player };
   });
   let you: { rank: number; timeMs: number } | null = null;
   if (player && out[2] !== null && out[2] !== undefined) you = { rank: Number(out[2]) + 1, timeMs: Number(out[3]) };
@@ -192,7 +205,8 @@ async function post(req: Req, res: Res): Promise<Res> {
   const before = await kv.zscore(key, body.playerId);
   const changed = (await kv.zadd(key, { lt: true, ch: true }, { score: timeMs, member: body.playerId })) as number | null;
   const improved = Number(changed ?? 0) > 0;
-  const meta: Meta = { name, compound: body.compound, timeMs, date: new Date().toISOString() };
+  const setup = setupSchema.safeParse(body.setup);
+  const meta: Meta = { name, compound: body.compound, timeMs, date: new Date().toISOString(), ...(setup.success ? { setup: setup.data } : {}) };
   const p = kv.pipeline();
   if (improved) p.hset(`${PREFIX}meta:${body.track}`, { [body.playerId]: JSON.stringify(meta) });
   else p.hget(`${PREFIX}meta:${body.track}`, body.playerId);

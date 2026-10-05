@@ -3,7 +3,7 @@ import './styles.css';
 import { App } from './app/app';
 import { setSoundEnabled } from './app/audio';
 import { setKeepAwake } from './app/wake';
-import { bumpAttempts, getBest, getBestSectors, getSettings, saveSettings, setBest, updateBestSectors } from './app/store';
+import { bumpAttempts, currentSetup, getBest, getBestSectors, getSettings, getTyre, saveSettings, setBest, updateBestSectors } from './app/store';
 import { HomeScreen } from './screens/home';
 import { DrawScreen } from './screens/draw';
 import { RaceScreen, type CamSnapshot } from './screens/race';
@@ -24,7 +24,7 @@ let currentSlug = getSettings().lastTrack;
 
 function home(slug = currentSlug): void {
   currentSlug = slug;
-  app.show(new HomeScreen(app, { draw: (s, c) => void draw(s, c), leaderboard: (s) => openLeaderboard(app, s) }, slug));
+  app.show(new HomeScreen(app, { draw: (s, c) => void draw(s, c), leaderboard: (s, copied) => openLeaderboard(app, s, copied) }, slug));
 }
 
 async function draw(slug: string, compound: Compound): Promise<void> {
@@ -55,14 +55,16 @@ function race(track: Track, compound: Compound, pts: number[]): void {
   const bestSectorsBefore = getBestSectors(slug);
   const attempt = bumpAttempts(slug);
   const isPb = !previous || lap.timeMs < previous.timeMs;
+  const setup = currentSetup();
   if (isPb) {
-    setBest(slug, { timeMs: lap.timeMs, compound, sectorsMs: lap.sectorsMs, code, date: new Date().toISOString(), submitted: false });
+    setBest(slug, { timeMs: lap.timeMs, compound, sectorsMs: lap.sectorsMs, code, date: new Date().toISOString(), submitted: false, setup });
   }
   updateBestSectors(slug, lap.sectorsMs);
   const showResults = (from: CamSnapshot) =>
     app.show(
-      new ResultsScreen(app, track, art, { lap, points, code, previous, bestSectorsBefore, isPb, attempt }, {
-        again: () => void draw(slug, compound),
+      new ResultsScreen(app, track, art, { lap, points, code, previous, bestSectorsBefore, isPb, attempt, setup }, {
+        // The tyre chosen for this circuit, which copying a setup from the leaderboard can change.
+        again: () => void draw(slug, getTyre(slug)),
         leaderboard: () => openLeaderboard(app, slug),
         home: () => home(slug),
       }, from),

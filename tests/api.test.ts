@@ -197,6 +197,21 @@ describe('leaderboard api', () => {
     expect((summary.json.records as Record<string, { name: string }>).monaco.name).toBe('Fixed');
   });
 
+  it('keeps the setup each best lap was drawn with', async () => {
+    const setup = { scrollMode: 'continuous', scrollSpeed: 0.75, cornerDamping: 'early', autoRotate: false };
+    await call('POST', {}, { track: 'monaco', compound: 'medium', line: centre, playerId: P1, name: 'Copyme', setup });
+    // A malformed setup is dropped, never the lap.
+    const r = await call('POST', {}, { track: 'monaco', compound: 'soft', line: ideal, playerId: P2, name: 'Odd', setup: { scrollMode: 'sideways' } });
+    expect(r.status).toBe(200);
+    // A lap that does not beat the standing best leaves its setup alone.
+    const again = await call('POST', {}, { track: 'monaco', compound: 'medium', line: centre, playerId: P1, name: 'Copyme', setup: { ...setup, scrollMode: 'pause' } });
+    expect(again.json.improved).toBe(false);
+    const board = await call('GET', { track: 'monaco' });
+    const entries = board.json.entries as { name: string; setup: unknown; compound: string }[];
+    expect(entries.find((e) => e.name === 'Copyme')).toMatchObject({ compound: 'medium', setup });
+    expect(entries.find((e) => e.name === 'Odd')?.setup).toBeNull();
+  });
+
   it('rejects malformed submissions', async () => {
     const r = await call('POST', {}, { track: 'nowhere', compound: 'soft', line: [1, 2], playerId: P1, name: 'X' });
     expect(r.status).toBe(400);
