@@ -129,8 +129,10 @@ async function draw(slug: string, compound: Compound, walkthrough = false): Prom
   const track = await app.track(slug);
   const art = app.art(track);
   const best = getBest(slug);
-  // The walkthrough shows a fast way through the last corner; otherwise your best lap is the guide.
-  const guide = walkthrough ? idealFinish() : best ? decodePath(best.code) : null;
+  // The walkthrough shows a fast way through the last corner; otherwise your best lap is the guide
+  // (on the tutorial, just your part of it).
+  const bestLine = best ? decodePath(best.code) : null;
+  const guide = walkthrough ? idealFinish() : bestLine && meta.tutorial ? bestLine.slice((TUTORIAL.prefixPoints - 1) * 2) : bestLine;
   const leave = () => {
     if (walkthrough) endTutorial('skipped');
     home(walkthrough ? championshipSlug() : slug);
@@ -179,7 +181,8 @@ function race(track: Track, compound: Compound, pts: number[], walkthrough = fal
         again: () => void draw(slug, getTyre(slug)),
         leaderboard: () => board(slug),
         home: () => home(slug),
-        continueGame: walkthrough ? () => home(championshipSlug()) : undefined,
+        // The tutorial circuit always leads on to the championship.
+        continueGame: track.meta.tutorial ? () => home(championshipSlug()) : undefined,
       }, from),
     );
   };

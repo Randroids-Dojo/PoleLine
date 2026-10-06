@@ -23,7 +23,7 @@ export interface ResultsActions {
   again(): void;
   leaderboard(): void;
   home(): void;
-  /** End of the tutorial walkthrough: on to the championship. */
+  /** Any lap on the tutorial circuit: on to the championship, the main way out. */
   continueGame?(): void;
 }
 
@@ -116,17 +116,18 @@ export class ResultsScreen implements Screen {
       notes.length ? h('div', { class: 'res-notes' }, h('p', null, notes[0])) : null,
       h('details', { class: 'res-details' }, h('summary', null, h('span', null, 'Lap details'), h('span', { class: 'res-details-icon', html: ICONS.chevron })), facts),
       this.world,
-      input.walkthrough && this.actions.continueGame
+      this.actions.continueGame
         ? h(
             'div',
             { class: 'res-actions' },
-            h('p', { class: 'res-tutorial' }, 'That is the whole game: draw a line, watch it run, find time. 24 real circuits are waiting.'),
+            input.walkthrough ? h('p', { class: 'res-tutorial' }, 'That is the whole game: draw a line, watch it run, find time. 24 real circuits are waiting.') : null,
             h('button', { class: 'btn-primary', onclick: () => this.actions.continueGame!() }, 'Continue to the circuits'),
             h(
               'div',
               { class: 'res-secondary' },
               h('button', { class: 'btn-quiet', onclick: () => this.actions.again() }, 'Try the corner again'),
               h('button', { class: 'btn-quiet', onclick: () => this.actions.leaderboard() }, 'Leaderboard'),
+              input.walkthrough ? null : h('button', { class: 'btn-quiet', onclick: (e: Event) => this.share(e.currentTarget as HTMLButtonElement, slot.stamp) }, 'Share'),
             ),
           )
         : h(

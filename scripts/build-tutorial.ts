@@ -14,6 +14,14 @@ import { minCurvatureOffsets } from './optimal.js';
 
 /** The player takes over this far before the final corner (metres). */
 const RUN_IN = 110;
+/**
+ * The pure minimum-curvature line crosses the start/finish against the left
+ * wall (it stays wide between the last corner and turn 1). The drawn line
+ * eases to the middle of the road at the line instead, over this many metres
+ * either side, so the lap starts somewhere natural and the player's finish
+ * lines up with it. On a straight that costs next to nothing.
+ */
+const CENTRE_BLEND = 150;
 
 const meta = CATALOG.find((m) => m.tutorial);
 if (!meta) throw new Error('no tutorial circuit in the catalog');
@@ -21,6 +29,14 @@ const geom = (await import(`../src/data/geometry/${meta.slug}.ts`)).default as n
 const track = buildTrack(meta, geom);
 const step = track.length / track.n;
 const alpha = minCurvatureOffsets(track);
+{
+  const k = Math.round(CENTRE_BLEND / step);
+  const shift = -alpha[0];
+  for (let d = -k; d <= k; d++) {
+    const i = (d + track.n) % track.n;
+    alpha[i] += shift * 0.5 * (1 + Math.cos((Math.PI * d) / k));
+  }
+}
 
 // The final corner: the last run of real curvature before the line. Heading
 // change is measured across +-12 m so decimetre rounding noise stays out.

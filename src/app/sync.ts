@@ -20,7 +20,13 @@ export async function flushUnsubmitted(skip?: string): Promise<void> {
       try {
         await submitLap({ track: m.slug, compound: pb.compound, line: pb.code, playerId: p.id, name: p.name, setup: pb.setup });
         markSubmitted(m.slug);
-      } catch {
+      } catch (err) {
+        // A lap the server refuses will never post (say, a tutorial lap from an older opening):
+        // stop retrying it and carry on. Anything else (offline, busy) waits for next time.
+        if (err instanceof Error && /^line rejected|^lap time out of range/.test(err.message)) {
+          markSubmitted(m.slug);
+          continue;
+        }
         break;
       }
     }
