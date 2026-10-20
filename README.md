@@ -46,7 +46,7 @@ Each build bakes in its version (the deployed commit) and writes it to `/version
 
 Lap alerts (`api/push.ts`, `api/_push.ts`, `public/sw.js`) use Web Push with VAPID keys in `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT`. A new best alerts every player it passed on that circuit's board, at most once per player and circuit every 15 minutes. Generate a key pair with `npx web-push generate-vapid-keys`; without keys the route reports alerts as unavailable and nothing is sent.
 
-The Toybox edition builds with `npm run build:toybox` into `dist-toybox`; `npm run toybox:check` then confirms the bundle names no real circuit or team and reaches no server route. `VITE_EDITION=toybox npx vite --port 5299` runs it in a browser.
+The Toybox edition builds with `npm run build:toybox` into `dist-toybox`; `npm run toybox:check` then confirms the bundle names no real circuit or team and reaches no server route. `npm run dev:toybox` runs it in a browser on port 5299; the plain `npm run dev` is always the web edition.
 
 Track geometry is generated:
 

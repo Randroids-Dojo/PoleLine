@@ -40,7 +40,7 @@ npm run toybox:calibrate     # pole pace, sectors and clipping speed per made-up
 npm run build:toybox         # the mobile bundle in dist-toybox
 npm run toybox:check         # no real names, no server routes in that bundle
 npm run mobile:sync          # build and copy into mobile/android and mobile/ios
-VITE_EDITION=toybox npx vite --port 5299                                     # Toybox edition in a browser
+npm run dev:toybox           # Toybox edition in a browser on :5299 (the plain dev server is the web edition)
 EDITION=toybox npx tsx scripts/playtest.ts harbour-loop ideal /tmp/play http://localhost:5299/   # scripted playtest of it
 CDP=http://localhost:9223 EDITION=toybox npx tsx scripts/playtest.ts ember-gorge good /tmp/play  # the same lap inside the Android app (see mobile/README.md)
 ```
