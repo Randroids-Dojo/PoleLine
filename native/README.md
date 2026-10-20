@@ -5,7 +5,7 @@ Draw a racing line, choose your tyres, then watch an original open-wheel toy rac
 - Android: Kotlin, platform widgets and Canvas. Android 8.0 or later, target API 36, arm64 and x86_64.
 - iOS: SwiftUI, Canvas and an Objective-C++ bridge. iOS 17 or later, iPhone and iPad.
 - Shared C++17 simulation and track-limit validation. No WebViews, downloaded tracks, accounts, ads, in-app purchases, analytics or servers.
-- Package and bundle ID: `app.toyboxes.poleline`, version `1.0.0`, build `1`.
+- Package and bundle ID: `app.toyboxes.poleline`, version `1.0.0`, build `2`.
 - Publisher: Toyboxes, Randroid LLC. Paid download. Price pending the publisher's instruction.
 
 The native build consumes only `native/`. It does not package the original web game's real-world circuits, team colours, web assets or API routes. The original source remains available outside this directory.
