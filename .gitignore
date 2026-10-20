@@ -7,3 +7,4 @@ dist
 test-results
 artifacts
 *.log
+.claude/worktrees

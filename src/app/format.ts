@@ -1,5 +1,7 @@
 // Lap time formatting and the "where would this lap put you" ladder.
 
+import { REAL_CIRCUITS } from './edition';
+
 export function formatLap(ms: number | null | undefined): string {
   if (ms == null || !Number.isFinite(ms)) return '-:--.---';
   const neg = ms < 0;
@@ -50,7 +52,9 @@ export function gridSlot(timeMs: number, poleRefSeconds: number): GridSlot {
   let p = 2;
   while (p < LAST && gapPct > F1_GAPS[p - 2]) p++;
   const tier = tierFor(p);
-  const label = tier === 'q3' ? 'F1 top ten' : tier === 'q2' ? 'F1, out in Q2' : 'F1, out in Q1';
+  const label = REAL_CIRCUITS
+    ? tier === 'q3' ? 'F1 top ten' : tier === 'q2' ? 'F1, out in Q2' : 'F1, out in Q1'
+    : tier === 'q3' ? 'Top ten' : tier === 'q2' ? 'Midfield' : 'Back of the grid';
   return { stamp: `P${p}`, position: p, label, tier };
 }
 

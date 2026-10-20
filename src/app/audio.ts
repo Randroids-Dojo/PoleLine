@@ -1,6 +1,8 @@
 // Synthesised sound: a V6-turbo style engine note driven by rpm and throttle,
 // plus short UI cues. Created lazily on the first user gesture.
 
+import { haptic } from './native';
+
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
 let enabled = true;
@@ -151,6 +153,8 @@ export function stopEngine(): void {
 }
 
 export function buzz(ms: number | number[]): void {
+  // The native shell has real haptics; browsers get the vibration API where it exists.
+  if (haptic(ms)) return;
   try {
     if ('vibrate' in navigator) navigator.vibrate(ms);
   } catch {

@@ -11,7 +11,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "tracks:build": "tsx scripts/build-tracks.ts && tsx scripts/build-tutorial.ts",
-    "tracks:calibrate": "tsx scripts/calibrate.ts"
+    "tracks:calibrate": "tsx scripts/calibrate.ts",
+    "toybox:tracks": "tsx scripts/toybox/make-circuits.ts && tsx scripts/toybox/build-tracks.ts",
+    "toybox:calibrate": "tsx scripts/toybox/calibrate.ts"
   },
   "dependencies": {
     "@fontsource-variable/archivo": "^5.3.0",

@@ -4,6 +4,7 @@
 import type { App } from '../app/app';
 import { alertsBlocked, alertsSupported, canPromptInstall, enableAlerts, isInstalled, isIos, promptInstall } from '../app/pwa';
 import { getSettings, saveSettings } from '../app/store';
+import { LOCAL_ONLY } from '../app/edition';
 import { h, svg } from '../ui/dom';
 
 const BELL =
@@ -71,7 +72,8 @@ let running = false;
 
 /** Called once a lap's result has landed. Shows whichever prompts are still due. */
 export async function promptAfterLap(app: App): Promise<void> {
-  if (running) return;
+  // The Toybox edition is already an installed app with nothing to alert about.
+  if (running || LOCAL_ONLY) return;
   running = true;
   try {
     if (!getSettings().installPrompted) {

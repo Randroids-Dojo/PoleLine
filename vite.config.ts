@@ -22,12 +22,24 @@ function versionFile(version: string): Plugin {
   };
 }
 
+/**
+ * The Toybox edition (VITE_EDITION=toybox) swaps the circuit data for the
+ * made-up set under src/data/toybox at import time, so game code keeps one
+ * import path and the real circuits never reach the mobile bundle.
+ */
+const edition = process.env.VITE_EDITION === 'toybox' ? 'toybox' : 'web';
+const toyboxAliases = [
+  { find: /\/data\/catalog$/, replacement: '/data/toybox/catalog' },
+  { find: /\/data\/geometry-loaders$/, replacement: '/data/toybox/geometry-loaders' },
+];
+
 export default defineConfig(({ command }) => {
   const version = command === 'build' ? buildVersion() : 'dev';
   return {
     server: { port: 5199 },
     build: { target: 'es2022', sourcemap: true },
-    define: { __APP_VERSION__: JSON.stringify(version) },
+    define: { __APP_VERSION__: JSON.stringify(version), __EDITION__: JSON.stringify(edition) },
+    resolve: { alias: edition === 'toybox' ? toyboxAliases : [] },
     plugins: [versionFile(version)],
   };
 });

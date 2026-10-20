@@ -14,6 +14,7 @@
 // from the tip). Only a line that stays inside the limits can be raced.
 
 import type { App, Screen } from '../app/app';
+import { REAL_CIRCUITS } from '../app/edition';
 import { buzz, sfx, unlockAudio } from '../app/audio';
 import { getSettings, saveSettings, setTyre, type ScrollMode, type Settings } from '../app/store';
 import { tyreHint } from '../app/describe';
@@ -1074,7 +1075,7 @@ export class DrawScreen implements Screen {
     this.locked = true;
     const welcome = await this.coachStep({
       title: 'Welcome to PoleLine',
-      body: 'You draw the racing line, and a 2026 F1 car drives it flat out. We have drawn this lap for you as far as the last corner. You finish it.',
+      body: `You draw the racing line, and a ${REAL_CIRCUITS ? '2026 F1 car' : 'modern single-seater'} drives it flat out. We have drawn this lap for you as far as the last corner. You finish it.`,
       primary: 'Show me',
     });
     if (welcome === 'skip') return this.skipWalkthrough();

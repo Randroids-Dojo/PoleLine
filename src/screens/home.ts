@@ -7,7 +7,8 @@ import { openSettings } from './settings';
 import { openConditions } from './conditions';
 import { outlinePath, outlineViewBox } from '../app/describe';
 import { averageGrid, formatLap, gridSlot, type GridSlot } from '../app/format';
-import { getBest, getSettings, getTyre, saveSettings } from '../app/store';
+import { getAttempts, getBest, getSettings, getTyre, saveSettings } from '../app/store';
+import { LOCAL_ONLY } from '../app/edition';
 import { CATALOG } from '../data/catalog';
 import type { Compound, TrackMeta } from '../sim/types';
 import { ICONS, clear, h, svg } from '../ui/dom';
@@ -33,6 +34,7 @@ export class HomeScreen implements Screen {
     this.el = h('main', { class: 'home' });
     this.render();
     app.root.append(this.el);
+    if (LOCAL_ONLY) return;
     fetchRecords()
       .then((r) => {
         this.records = r;
@@ -103,8 +105,9 @@ export class HomeScreen implements Screen {
       <circle class="hero-start" cx="${m.outline[0]}" cy="${m.outline[1]}" r="18"/>
     </svg>`);
 
-    // One row of times; the whole row opens the leaderboard.
+    // One row of times; the whole row opens the leaderboard (or your own times).
     const slot = pb ? gridSlot(pb.timeMs, m.poleRef) : null;
+    const attempts = getAttempts(m.slug);
     const stat = (label: string, value: string, extra: Node | null, sub: string | null, empty = false) =>
       h(
         'span',
@@ -115,13 +118,15 @@ export class HomeScreen implements Screen {
       );
     const times = h(
       'button',
-      { class: 'times-block', 'aria-label': `Lap times. Open the ${m.short} leaderboard`, onclick: () => this.actions.leaderboard(m.slug) },
+      { class: 'times-block', 'aria-label': LOCAL_ONLY ? `Lap times. Open your ${m.short} times` : `Lap times. Open the ${m.short} leaderboard`, onclick: () => this.actions.leaderboard(m.slug) },
       h(
         'span',
         { class: 'times' },
         stat('Pole', formatLap(m.poleRef * 1000), null, null),
         stat('Your best', pb ? formatLap(pb.timeMs) : 'No lap yet', slot ? h('span', { class: `slot tier-${slot.tier}` }, slot.stamp) : null, null, !pb),
-        stat('Record', rec ? formatLap(rec.timeMs) : 'Open', null, rec ? rec.name : null, !rec),
+        LOCAL_ONLY
+          ? stat('Laps', attempts ? String(attempts) : 'None yet', null, null, !attempts)
+          : stat('Record', rec ? formatLap(rec.timeMs) : 'Open', null, rec ? rec.name : null, !rec),
       ),
       h('span', { class: 'times-go', html: ICONS.chevronRight }),
     );
