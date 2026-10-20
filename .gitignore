@@ -7,3 +7,13 @@ dist
 test-results
 artifacts
 *.log
+
+# Mobile shell outputs (Capacitor). The platform projects are committed; builds and copied bundles are not.
+dist-toybox
+mobile/android/local.properties
+mobile/android/.idea
+mobile/android/*.iml
+mobile/ios/DerivedData
+mobile/ios/App/App.xcodeproj/xcuserdata
+mobile/ios/App/App.xcodeproj/project.xcworkspace/xcuserdata
+mobile/ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm

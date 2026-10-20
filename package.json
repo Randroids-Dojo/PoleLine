@@ -11,9 +11,21 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "tracks:build": "tsx scripts/build-tracks.ts && tsx scripts/build-tutorial.ts",
-    "tracks:calibrate": "tsx scripts/calibrate.ts"
+    "tracks:calibrate": "tsx scripts/calibrate.ts",
+    "build:toybox": "tsc --noEmit && VITE_EDITION=toybox vite build --outDir dist-toybox",
+    "mobile:sync": "npm run build:toybox && npx cap sync",
+    "mobile:android": "npx cap open android",
+    "mobile:ios": "npx cap open ios",
+    "mobile:assets": "npx capacitor-assets generate --ios --android --assetPath mobile/assets --androidProject mobile/android --iosProject mobile/ios/App --iconBackgroundColor \"#000000\" --iconBackgroundColorDark \"#000000\" --splashBackgroundColor \"#eef1f4\" --splashBackgroundColorDark \"#eef1f4\""
   },
   "dependencies": {
+    "@capacitor-community/keep-awake": "^8.0.1",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/core": "^8.5.3",
+    "@capacitor/haptics": "^8.0.2",
+    "@capacitor/share": "^8.0.3",
+    "@capacitor/splash-screen": "^8.0.2",
+    "@capacitor/status-bar": "^8.0.4",
     "@fontsource-variable/archivo": "^5.3.0",
     "@upstash/redis": "^1.39.0",
     "@vercel/functions": "^3.9.11",
@@ -21,6 +33,10 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^8.5.3",
+    "@capacitor/ios": "^8.5.3",
     "@types/node": "^22.20.5",
     "@types/web-push": "^3.6.4",
     "playwright-core": "^1.63.0",
