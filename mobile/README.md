@@ -1,6 +1,6 @@
 # PoleLine mobile shell
 
-The mobile apps are the web game in a native shell. Capacitor wraps the Vite build (`npm run build:toybox`, output in `dist-toybox`) in an Android project at `mobile/android` and an iOS project at `mobile/ios`. The game draws, simulates and stores everything on the device; the shell adds the app icon, splash screen, haptics, keep awake, the share sheet and the system bars, and nothing else. There is no network access at all: the Android manifest requests no permissions.
+The mobile apps are the web game in a native shell. Capacitor wraps the Vite build (`npm run build:toybox`, output in `dist-toybox`) in an Android project at `mobile/android` and an iOS project at `mobile/ios`. The game draws, simulates and stores everything on the device; the shell adds the app icon, splash screen, haptics, keep awake, the share sheet and the system bars, and nothing else. There is no network access at all: the only permission in the Android manifest is `VIBRATE`, which the haptics plugin adds for the drawing cues.
 
 Identity: app id `app.toyboxes.poleline`, name PoleLine, publisher Toyboxes (Randroid LLC), version 1.0.0, Android `versionCode` 3, iOS `CFBundleVersion` 3.
 
@@ -42,7 +42,7 @@ export ANDROID_SERIAL=emulator-5584
 adb wait-for-device && adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb shell am start -n app.toyboxes.poleline/.MainActivity
 adb exec-out screencap -p > /tmp/poleline-android.png
-adb shell dumpsys package app.toyboxes.poleline | grep -A3 'requested permissions'   # prints nothing: no permissions
+adb shell dumpsys package app.toyboxes.poleline | grep -A3 'requested permissions'   # only android.permission.VIBRATE (and the app's own receiver permission)
 
 # iOS simulator build, install, screenshot (pick any installed iPhone; xcrun simctl list devices)
 cd mobile/ios/App

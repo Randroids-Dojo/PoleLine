@@ -4,8 +4,8 @@
 //   npx tsx scripts/playtest.ts [slug] [ideal|good|wobbly|centre|offtrack] [outDir] [url]
 // offtrack: goes over the white line once, taps Undo stroke, then finishes cleanly.
 
-import { execSync } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
 import { buildTrack } from '../src/sim/track.js';
@@ -48,8 +48,8 @@ const browser = cdp ? await chromium.connectOverCDP(cdp) : await chromium.launch
 const ctx = cdp ? browser.contexts()[0] : await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
 const page = cdp ? ctx.pages()[0] : await ctx.newPage();
 const shot = async (file: string) => {
-  if (cdp) execSync(`adb exec-out screencap -p > ${JSON.stringify(join(out, file))}`);
-  else await shot(file);
+  if (cdp) writeFileSync(join(out, file), execFileSync('adb', ['exec-out', 'screencap', '-p'], { maxBuffer: 64 * 1024 * 1024 }));
+  else await page.screenshot({ path: join(out, file) });
 };
 page.on('console', (m) => {
   if (m.type() === 'error' || m.type() === 'warning') console.log('[page]', m.text());

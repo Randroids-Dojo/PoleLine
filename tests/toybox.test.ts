@@ -8,6 +8,7 @@ import { minCurvatureOffsets, offsetsToLine } from '../scripts/optimal';
 import { simulateLap } from '../src/sim/lapsim';
 import { decodePath, encodePath, validatePath } from '../src/sim/path';
 import { buildTrack } from '../src/sim/track';
+import { pickDefaultTrack } from '../src/app/store';
 
 /** Names and words that must never appear in the Toybox edition's circuit data. */
 const REAL = /formula|f1\b|grand prix|silverstone|monaco|monza|spa\b|suzuka|melbourne|shanghai|bahrain|jeddah|miami|imola|barcelona|montr|spielberg|hungar|zandvoort|baku|singapore|austin|mexico|interlagos|vegas|lusail|yas|ferrari|mclaren|mercedes|red bull|aston|alpine|williams|haas|audi|cadillac/i;
@@ -19,6 +20,12 @@ describe('toybox circuits', () => {
     expect(CATALOG[0]).toEqual(WEB.find((m) => m.tutorial));
     expect(CATALOG.slice(1).map((m) => m.slug)).toEqual(CIRCUITS.map((c) => c.slug));
     for (const m of CATALOG) expect(GEOMETRY_LOADERS[m.slug]).toBeTypeOf('function');
+  });
+
+  it('opens on its first round, since it has no Spielberg to fall back to', () => {
+    expect(pickDefaultTrack(WEB)).toBe('spielberg');
+    expect(pickDefaultTrack(CATALOG)).toBe('harbour-loop');
+    expect(CATALOG.some((m) => m.slug === pickDefaultTrack(CATALOG))).toBe(true);
   });
 
   it('never names a real circuit, place or team', () => {

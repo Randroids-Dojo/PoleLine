@@ -7,7 +7,7 @@ import { openSettings } from './settings';
 import { openConditions } from './conditions';
 import { outlinePath, outlineViewBox } from '../app/describe';
 import { averageGrid, formatLap, gridSlot, type GridSlot } from '../app/format';
-import { getAttempts, getBest, getSettings, getTyre, saveSettings } from '../app/store';
+import { DEFAULT_TRACK, getAttempts, getBest, getSettings, getTyre, saveSettings } from '../app/store';
 import { LOCAL_ONLY } from '../app/edition';
 import { CATALOG } from '../data/catalog';
 import type { Compound, TrackMeta } from '../sim/types';
@@ -28,8 +28,8 @@ export class HomeScreen implements Screen {
 
   constructor(private app: App, private actions: HomeActions, slug?: string) {
     const settings = getSettings();
-    this.slug = slug ?? settings.lastTrack ?? 'spielberg';
-    if (!CATALOG.some((m) => m.slug === this.slug)) this.slug = 'spielberg';
+    this.slug = slug ?? settings.lastTrack ?? DEFAULT_TRACK;
+    if (!CATALOG.some((m) => m.slug === this.slug)) this.slug = DEFAULT_TRACK;
     app.setCanvasVisible(false);
     this.el = h('main', { class: 'home' });
     this.render();
