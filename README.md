@@ -1,5 +1,7 @@
 # PoleLine
 
+Native Toyboxes mobile editions are in [`native/`](native/README.md): platform-rendered Android and iOS apps, 25 original fictional circuits, local records and ghost replays, and offline single-player gameplay. See the [release receipt](native/store/RELEASE-STATUS.md) for verified build and submission state. The remainder of this README documents the original web edition.
+
 Draw the lap. Take pole.
 
 PoleLine is a mobile web game set on 24 real Formula 1 circuits. You draw your racing line around the track with a finger, choose soft, medium or hard tyres, and a modern F1 car runs exactly that line in real time. Go wide, clip the apex, close the loop where you started. Every circuit has its own world leaderboard, and each lap tells you which grid slot it would have earned against real pole pace.

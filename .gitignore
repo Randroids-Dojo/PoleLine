@@ -7,3 +7,17 @@ dist
 test-results
 artifacts
 *.log
+
+# Native build products and machine-local configuration
+native/android/.gradle/
+native/android/.kotlin/
+native/android/local.properties
+native/android/**/build/
+native/android/**/.cxx/
+native/build/
+native/ios/build/
+native/ios/DerivedData/
+native/ios/*.xcodeproj/
+native/ios/*.xcworkspace/
+release-artifacts/
+*.xcuserstate

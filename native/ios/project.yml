@@ -1,0 +1,71 @@
+name: PoleLine
+options:
+  bundleIdPrefix: app.toyboxes
+  deploymentTarget:
+    iOS: '17.0'
+settings:
+  base:
+    SWIFT_VERSION: '5.0'
+    CLANG_CXX_LANGUAGE_STANDARD: c++17
+    OTHER_CPLUSPLUSFLAGS: ['$(inherited)', '-ffp-contract=off', '-fno-fast-math']
+    MARKETING_VERSION: 1.0.0
+    CURRENT_PROJECT_VERSION: 2
+    CODE_SIGN_STYLE: Automatic
+targets:
+  PoleLine:
+    type: application
+    platform: iOS
+    sources:
+      - path: PoleLine
+      - path: ../shared/poleline.cpp
+      - path: ../shared/poleline.h
+      - path: ../shared/generated/circuits.inc
+        buildPhase: none
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.toyboxes.poleline
+        SWIFT_OBJC_BRIDGING_HEADER: PoleLine/Bridge.h
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: '1,2'
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.racing-games
+    info:
+      path: PoleLine/Info.plist
+      properties:
+        CFBundleDisplayName: PoleLine
+        ITSAppUsesNonExemptEncryption: false
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+  PoleLineTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [PoleLineTests]
+    dependencies:
+      - target: PoleLine
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.toyboxes.poleline.tests
+        GENERATE_INFOPLIST_FILE: YES
+  PoleLineUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: PoleLineUITests
+      - path: ../shared/generated/circuits.json
+        buildPhase: resources
+    dependencies:
+      - target: PoleLine
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.toyboxes.poleline.uitests
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  PoleLine:
+    build:
+      targets:
+        PoleLine: all
+    test:
+      targets: [PoleLineTests, PoleLineUITests]
