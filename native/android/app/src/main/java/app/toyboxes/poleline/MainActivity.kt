@@ -2,6 +2,10 @@ package app.toyboxes.poleline
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.Intent
+import android.content.ActivityNotFoundException
+import android.content.res.Configuration
+import android.net.Uri
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -29,6 +33,7 @@ class MainActivity: Activity() {
     private val colors=intArrayOf(0xffed584d.toInt(),0xff9868d7.toInt(),0xff35aa8b.toInt(),0xffefb522.toInt(),0xff458fc6.toInt(),0xffe97f98.toInt())
     private lateinit var records: Records
     private lateinit var root: LinearLayout
+    private lateinit var controlsHost: LinearLayout
     private var track: Track?=null;private var trackView: TrackView?=null
     private var status: TextView?=null;private var raceButton: Button?=null;private var telemetry: TextView?=null
     private var line=emptyList<V>();private var lap: Lap?=null;private var ghost: Lap?=null
@@ -62,7 +67,7 @@ class MainActivity: Activity() {
     private fun layout(): LinearLayout {
         root=LinearLayout(this);root.orientation=LinearLayout.VERTICAL;root.setPadding(dp(16),dp(8),dp(16),dp(12));root.setBackgroundColor(paper)
         root.setOnApplyWindowInsetsListener { view,insets->view.setPadding(dp(16)+insets.systemWindowInsetLeft,dp(8)+insets.systemWindowInsetTop,dp(16)+insets.systemWindowInsetRight,dp(12)+insets.systemWindowInsetBottom);insets }
-        setContentView(root);window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);return root
+        controlsHost=root;setContentView(root);window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);return root
     }
     private fun label(text: String,size: Float=16f,bold: Boolean=false): TextView = TextView(this).also {
         it.text=text;it.textSize=size;it.setTextColor(ink);it.setPadding(0,dp(6),0,dp(6));if(bold)it.setTypeface(null,Typeface.BOLD)
@@ -76,7 +81,15 @@ class MainActivity: Activity() {
         r.orientation=LinearLayout.HORIZONTAL;r.gravity=Gravity.CENTER_VERTICAL
         children.forEach{v->r.addView(v,LinearLayout.LayoutParams(0,LinearLayout.LayoutParams.WRAP_CONTENT,1f).also{it.setMargins(dp(3),dp(4),dp(3),dp(4))})}
     }
-    private fun add(view: View){root.addView(view,LinearLayout.LayoutParams(-1,-2))}
+    private fun add(view: View){controlsHost.addView(view,LinearLayout.LayoutParams(-1,-2))}
+    private fun stage(canvas: TrackView){
+        if(resources.configuration.orientation==Configuration.ORIENTATION_LANDSCAPE){
+            val area=LinearLayout(this);area.orientation=LinearLayout.HORIZONTAL
+            root.addView(area,LinearLayout.LayoutParams(-1,0,1f));area.addView(canvas,LinearLayout.LayoutParams(0,-1,1f))
+            controlsHost=LinearLayout(this);controlsHost.orientation=LinearLayout.VERTICAL;controlsHost.setPadding(dp(12),0,0,0)
+            val scroll=ScrollView(this);scroll.addView(controlsHost);area.addView(scroll,LinearLayout.LayoutParams((resources.displayMetrics.widthPixels*.4).toInt(),-1))
+        }else root.addView(canvas,LinearLayout.LayoutParams(-1,0,1f).also{it.topMargin=dp(6);it.bottomMargin=dp(6)})
+    }
     private fun sound(kind: Int){if(records.sound)tone?.startTone(kind,120)}
     private fun home(){
         screen="home";lap=null;trackView=null;layout()
@@ -113,7 +126,7 @@ class MainActivity: Activity() {
         add(row(button("Circuits"){confirmLeave()},label(t.name,21f,true)))
         add(label("${t.region}   ${(t.length/1000*10).toInt()/10.0} km   Track ${t.temperature} C",13f))
         val canvas=TrackView(this,t);canvas.teamColor=colors[records.team];canvas.line=line
-        trackView=canvas;root.addView(canvas,LinearLayout.LayoutParams(-1,0,1f).also{it.topMargin=dp(6);it.bottomMargin=dp(6)})
+        trackView=canvas;stage(canvas)
         status=label(if(done)"Lap drawn. Ready to race" else "Start at the flag. Follow the yellow arrows.",14f)
         status?.accessibilityLiveRegion=View.ACCESSIBILITY_LIVE_REGION_POLITE;add(status!!)
         canvas.onTouch={action,p->applyDrawing(JSONObject(NativeCore.touch(action,p.x,p.y)))}
@@ -139,7 +152,7 @@ class MainActivity: Activity() {
     private fun showRace(){
         val t=track?:return;screen="race";layout();window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         add(label(t.name,24f,true));telemetry=label("0:00.000",22f,true);add(telemetry!!)
-        val canvas=TrackView(this,t);canvas.lap=lap;canvas.ghost=ghost;canvas.teamColor=colors[records.team];trackView=canvas;root.addView(canvas,LinearLayout.LayoutParams(-1,0,1f))
+        val canvas=TrackView(this,t);canvas.lap=lap;canvas.ghost=ghost;canvas.teamColor=colors[records.team];trackView=canvas;stage(canvas)
         status=label("Your line, brought to life",15f);add(status!!)
         paused=false;frameAt=SystemClock.elapsedRealtime()
         pauseButton=button("Pause"){paused=!paused;frameAt=SystemClock.elapsedRealtime();pauseButton?.text=if(paused)"Resume" else "Pause"}
@@ -150,7 +163,7 @@ class MainActivity: Activity() {
         val previous=records.best(t.id)?.optInt("timeMs");val saved=records.save(t.id,current,line)
         layout();add(label("${t.medal(current.timeMs)} lap",18f,true));add(label(lapTime(current.timeMs),42f,true));add(label(t.name,22f,true))
         add(label(if(saved)"New personal best. Saved on this device." else if(previous!=null)"${if(current.timeMs>=previous)"+" else ""}${(current.timeMs-previous)/1000.0}s to your best" else "Lap complete. Device storage could not save this record.",15f))
-        val canvas=TrackView(this,t);canvas.lap=current;canvas.elapsed=current.timeMs/1000.0;canvas.teamColor=colors[records.team];trackView=canvas;root.addView(canvas,LinearLayout.LayoutParams(-1,0,1f))
+        val canvas=TrackView(this,t);canvas.lap=current;canvas.elapsed=current.timeMs/1000.0;canvas.teamColor=colors[records.team];trackView=canvas;stage(canvas)
         val sectors=current.json.getJSONArray("sectors");add(label("S1 ${lapTime(sectors.getInt(0))}   S2 ${lapTime(sectors.getInt(1))}   S3 ${lapTime(sectors.getInt(2))}",13f,true))
         add(label("Top speed ${current.json.getDouble("topSpeed").toInt()} km/h   Gold ${lapTime(t.gold)}",14f))
         add(label(when {current.timeMs<=t.gold->"A flowing lap. Try a different tyre to find the last fraction.";current.timeMs<=t.silver->"Open the corner entry and aim for a smoother exit.";else->"Look ahead. A calm, smooth line carries more speed than a tight zigzag."},14f))
@@ -163,7 +176,7 @@ class MainActivity: Activity() {
             0->AlertDialog.Builder(this).setTitle("Fictional racing teams").setSingleChoiceItems(teams,records.team){dialog,index->records.team=index;dialog.dismiss();trackView?.teamColor=colors[index];trackView?.invalidate()}.setNegativeButton("Cancel",null).show()
             1->{records.sound=!records.sound;settings()}
             2->AlertDialog.Builder(this).setTitle("Draw the lap").setMessage("Choose a circuit and tyre. Start at the chequered flag, then draw in the direction of the yellow arrows. Stay on the road. Lift any time and continue from the purple tip.\n\nPinch to zoom. Drag the grass to pan, or use Zoom / tip. Undo removes your last stroke. Close the loop, then race your line.\n\nSmooth corners carry more speed. Soft tyres warm quickly; medium and hard tyres handle hotter conditions. Earn medals and race your own best ghost. Everything is stored on this device.").setPositiveButton("Let's play",null).show()
-            3->AlertDialog.Builder(this).setTitle("Your game stays on your device").setMessage("PoleLine collects no data. No analytics, ads, accounts, purchases, network access or cloud saves. Circuits, simulation and records work offline from the first launch.\n\nUninstalling clears local progress.\n\nSupport: toyboxes.app/support/\nPrivacy: toyboxes.app/privacy/\nVersion 1.0.0 (1)\nCopyright 2026 Randroid LLC").setPositiveButton("OK",null).show()
+            3->AlertDialog.Builder(this).setTitle("Your game stays on your device").setMessage("PoleLine collects no data. No analytics, ads, accounts, in-app purchases, network access or cloud saves. Circuits, simulation and records work offline from the first launch. Android cloud backup and device transfer of game data are disabled.\n\nUninstalling clears local progress.\n\nSupport: support@toyboxes.app\nPrivacy: toyboxes.app/games/poleline/privacy/\nVersion 1.0.0 (1)\nCopyright 2026 Randroid LLC").setNeutralButton("Online policy"){_,_->try{startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("https://toyboxes.app/games/poleline/privacy/")))}catch(_:ActivityNotFoundException){}}.setPositiveButton("OK",null).show()
             4->AlertDialog.Builder(this).setTitle("Delete all local records?").setMessage("This clears lap records and settings on this device. It cannot be undone.").setNegativeButton("Cancel",null).setPositiveButton("Delete"){_,_->records.clear();home()}.show()
         }}.setNegativeButton("Done",null).show()
     }
@@ -172,7 +185,9 @@ class MainActivity: Activity() {
     @SuppressLint("GestureBackNavigation")
     @Deprecated("Legacy API back callback")
     override fun onBackPressed(){handleBack()}
-    override fun onPause(){super.onPause();if(screen=="race"){paused=true;pauseButton?.text="Resume"}}
+    override fun onPause(){super.onPause();if(screen=="race"){paused=true;pauseButton?.text="Resume";root.removeCallbacks(ticker)};if(screen=="draw")NativeCore.touch(2,0.0,0.0)}
+    override fun onResume(){super.onResume();if(screen=="race"){frameAt=SystemClock.elapsedRealtime();root.removeCallbacks(ticker);root.post(ticker)}}
+    override fun onConfigurationChanged(newConfig: Configuration){super.onConfigurationChanged(newConfig);when(screen){"draw"->draw();"race"->{val wasPaused=paused;root.removeCallbacks(ticker);showRace();paused=wasPaused;pauseButton?.text=if(paused)"Resume" else "Pause"};"results"->results();"home"->home()}}
     override fun onSaveInstanceState(out: Bundle){super.onSaveInstanceState(out);if(screen=="draw"){out.putString("screen",screen);out.putInt("circuit",track?.index?:0);out.putDoubleArray("line",line.flat())}}
     override fun onDestroy(){root.removeCallbacks(ticker);tone?.release();worker.shutdown();super.onDestroy()}
 }

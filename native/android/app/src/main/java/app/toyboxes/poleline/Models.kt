@@ -35,7 +35,13 @@ class Lap(val json: JSONObject) {
 }
 class Records(context: Context) {
     private val preferences = context.getSharedPreferences("poleline-native-v1", Context.MODE_PRIVATE)
-    fun best(id: String): JSONObject? = try { preferences.getString("best:$id",null)?.let { JSONObject(it) }?.takeIf { it.optInt("version") == 1 } } catch (_: Exception) { null }
+    fun best(id: String): JSONObject? = try {
+        preferences.getString("best:$id",null)?.let { JSONObject(it) }?.takeIf { record ->
+            val line=record.getJSONArray("line")
+            record.optInt("version")==1 && record.getInt("timeMs")>0 && record.getInt("tyre") in 0..2 && line.length() in 12..12000 &&
+                (0 until line.length()).all { i->val p=line.getJSONArray(i);p.length()==2&&p.getDouble(0).isFinite()&&p.getDouble(1).isFinite() }
+        }
+    } catch (_: Exception) { null }
     fun save(id: String, lap: Lap, line: List<V>): Boolean {
         if ((best(id)?.optInt("timeMs") ?: Int.MAX_VALUE) <= lap.timeMs) return false
         val record = JSONObject().put("version",1).put("timeMs",lap.timeMs).put("tyre",lap.json.getInt("tyre")).put("line",JSONArray(line.map { listOf(it.x,it.y) })).put("sectors",lap.json.getJSONArray("sectors"))

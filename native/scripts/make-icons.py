@@ -1,6 +1,6 @@
 """Render original PoleLine vector artwork. Requires Pillow 12.0.0."""
 from pathlib import Path
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 import json
 root = Path(__file__).resolve().parents[1]
 ink = '#193052'
@@ -32,4 +32,17 @@ background.mkdir(exist_ok=True)
 store=root/'store/artwork'
 store.mkdir(parents=True,exist_ok=True)
 image.resize((512,512),Image.Resampling.LANCZOS).save(store/'icon-512.png')
+feature=Image.new('RGB',(1024,500),'#f7f4e9')
+feature.paste(image.resize((380,380),Image.Resampling.LANCZOS),(604,60))
+text=ImageDraw.Draw(feature)
+def font(size):
+    for candidate in ['C:/Windows/Fonts/seguibl.ttf','/System/Library/Fonts/Supplemental/Arial Bold.ttf','/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf']:
+        if Path(candidate).exists(): return ImageFont.truetype(candidate,size)
+    return ImageFont.load_default(size=size)
+text.text((48,70),'TOYBOXES',font=font(24),fill=ink)
+text.text((44,140),'PoleLine',font=font(96),fill=ink)
+text.text((48,272),'Draw the lap.',font=font(32),fill=ink)
+text.text((48,318),'Find your flow.',font=font(32),fill=ink)
+text.text((48,408),'25 fictional circuits. Play offline.',font=font(22),fill=ink)
+feature.save(store/'feature-1024x500.png')
 print('Created original opaque store and iOS icons.')

@@ -52,7 +52,10 @@ targets:
   PoleLineUITests:
     type: bundle.ui-testing
     platform: iOS
-    sources: [PoleLineUITests]
+    sources:
+      - path: PoleLineUITests
+      - path: ../shared/generated/circuits.json
+        buildPhase: resources
     dependencies:
       - target: PoleLine
     settings:

@@ -122,7 +122,8 @@ struct SettingsView: View {
                 Section("Privacy and support") {
                     Text("PoleLine collects no data. No analytics, ads, accounts, in-app purchases or cloud saves. The game never connects to a server. Circuits, simulation and records work offline from the first launch.")
                     Text("Progress is stored on this device. Uninstalling removes it. Device backups are managed by iOS.")
-                    Text("Support: toyboxes.app/support/\nPrivacy: toyboxes.app/privacy/\nVersion 1.0.0 (1)\nCopyright 2026 Randroid LLC")
+                    Text("Support: support@toyboxes.app\nVersion 1.0.0 (1)\nCopyright 2026 Randroid LLC")
+                    Link("Online privacy policy",destination:URL(string:"https://toyboxes.app/games/poleline/privacy/")!)
                 }
                 Section { Button("Delete all local records",role:.destructive) { reset = true } }
             }.navigationTitle("PoleLine by Toyboxes").toolbar { Button("Done") { dismiss() } }
