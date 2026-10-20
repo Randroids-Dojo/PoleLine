@@ -11,6 +11,11 @@ final class LaunchTests: XCTestCase {
     }
     func testTouchDrawRacePauseReplayAndPersistence() throws {
         let app = XCUIApplication();app.launch()
+        XCTAssertTrue(app.buttons["circuit-0"].waitForExistence(timeout:10))
+        app.buttons["Settings"].tap()
+        app.buttons["Delete all local records"].tap()
+        app.buttons["Delete records"].tap()
+        XCTAssertTrue(app.buttons["circuit-0"].waitForExistence(timeout:10))
         app.buttons["circuit-0"].tap()
         let canvas = app.otherElements["circuitCanvas"]
         XCTAssertTrue(canvas.waitForExistence(timeout:15))

@@ -68,8 +68,6 @@ jobs:
         with:
           name: ios-simulator-verification
           path: |
-            native/ios/build/NativeTests.xcresult
-            native/ios/build/iPadTests.xcresult
             native/ios/build/Build/Products/Debug-iphonesimulator/PoleLine.app
             native/ios/build/screenshots
             native/ios/build/screenshots-ipad
