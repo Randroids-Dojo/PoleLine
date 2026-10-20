@@ -46,6 +46,8 @@ jobs:
           xcodebuild -version
           DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for group in d["devices"].values() for x in group if "iPhone" in x["name"]))')
           xcodebuild test -project PoleLine.xcodeproj -scheme PoleLine -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath build -resultBundlePath build/NativeTests.xcresult CODE_SIGNING_ALLOWED=NO
+          xcrun xcresulttool export attachments --path build/NativeTests.xcresult --output-path build/screenshots
+          xcodebuild archive -project PoleLine.xcodeproj -scheme PoleLine -configuration Release -destination 'generic/platform=iOS' -archivePath build/PoleLine.xcarchive CODE_SIGNING_ALLOWED=NO
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -53,3 +55,5 @@ jobs:
           path: |
             native/ios/build/NativeTests.xcresult
             native/ios/build/Build/Products/Debug-iphonesimulator/PoleLine.app
+            native/ios/build/screenshots
+            native/ios/build/PoleLine.xcarchive
