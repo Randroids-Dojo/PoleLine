@@ -131,14 +131,16 @@ class MainActivity: Activity() {
         status?.accessibilityLiveRegion=View.ACCESSIBILITY_LIVE_REGION_POLITE;add(status!!)
         canvas.onTouch={action,p->applyDrawing(JSONObject(NativeCore.touch(action,p.x,p.y)))}
         canvas.onLift={canvas.followIfZoomed()}
-        add(row(button("Undo"){applyDrawing(JSONObject(NativeCore.touch(3,0.0,0.0)))},button("Clear"){applyDrawing(JSONObject(NativeCore.touch(4,0.0,0.0)));canvas.overview()},button("Zoom / tip"){canvas.follow()},button("Overview"){canvas.overview()}))
+        val zoomButton=button("Zoom"){canvas.follow()};zoomButton.contentDescription="Zoom to the line tip"
+        val fitButton=button("Fit"){canvas.overview()};fitButton.contentDescription="Fit the whole circuit"
+        add(row(button("Undo"){applyDrawing(JSONObject(NativeCore.touch(3,0.0,0.0)))},button("Clear"){applyDrawing(JSONObject(NativeCore.touch(4,0.0,0.0)));canvas.overview()},zoomButton,fitButton))
         add(row(*arrayOf("Soft","Medium","Hard").mapIndexed{i,name->button(if(tyre==i)"[ $name ]" else name,tyre==i){if(line.isEmpty()){tyre=i;records.setTyre(t.id,i);draw()}else AlertDialog.Builder(this).setMessage("Clear your line to choose different tyres.").setPositiveButton("OK",null).show()}}.toTypedArray()))
-        raceButton=button("Race your line",true){startRace()};raceButton?.isEnabled=done;add(raceButton!!)
+        raceButton=button("Race your line",true){startRace()};raceButton?.isEnabled=done;raceButton?.alpha=if(done)1f else .45f;add(raceButton!!)
         if(t.index==0&&line.isEmpty())status?.text="Start at the flag. Stay on the road. Lift and continue any time."
     }
     private fun applyDrawing(j: JSONObject){
         val wasDone=done;line=j.getJSONArray("points").points();done=j.getBoolean("done")
-        trackView?.line=line;trackView?.invalidate();raceButton?.isEnabled=done
+        trackView?.line=line;trackView?.invalidate();raceButton?.isEnabled=done;raceButton?.alpha=if(done)1f else .45f
         status?.text="${(j.getDouble("progress")*100).toInt()}%  ${j.getString("message")}"
         if(done&&!wasDone){sound(ToneGenerator.TONE_PROP_ACK);trackView?.overview()}
     }
@@ -175,7 +177,7 @@ class MainActivity: Activity() {
         AlertDialog.Builder(this).setTitle("PoleLine by Toyboxes").setItems(arrayOf("Your car: ${teams[records.team]}","Sound: ${if(records.sound)"on" else "off"}","How to play","Privacy and support","Reset local records")){_,which->when(which){
             0->AlertDialog.Builder(this).setTitle("Fictional racing teams").setSingleChoiceItems(teams,records.team){dialog,index->records.team=index;dialog.dismiss();trackView?.teamColor=colors[index];trackView?.invalidate()}.setNegativeButton("Cancel",null).show()
             1->{records.sound=!records.sound;settings()}
-            2->AlertDialog.Builder(this).setTitle("Draw the lap").setMessage("Choose a circuit and tyre. Start at the chequered flag, then draw in the direction of the yellow arrows. Stay on the road. Lift any time and continue from the purple tip.\n\nPinch to zoom. Drag the grass to pan, or use Zoom / tip. Undo removes your last stroke. Close the loop, then race your line.\n\nSmooth corners carry more speed. Soft tyres warm quickly; medium and hard tyres handle hotter conditions. Earn medals and race your own best ghost. Everything is stored on this device.").setPositiveButton("Let's play",null).show()
+            2->AlertDialog.Builder(this).setTitle("Draw the lap").setMessage("Choose a circuit and tyre. Start at the chequered flag, then draw in the direction of the yellow arrows. Stay on the road. Lift any time and continue from the purple tip.\n\nPinch to zoom. Drag the grass to pan, or use Zoom to return to the line tip. Fit shows the whole circuit. Undo removes your last stroke. Close the loop, then race your line.\n\nSmooth corners carry more speed. Soft tyres warm quickly; medium and hard tyres handle hotter conditions. Earn medals and race your own best ghost. Everything is stored on this device.").setPositiveButton("Let's play",null).show()
             3->AlertDialog.Builder(this).setTitle("Your game stays on your device").setMessage("PoleLine collects no data. No analytics, ads, accounts, in-app purchases, network access or cloud saves. Circuits, simulation and records work offline from the first launch. Android cloud backup and device transfer of game data are disabled.\n\nUninstalling clears local progress.\n\nSupport: support@toyboxes.app\nPrivacy: toyboxes.app/games/poleline/privacy/\nVersion 1.0.0 (1)\nCopyright 2026 Randroid LLC").setNeutralButton("Online policy"){_,_->try{startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("https://toyboxes.app/games/poleline/privacy/")))}catch(_:ActivityNotFoundException){}}.setPositiveButton("OK",null).show()
             4->AlertDialog.Builder(this).setTitle("Delete all local records?").setMessage("This clears lap records and settings on this device. It cannot be undone.").setNegativeButton("Cancel",null).setPositiveButton("Delete"){_,_->records.clear();home()}.show()
         }}.setNegativeButton("Done",null).show()

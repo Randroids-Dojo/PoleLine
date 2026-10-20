@@ -1,13 +1,13 @@
 name: Native mobile
 on:
-  push:
-    branches: ['feat/toyboxes-native-offline']
-    paths: ['native/**', '.github/workflows/native.yml']
   pull_request:
     paths: ['native/**', '.github/workflows/native.yml']
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: native-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 jobs:
   simulation:
     runs-on: ubuntu-latest
