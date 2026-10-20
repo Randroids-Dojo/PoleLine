@@ -30,7 +30,7 @@ class OfflineGameplayTest {
         throw AssertionError("Expected native view did not appear")
     }
     private fun click(activity: MainActivity,text: String){val view=waitFor(activity){it is Button&&it.text.toString().contains(text)};instrumentation.runOnMainSync{view.performClick()};instrumentation.waitForIdleSync()}
-    private fun screenshot(name: String){val bitmap=instrumentation.uiAutomation.takeScreenshot();val file=File(instrumentation.targetContext.getExternalFilesDir(null),"$name.png");file.outputStream().use{bitmap.compress(Bitmap.CompressFormat.PNG,100,it)};bitmap.recycle()}
+    private fun screenshot(name: String){instrumentation.waitForIdleSync();SystemClock.sleep(350);val bitmap=instrumentation.uiAutomation.takeScreenshot();val file=File(instrumentation.targetContext.getExternalFilesDir(null),"$name.png");file.outputStream().use{bitmap.compress(Bitmap.CompressFormat.PNG,100,it)};bitmap.recycle()}
     @Test fun firstLaunchDrawRaceReplayAndPersistWithoutNetworkPermission(){
         val context=instrumentation.targetContext
         assertEquals(PackageManager.PERMISSION_DENIED,context.checkSelfPermission(Manifest.permission.INTERNET))

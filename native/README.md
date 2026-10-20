@@ -24,7 +24,7 @@ cd native/android
 
 Android uses JDK 17, SDK 36, NDK 27.1.12297006 and CMake 3.22.1. It explicitly builds libraries with 16 KB page alignment. Release and debug builds remain unsigned until the retained identity signs them. On the configured Windows publishing machine run `native/scripts/sign-android.ps1 -Kind upload` from PowerShell. Signing material is never stored in this repository.
 
-For native Android instrumentation, build `assembleDebug assembleDebugAndroidTest`, sign both test and app APKs with the retained debug identity, install them, then run:
+For native Android instrumentation, build `assembleReleaseAndroidTest`, sign both test and release APKs with the retained upload identity using `native/scripts/sign-android.ps1 -Kind upload -IncludeTests`, install them, then run:
 
 ```sh
 adb shell am instrument -w app.toyboxes.poleline.test/androidx.test.runner.AndroidJUnitRunner

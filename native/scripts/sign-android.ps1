@@ -1,4 +1,4 @@
-param([ValidateSet('upload','debug')][string]$Kind='upload')
+param([ValidateSet('upload','debug')][string]$Kind='upload',[switch]$IncludeTests)
 $ErrorActionPreference='Stop'
 $nativeRoot=Split-Path -Parent $PSScriptRoot
 $repoRoot=Split-Path -Parent $nativeRoot
@@ -22,4 +22,13 @@ try {
     if($LASTEXITCODE -ne 0){throw 'APK signing failed'}
     & "$env:ANDROID_HOME\build-tools\36.0.0\apksigner.bat" verify --verbose --print-certs $outputApk
     if($LASTEXITCODE -ne 0){throw 'APK verification failed'}
+    if($IncludeTests) {
+        $buildType=if($Kind -eq 'upload'){'release'}else{'debug'}
+        $testDir=Join-Path $nativeRoot "android\app\build\outputs\apk\androidTest\$buildType"
+        $testApk=Get-ChildItem -LiteralPath $testDir -Filter '*.apk' | Select-Object -First 1
+        if(-not $testApk){throw 'Build the instrumentation APK first'}
+        $signedTest=Join-Path $outputDir "poleline-1.0.0-$Kind-test-signed.apk"
+        & "$env:ANDROID_HOME\build-tools\36.0.0\apksigner.bat" sign --ks $keyFile --ks-key-alias $alias --ks-pass env:POLELINE_SIGN_PASS --key-pass env:POLELINE_SIGN_PASS --out $signedTest $testApk.FullName
+        if($LASTEXITCODE -ne 0){throw 'Test APK signing failed'}
+    }
 } finally {Remove-Item Env:POLELINE_SIGN_PASS -ErrorAction SilentlyContinue}

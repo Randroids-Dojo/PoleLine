@@ -3,6 +3,7 @@ android {
     namespace 'app.toyboxes.poleline'
     compileSdk 36
     ndkVersion '27.1.12297006'
+    testBuildType 'release'
     defaultConfig {
         applicationId 'app.toyboxes.poleline'
         minSdk 26

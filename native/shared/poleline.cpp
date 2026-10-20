@@ -159,7 +159,8 @@ std::string validate(const Circuit& track,const std::vector<Point>& line) {
             auto pr=project(track,mix(a,b,static_cast<double>(j)/steps),hint);hint=pr.segment;
             if(pr.distance>track.width*.5+.15)return "Track limits: undo the last stroke";
             double d=pr.progress-previous;
-            if(d< -len*.5)d+=len;if(d>len*.5)d-=len;
+            if(d< -len*.5)d+=len;
+            if(d>len*.5)d-=len;
             if(d< -2.5)return "Follow the arrows around the circuit";
             progress+=d;previous=pr.progress;
         }
@@ -279,6 +280,6 @@ std::string Drawing::touch(int action,double x,double y) {
     return json();
 }
 std::string Drawing::json() const {
-    auto s=stream();s<<"{\"done\":"<<(done?"true":"false")<<",\"active\":"<<(active?"true":"false")<<",\"progress\":"<<clamp(progress/length(circuits()[circuit]),0,1)<<",\"message\":"<<quoted(message)<<",\"points\":";pointsJson(s,line);s<<'}';return s.str();
+    auto s=stream();s<<"{\"done\":"<<(done?"true":"false")<<",\"active\":"<<(active?"true":"false")<<",\"progress\":"<<(done?1:clamp(progress/length(circuits()[circuit]),0,1))<<",\"message\":"<<quoted(message)<<",\"points\":";pointsJson(s,line);s<<'}';return s.str();
 }
 }

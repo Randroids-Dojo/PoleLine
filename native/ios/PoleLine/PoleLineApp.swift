@@ -13,7 +13,19 @@ struct ContentView: View {
     private let paper = Color(red:0.97,green:0.96,blue:0.91)
     private let timer = Timer.publish(every:1.0/30,on:.main,in:.common).autoconnect()
     var body: some View {
-        Group {
+        mainContent
+            .foregroundStyle(ink).background(paper).tint(ink)
+            .buttonStyle(.bordered).controlSize(.large)
+            .sheet(isPresented:$settings) { SettingsView(game:game) }
+            .confirmationDialog("Leave this drawing?",isPresented:$leaving,titleVisibility:.visible) {
+                Button("Leave drawing",role:.destructive) { game.screen = "home" }
+                Button("Keep drawing",role:.cancel) { }
+            } message: { Text("Your personal bests stay saved. This unfinished drawing will be cleared.") }
+            .onReceive(timer) { game.tick($0) }
+            .onChange(of:phase) { _,value in if value != .active { game.paused = true } }
+            .onChange(of:game.screen) { _,value in UIApplication.shared.isIdleTimerDisabled = value == "draw" || value == "race" }
+    }
+    @ViewBuilder private var mainContent: some View {
             if game.screen == "home" { home }
             else if game.screen == "loading" { ProgressView("Preparing your circuit...").frame(maxWidth:.infinity,maxHeight:.infinity) }
             else if let track = game.circuit {
@@ -30,17 +42,6 @@ struct ContentView: View {
                     }
                 }.padding(16)
             }
-        }
-        .foregroundStyle(ink).background(paper).tint(ink)
-        .buttonStyle(.bordered).controlSize(.large)
-        .sheet(isPresented:$settings) { SettingsView(game:game) }
-        .confirmationDialog("Leave this drawing?",isPresented:$leaving,titleVisibility:.visible) {
-            Button("Leave drawing",role:.destructive) { game.screen = "home" }
-            Button("Keep drawing",role:.cancel) { }
-        } message: { Text("Your personal bests stay saved. This unfinished drawing will be cleared.") }
-        .onReceive(timer) { game.tick($0) }
-        .onChange(of:phase) { _,value in if value != .active { game.paused = true } }
-        .onChange(of:game.screen) { _,value in UIApplication.shared.isIdleTimerDisabled = value == "draw" || value == "race" }
     }
     private var home: some View {
         VStack(alignment:.leading,spacing:12) {
