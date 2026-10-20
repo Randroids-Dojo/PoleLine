@@ -37,7 +37,11 @@ final class LaunchTests: XCTestCase {
         app.buttons["Finish lap"].tap()
         XCTAssertTrue(app.staticTexts["resultTime"].waitForExistence(timeout:5))
         let result = app.staticTexts["resultTime"].label
+        XCTAssertTrue(app.staticTexts["New personal best. Saved on this device."].exists)
         app.screenshot().pngRepresentation.writeAttachment(name:"native-ios-results",test:self)
+        app.buttons["Replay"].tap();XCTAssertTrue(app.buttons["pauseLap"].waitForExistence(timeout:5))
+        app.buttons["Finish lap"].tap()
+        XCTAssertTrue(app.staticTexts["New personal best. Saved on this device."].waitForExistence(timeout:5))
         app.buttons["Replay"].tap();XCTAssertTrue(app.buttons["pauseLap"].waitForExistence(timeout:5))
         app.terminate();app.launch()
         XCTAssertTrue(app.staticTexts["Best \(result)"].waitForExistence(timeout:5))

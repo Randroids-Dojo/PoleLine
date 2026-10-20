@@ -34,6 +34,7 @@ class OfflineGameplayTest {
     @Test fun firstLaunchDrawRaceReplayAndPersistWithoutNetworkPermission(){
         val context=instrumentation.targetContext
         assertEquals(PackageManager.PERMISSION_DENIED,context.checkSelfPermission(Manifest.permission.INTERNET))
+        Records(context).clear()
         val intent=Intent(context,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         val activity=instrumentation.startActivitySync(intent) as MainActivity
         screenshot("01-home")
@@ -59,6 +60,10 @@ class OfflineGameplayTest {
         click(activity,"Resume");click(activity,"Finish lap")
         waitFor(activity){it is Button&&it.text=="Draw again"};screenshot("04-results")
         val record=Records(context).best(t.id);assertNotNull("Completed lap persists locally",record)
+        waitFor(activity){it is TextView&&it.text.toString().startsWith("New personal best.")}
+        click(activity,"Replay");waitFor(activity){it is Button&&it.text=="Pause"}
+        click(activity,"Finish lap")
+        waitFor(activity){it is TextView&&it.text.toString().startsWith("New personal best.")}
         click(activity,"Replay");waitFor(activity){it is Button&&it.text=="Pause"}
         instrumentation.runOnMainSync{activity.recreate()};instrumentation.waitForIdleSync()
         assertEquals(record!!.getInt("timeMs"),Records(context).best(t.id)!!.getInt("timeMs"))

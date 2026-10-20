@@ -21,6 +21,7 @@ import AudioToolbox
     let colors: [Color] = [Color(red:0.93,green:0.35,blue:0.30),.purple,.mint,.orange,.blue,.pink]
     let catalog: [CircuitSummary]
     private var lastFrame = Date()
+    private var resultRecorded = false
     private let worker = DispatchQueue(label: "app.toyboxes.poleline.simulation",qos: .userInitiated)
     init() {
         catalog = (try? decode(PLCore.catalog())) ?? []
@@ -64,7 +65,7 @@ import AudioToolbox
         worker.async {
             let text = PLCore.race(t.index,coordinates:line.flatMap{$0}.map{NSNumber(value:$0)},tyre:compound)
             DispatchQueue.main.async {
-                if let lap: Lap = try? decode(text) { self.lap = lap;self.replay() }
+                if let lap: Lap = try? decode(text) { self.lap = lap;self.resultRecorded = false;self.saved = false;self.replay() }
                 else { self.message = "This line could not be raced. Undo the last stroke and try again.";self.screen = "draw" }
             }
         }
@@ -79,7 +80,9 @@ import AudioToolbox
     func togglePause() { paused.toggle();lastFrame = Date() }
     func finish() {
         guard let lap,let circuit,let line = drawing?.points else{return}
-        elapsed = Double(lap.timeMs)/1000;saved = records.save(circuit.id,lap:lap,line:line);screen = "results";beep()
+        elapsed = Double(lap.timeMs)/1000
+        if !resultRecorded { saved = records.save(circuit.id,lap:lap,line:line);resultRecorded = true }
+        screen = "results";beep()
     }
     func again() { if saved { ghost = lap };lap = nil;screen = "draw";zoom = 1;centre = nil;touch(4) }
     func setTeam(_ value: Int) { team = value;records.team = value }

@@ -35,6 +35,7 @@ class MainActivity: Activity() {
     private lateinit var root: LinearLayout
     private lateinit var controlsHost: LinearLayout
     private var track: Track?=null;private var trackView: TrackView?=null
+    private var recordedLap: Lap?=null;private var lapSaved=false;private var previousBest: Int?=null
     private var status: TextView?=null;private var raceButton: Button?=null;private var telemetry: TextView?=null
     private var line=emptyList<V>();private var lap: Lap?=null;private var ghost: Lap?=null
     private var tyre=0;private var screen="home";private var done=false;private var busy=false
@@ -162,7 +163,8 @@ class MainActivity: Activity() {
     }
     private fun results(){
         val t=track?:return;val current=lap?:return;screen="results";root.removeCallbacks(ticker)
-        val previous=records.best(t.id)?.optInt("timeMs");val saved=records.save(t.id,current,line)
+        if(recordedLap!==current){previousBest=records.best(t.id)?.optInt("timeMs");lapSaved=records.save(t.id,current,line);recordedLap=current}
+        val previous=previousBest;val saved=lapSaved
         layout();add(label("${t.medal(current.timeMs)} lap",18f,true));add(label(lapTime(current.timeMs),42f,true));add(label(t.name,22f,true))
         add(label(if(saved)"New personal best. Saved on this device." else if(previous!=null)"${if(current.timeMs>=previous)"+" else ""}${(current.timeMs-previous)/1000.0}s to your best" else "Lap complete. Device storage could not save this record.",15f))
         val canvas=TrackView(this,t);canvas.lap=current;canvas.elapsed=current.timeMs/1000.0;canvas.teamColor=colors[records.team];trackView=canvas;stage(canvas)

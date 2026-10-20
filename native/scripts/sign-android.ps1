@@ -1,5 +1,6 @@
 param([ValidateSet('upload','debug')][string]$Kind='upload',[switch]$IncludeTests)
 $ErrorActionPreference='Stop'
+if($Kind -eq 'debug' -and $IncludeTests){throw 'Instrumentation targets the release app. Use -Kind upload -IncludeTests.'}
 $nativeRoot=Split-Path -Parent $PSScriptRoot
 $repoRoot=Split-Path -Parent $nativeRoot
 $keyRoot=Join-Path $env:USERPROFILE '.android\jokers-run-signing'
