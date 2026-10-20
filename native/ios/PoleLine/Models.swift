@@ -16,7 +16,7 @@ struct Circuit: Decodable {
     let night: Bool
     let points: [[Double]]
     let gold: Int, silver: Int, bronze: Int
-    func medal(_ ms: Int) -> String { ms <= gold ? "Gold" : ms <= silver ? "Silver" : ms <= bronze ? "Bronze" : "Lap complete" }
+    func medal(_ ms: Int) -> String { ms <= gold ? "Gold" : ms <= silver ? "Silver" : ms <= bronze ? "Bronze" : "Complete" }
 }
 struct Drawing: Decodable {
     let done: Bool, active: Bool, progress: Double, message: String

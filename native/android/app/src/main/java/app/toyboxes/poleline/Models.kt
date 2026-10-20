@@ -16,7 +16,7 @@ data class Track(val index: Int, val id: String, val name: String, val character
         fun parse(j: JSONObject) = Track(j.getInt("index"),j.getString("id"),j.getString("name"),j.getString("character"),j.getString("region"),
             j.getDouble("width"),j.getDouble("length"),j.getInt("temperature"),j.getInt("air"),j.getBoolean("night"),j.getJSONArray("points").points(),j.getInt("gold"),j.getInt("silver"),j.getInt("bronze"))
     }
-    fun medal(ms: Int) = when { ms <= gold -> "Gold"; ms <= silver -> "Silver"; ms <= bronze -> "Bronze"; else -> "Lap complete" }
+    fun medal(ms: Int) = when { ms <= gold -> "Gold"; ms <= silver -> "Silver"; ms <= bronze -> "Bronze"; else -> "Complete" }
 }
 class Lap(val json: JSONObject) {
     val points = json.getJSONArray("points").points()
