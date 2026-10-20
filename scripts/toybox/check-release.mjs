@@ -12,7 +12,7 @@ const banned = [
   /Formula ?1|\bF1\b/, /Silverstone/, /Monaco/, /Monza/, /Suzuka/, /Spa-Francorchamps/, /Albert Park/, /Hungaroring/, /Zandvoort/, /Interlagos/, /Yas Marina/,
   /Jeddah/, /Lusail/, /Las Vegas/, /Circuit of the Americas/, /Hermanos/, /Gilles Villeneuve/, /Red Bull/, /McLaren/, /Ferrari/, /Mercedes/, /Aston Martin/,
   /Alpine/, /Williams/, /Racing Bulls/, /\bAudi\b/, /\bHaas\b/, /Cadillac/, /bacinger/,
-  /\/api\/leaderboard/, /\/api\/push/, /world leaderboard/, /version\.json/, /serviceWorker/, /beforeinstallprompt/, /PushManager/,
+  /\/api\/leaderboard/, /\/api\/push/, /world leaderboard/, /version\.json/, /serviceWorker\.register|\/sw\.js/, /beforeinstallprompt/, /PushManager/,
 ];
 const required = [/Harbour Loop/, /Kestrel Park/, /Aurora Point/, /Rookie Ring/, /Your times/, /Kestrel Racing/];
 

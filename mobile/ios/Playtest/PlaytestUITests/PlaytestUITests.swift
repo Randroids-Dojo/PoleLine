@@ -48,10 +48,10 @@ final class PlaytestUITests: XCTestCase {
         sleep(2)
         save("3-draw")
 
-        // The start line sits about 62 percent down the screen with the road ahead pointing up.
+        // The start line sits about 74 percent down the screen with the road ahead pointing up.
         let window = app.windows.firstMatch
-        let from = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.62))
-        let to = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2))
+        let from = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.74))
+        let to = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
         from.press(forDuration: 0.05, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.1)
         sleep(1)
         save("4-stroke")

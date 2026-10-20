@@ -78,7 +78,8 @@ await page.waitForTimeout(700);
 await shot(`${attempt}-2-draw-idle.png`);
 
 type Pl = { __pl: { app: { current: { worldToScreen(x: number, y: number): { x: number; y: number }; status: string; isGliding: boolean; penDown: boolean; tip: { x: number; y: number } | null } } } };
-const toScreen = (p: { x: number; y: number }) => page.evaluate(([x, y]) => (window as unknown as Pl).__pl.app.current.worldToScreen(x, y), [p.x, p.y]);
+// Null once the lap has closed and the race screen has taken over (it has no map to project onto).
+const toScreen = (p: { x: number; y: number }) => page.evaluate(([x, y]) => { const c = (window as unknown as Pl).__pl.app.current; return c?.worldToScreen ? c.worldToScreen(x, y) : null; }, [p.x, p.y]);
 const status = () => page.evaluate(() => (window as unknown as Pl).__pl.app.current.status);
 const gliding = () => page.evaluate(() => (window as unknown as Pl).__pl.app.current.isGliding);
 const penDown = () => page.evaluate(() => (window as unknown as Pl).__pl.app.current.penDown);
@@ -95,12 +96,14 @@ while (true) {
   if (st === 'done') break;
   while (await gliding()) await page.waitForTimeout(40);
   const s0 = await toScreen(pts[idx]);
+  if (!s0) break;
   await page.mouse.move(s0.x, s0.y);
   await page.mouse.down();
   strokes++;
   let moved = 0;
   for (let k = idx + 1; k < pts.length; k++) {
     const sp = await toScreen(pts[k]);
+    if (!sp) break;
     if (sp.y < safe.top || sp.y > safe.bottom || sp.x < safe.left || sp.x > safe.right) break;
     await page.mouse.move(sp.x, sp.y);
     moved++;

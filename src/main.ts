@@ -285,6 +285,8 @@ void initNative({
       overlay.remove();
       return true;
     }
+    // On the circuits screen there is nothing to go back to: leave the app.
+    if (app.current instanceof HomeScreen) return false;
     if (history.state?.screen === 'session') {
       history.back();
       return true;
