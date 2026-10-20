@@ -3,6 +3,7 @@
 import type { App } from '../app/app';
 import { sfx } from '../app/audio';
 import { getSettings, saveSettings } from '../app/store';
+import { REAL_CIRCUITS } from '../app/edition';
 import { liveryPreview } from '../render/car-art';
 import { LIVERIES } from '../render/liveries';
 import { ICONS, h } from '../ui/dom';
@@ -42,7 +43,7 @@ export function openGarage(app: App, onPick: (id: string) => void): void {
   const sheet = h(
     'section',
     { class: 'sheet garage-sheet', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'garage-title' },
-    h('header', { class: 'board-head' }, h('div', null, h('h2', { id: 'garage-title' }, 'Your car'), h('p', null, 'Team colours from this season, plus our own.')), closeBtn),
+    h('header', { class: 'board-head' }, h('div', null, h('h2', { id: 'garage-title' }, 'Your car'), h('p', null, REAL_CIRCUITS ? 'Team colours from this season, plus our own.' : 'The toybox teams, plus our own.')), closeBtn),
     grid,
   );
   const overlay = h('div', { class: 'overlay', onclick: (e: Event) => e.target === overlay && close() }, sheet);

@@ -1,7 +1,8 @@
 // Local persistence: player identity, personal bests (with the line, so the
 // ghost can be re-simulated), and settings. Every read is defensive.
 
-import type { Compound } from '../sim/types';
+import { CATALOG } from '../data/catalog';
+import type { Compound, TrackMeta } from '../sim/types';
 import { SIM_VERSION } from '../sim/version';
 import type { CornerDamping } from './damping';
 
@@ -25,6 +26,16 @@ function write(key: string, value: unknown): void {
     /* storage full or unavailable: the game still works without it */
   }
 }
+
+/**
+ * The circuit shown before the player picks one: Spielberg where the catalog has it
+ * (the web edition), else the first round. The Toybox catalog has no Spielberg.
+ */
+export function pickDefaultTrack(catalog: readonly TrackMeta[]): string {
+  return (catalog.find((m) => m.slug === 'spielberg') ?? catalog.find((m) => !m.tutorial) ?? catalog[0]).slug;
+}
+
+export const DEFAULT_TRACK = pickDefaultTrack(CATALOG);
 
 export interface Player {
   id: string;
@@ -155,7 +166,7 @@ export function getSettings(): Settings {
   const s: Settings = {
     sound: true,
     tutorialDone: false,
-    lastTrack: 'spielberg',
+    lastTrack: DEFAULT_TRACK,
     attempts: 0,
     scrollMode: 'pause',
     scrollSpeed: SCROLL_SPEED_DEFAULT,

@@ -1,0 +1,26 @@
+# A standalone UI test bundle that drives the installed PoleLine app on a
+# simulator (skip the tutorial, open settings, draw a stroke) and saves
+# screenshots to /tmp/poleline-ios. Generate with xcodegen, then:
+#
+#   xcodebuild test -project Playtest.xcodeproj -scheme Playtest \
+#     -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
+name: Playtest
+options:
+  deploymentTarget:
+    iOS: "16.0"
+targets:
+  PlaytestUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [PlaytestUITests]
+    settings:
+      GENERATE_INFOPLIST_FILE: YES
+      PRODUCT_BUNDLE_IDENTIFIER: app.toyboxes.poleline.playtest
+      CODE_SIGNING_ALLOWED: NO
+schemes:
+  Playtest:
+    build:
+      targets:
+        PlaytestUITests: all
+    test:
+      targets: [PlaytestUITests]

@@ -2227,6 +2227,22 @@ button:disabled {
   color: var(--red);
 }
 
+.board-slot {
+  flex: none;
+}
+
+.board-keep {
+  margin: 0;
+  padding: 10px 20px calc(10px + var(--safe-bottom));
+  border-top: 1px solid var(--rule);
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.set-erase.is-armed {
+  background: var(--red);
+}
+
 .board-status,
 .board-gapline {
   padding: 16px 20px;

@@ -3,20 +3,23 @@
 // world leaderboard.
 
 import type { App, Screen } from '../app/app';
-import { fetchBoard, submitLap } from '../app/api';
 import { sfx } from '../app/audio';
 import { engineerNotes } from '../app/engineer';
 import { formatDelta, formatLap, formatSector, gridSlot, kmh } from '../app/format';
-import { getPlayer, markSubmitted, setPlayerName, type DrawSetup, type PersonalBest } from '../app/store';
-import { flushUnsubmitted } from '../app/sync';
+import { getPlayer, type DrawSetup, type PersonalBest } from '../app/store';
 import { promptAfterLap } from './prompts';
+import { worldBoard } from './world-board';
+import { LOCAL_ONLY, REAL_CIRCUITS } from '../app/edition';
+import { LAPS_KEPT } from '../app/laps';
+import { shareText } from '../app/native';
+import { CATALOG } from '../data/catalog';
 import { Camera, easeInOutCubic, lerpAngle } from '../render/camera';
 import { speedPaths } from '../render/line-art';
 import type { TrackArt } from '../render/track-art';
 import { COMPOUND_SPECS } from '../sim/car';
 import type { LapResult } from '../sim/lapsim';
 import { frameAt, type Track } from '../sim/track';
-import { ICONS, h, setText, tyreBadge } from '../ui/dom';
+import { ICONS, h, tyreBadge } from '../ui/dom';
 import { sectorColour, type CamSnapshot } from './race';
 
 export interface ResultsActions {
@@ -38,9 +41,12 @@ export interface ResultsInput {
   setup: DrawSetup;
   /** The first, guided lap of the tutorial. */
   walkthrough?: boolean;
+  /** Toybox edition: where the lap landed among your saved laps (null rank: too slow to keep). */
+  kept?: { rank: number | null; total: number } | null;
 }
 
-const NAME_RE = /^[A-Za-z0-9 _.-]{2,14}$/;
+/** How many circuits make up the season (the tutorial circuit is not a round). */
+const rounds = () => CATALOG.filter((m) => !m.tutorial).length;
 
 export class ResultsScreen implements Screen {
   private cam = new Camera();
@@ -120,13 +126,13 @@ export class ResultsScreen implements Screen {
         ? h(
             'div',
             { class: 'res-actions' },
-            input.walkthrough ? h('p', { class: 'res-tutorial' }, 'That is the whole game: draw a line, watch it run, find time. 24 real circuits are waiting.') : null,
+            input.walkthrough ? h('p', { class: 'res-tutorial' }, `That is the whole game: draw a line, watch it run, find time. ${rounds()} ${REAL_CIRCUITS ? 'real circuits' : 'circuits'} are waiting.`) : null,
             h('button', { class: 'btn-primary', onclick: () => this.actions.continueGame!() }, 'Continue to the circuits'),
             h(
               'div',
               { class: 'res-secondary' },
               h('button', { class: 'btn-quiet', onclick: () => this.actions.again() }, 'Try the corner again'),
-              h('button', { class: 'btn-quiet', onclick: () => this.actions.leaderboard() }, 'Leaderboard'),
+              h('button', { class: 'btn-quiet', onclick: () => this.actions.leaderboard() }, LOCAL_ONLY ? 'Your times' : 'Leaderboard'),
               input.walkthrough ? null : h('button', { class: 'btn-quiet', onclick: (e: Event) => this.share(e.currentTarget as HTMLButtonElement, slot.stamp) }, 'Share'),
             ),
           )
@@ -137,7 +143,7 @@ export class ResultsScreen implements Screen {
             h(
               'div',
               { class: 'res-secondary' },
-              h('button', { class: 'btn-quiet', onclick: () => this.actions.leaderboard() }, 'Leaderboard'),
+              h('button', { class: 'btn-quiet', onclick: () => this.actions.leaderboard() }, LOCAL_ONLY ? 'Your times' : 'Leaderboard'),
               h('button', { class: 'btn-quiet', onclick: (e: Event) => this.share(e.currentTarget as HTMLButtonElement, slot.stamp) }, 'Share'),
               h('button', { class: 'btn-quiet', onclick: () => this.actions.home() }, 'Circuits'),
             ),
@@ -151,11 +157,22 @@ export class ResultsScreen implements Screen {
       sfx.finish(true);
       this.confetti = makeConfetti(app.w, slot.tier === 'pole' ? 170 : 90);
     }
-    this.leaderboardBlock();
+    if (LOCAL_ONLY) this.ownTimesBlock();
+    else worldBoard({ track, input, world: this.world, posted: () => void (!input.walkthrough && this.queuePrompts(1200)) });
     // Install and lap alert prompts wait for the result to land. A first lap
     // waits for the name form, so they follow the lap reaching the board.
     // The walkthrough's ending stays uncluttered; the prompts follow the next lap.
-    if (!input.walkthrough && !(input.isPb && !getPlayer().name)) this.queuePrompts(2400);
+    if (!LOCAL_ONLY && !input.walkthrough && !(input.isPb && !getPlayer().name)) this.queuePrompts(2400);
+  }
+
+  /** Toybox edition: where this lap sits among the quickest laps kept on the device. */
+  private ownTimesBlock(): void {
+    const k = this.input.kept;
+    if (!k) return;
+    const nth = (n: number) => `${n}${n === 1 ? 'st' : n === 2 ? 'nd' : n === 3 ? 'rd' : 'th'}`;
+    const text = !k.rank ? `Slower than the ${LAPS_KEPT} laps saved here.` : k.rank === 1 ? 'Your quickest lap here, saved with its line.' : `Your ${nth(k.rank)} quickest lap here, saved with its line.`;
+    const status = h('p', { class: `res-world-status${k.rank === 1 ? ' is-rank' : ''}` }, text);
+    this.world.append(status);
   }
 
   private queuePrompts(delay: number): void {
@@ -167,7 +184,11 @@ export class ResultsScreen implements Screen {
     const { lap } = this.input;
     const m = this.track.meta;
     const tyre = COMPOUND_SPECS[lap.compound].label.toLowerCase() + 's';
-    const text = `${formatLap(lap.timeMs)} around ${m.short} on ${tyre}. That is ${stamp === 'P1' ? 'pole position' : stamp} against real pole pace. Draw a quicker line?`;
+    const text = `${formatLap(lap.timeMs)} around ${m.short} on ${tyre}. That is ${stamp === 'P1' ? 'pole position' : stamp} against ${REAL_CIRCUITS ? 'real pole pace' : 'pole pace'}. Draw a quicker line?`;
+    if (LOCAL_ONLY) {
+      void shareText('PoleLine', text);
+      return;
+    }
     const url = location.origin;
     const nav = navigator as Navigator & { share?: (d: ShareData) => Promise<void> };
     if (nav.share) {
@@ -181,61 +202,6 @@ export class ResultsScreen implements Screen {
         setTimeout(() => (btn.textContent = 'Share'), 1600);
       })
       .catch(() => {});
-  }
-
-  private leaderboardBlock(): void {
-    const { lap, isPb, code } = this.input;
-    const player = getPlayer();
-    const slug = this.track.meta.slug;
-    const status = h('p', { class: 'res-world-status' }, '');
-    this.world.append(status);
-    const post = (name: string) => {
-      setText(status, 'Posting to the world leaderboard…');
-      submitLap({ track: slug, compound: lap.compound, line: code, playerId: player.id, name, setup: this.input.setup })
-        .then((r) => {
-          markSubmitted(slug);
-          void flushUnsubmitted(slug);
-          if (r.timeMs !== lap.timeMs) console.warn('server time differs', r.timeMs, lap.timeMs);
-          setText(status, r.rank ? `World #${r.rank} of ${r.total} on ${this.track.meta.short}` : 'Posted.');
-          status.classList.add('is-rank');
-          if (!this.input.walkthrough) this.queuePrompts(1200);
-        })
-        .catch((err: Error) => setText(status, `Not posted: ${err.message}. Your time is saved on this device.`));
-    };
-    if (!isPb) {
-      fetchBoard(slug, player.id, 1)
-        .then((b) => setText(status, b.you ? `Your best is world #${b.you.rank} of ${b.total}` : b.total ? `${b.total} drivers have set times here` : ''))
-        .catch(() => setText(status, ''));
-      return;
-    }
-    if (player.name) {
-      post(player.name);
-      return;
-    }
-    const input = h('input', { class: 'name-input', type: 'text', maxlength: '14', autocomplete: 'nickname', placeholder: 'Your name', 'aria-label': 'Your name for the leaderboard', enterkeyhint: 'send' }) as HTMLInputElement;
-    const btn = h('button', { class: 'btn-ink', type: 'submit' }, 'Post time');
-    const form = h(
-      'form',
-      {
-        class: 'name-form',
-        onsubmit: (e: Event) => {
-          e.preventDefault();
-          const name = input.value.trim().replace(/\s+/g, ' ');
-          if (!NAME_RE.test(name)) {
-            setText(status, 'Use 2 to 14 letters or numbers.');
-            input.focus();
-            return;
-          }
-          setPlayerName(name);
-          form.remove();
-          post(name);
-        },
-      },
-      input,
-      btn,
-    );
-    setText(status, 'Post this lap to the world leaderboard.');
-    this.world.append(form);
   }
 
   resize(): void {

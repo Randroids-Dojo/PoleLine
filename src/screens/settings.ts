@@ -9,6 +9,10 @@ import { alertsBlocked, alertsSupported, canPromptInstall, disableAlerts, enable
 import { CORNER_DAMPING_OPTIONS } from '../app/damping';
 import { ICONS, h } from '../ui/dom';
 import { openGarage } from './garage';
+import { APP_RELEASE, LOCAL_ONLY } from '../app/edition';
+import { eraseAllData } from '../app/laps';
+import { APP_VERSION } from '../app/update';
+import { keepAwake } from '../app/native';
 import { liveryPreview } from '../render/car-art';
 import { liveryById } from '../render/liveries';
 
@@ -127,10 +131,13 @@ export function openSettings(app: App, onChange?: (s: Settings) => void): void {
         toggle('Keep the screen awake', 'Stops the screen dimming while you play.', s.keepAwake, (v) => {
           changed({ keepAwake: v });
           setKeepAwake(v);
+          void keepAwake(v);
         }),
-        alertsRow(s.alerts),
-        installRow(),
+        LOCAL_ONLY ? null : alertsRow(s.alerts),
+        LOCAL_ONLY ? null : installRow(),
       ),
+      LOCAL_ONLY ? h('h3', null, 'About') : null,
+      LOCAL_ONLY ? h('div', { class: 'set-group' }, aboutRow(), eraseRow()) : null,
     ),
   );
   const overlay = h('div', { class: 'overlay', onclick: (e: Event) => e.target === overlay && close() }, sheet);
@@ -167,6 +174,35 @@ function alertsRow(on: boolean): HTMLElement {
       r === 'on' ? detail : r === 'denied' ? 'Notifications are blocked for PoleLine in your browser’s site settings.' : 'Lap alerts could not be turned on right now. Try again later.';
   });
   return h('label', { class: 'set-row' }, h('span', { class: 'set-text' }, h('b', null, 'Lap alerts'), small), input);
+}
+
+/** The Toybox edition's version line and what stays on the device (everything). */
+function aboutRow(): HTMLElement {
+  const build = APP_VERSION === 'dev' ? 'dev' : APP_VERSION.slice(0, 7);
+  return h(
+    'div',
+    { class: 'set-row set-row-static' },
+    h('span', { class: 'set-text' }, h('b', null, `PoleLine ${APP_RELEASE}`), h('small', null, `Build ${build}. A Toyboxes game. Your laps, times and settings stay on this device: no account, no ads, no tracking.`)),
+  );
+}
+
+/** Erase every lap, best and setting on the device, after a second tap. */
+function eraseRow(): HTMLElement {
+  const small = h('small', null, 'Every lap, best time and setting on this device.');
+  const btn = h('button', { class: 'btn-ink set-erase' }, 'Erase') as HTMLButtonElement;
+  let armed = false;
+  btn.onclick = () => {
+    if (!armed) {
+      armed = true;
+      btn.textContent = 'Erase everything';
+      btn.classList.add('is-armed');
+      small.textContent = 'This cannot be undone. Tap again to erase.';
+      return;
+    }
+    eraseAllData();
+    location.reload();
+  };
+  return h('div', { class: 'set-row set-row-static' }, h('span', { class: 'set-text' }, h('b', null, 'Start over'), small), btn);
 }
 
 /** Add to home screen: the browser's install prompt where there is one, otherwise how to do it. */

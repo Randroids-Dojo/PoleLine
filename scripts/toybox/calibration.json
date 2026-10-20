@@ -1,0 +1,210 @@
+{
+  "rookie-ring": {
+    "grip": 1.15055,
+    "sectors": [
+      0.26998,
+      0.38613,
+      0.34389
+    ]
+  },
+  "harbour-loop": {
+    "grip": 0.95,
+    "sectors": [
+      0.33948,
+      0.35143,
+      0.30909
+    ],
+    "clipRef": 73.25,
+    "poleRef": 61.435
+  },
+  "kestrel-park": {
+    "grip": 1.1,
+    "sectors": [
+      0.31751,
+      0.36268,
+      0.31981
+    ],
+    "clipRef": 84.15,
+    "poleRef": 67.714
+  },
+  "saltmarsh": {
+    "grip": 1.05,
+    "sectors": [
+      0.34463,
+      0.30921,
+      0.34616
+    ],
+    "clipRef": 73.95,
+    "poleRef": 72.012
+  },
+  "ember-gorge": {
+    "grip": 1,
+    "sectors": [
+      0.33888,
+      0.33163,
+      0.32949
+    ],
+    "clipRef": 74.11,
+    "poleRef": 58.149
+  },
+  "pinewood-club": {
+    "grip": 1.08,
+    "sectors": [
+      0.34295,
+      0.34875,
+      0.30829
+    ],
+    "clipRef": 76.39,
+    "poleRef": 43.086
+  },
+  "glasswater": {
+    "grip": 1.12,
+    "sectors": [
+      0.31207,
+      0.32641,
+      0.36152
+    ],
+    "clipRef": 76.09,
+    "poleRef": 59.612
+  },
+  "old-quarry": {
+    "grip": 1.03,
+    "sectors": [
+      0.33809,
+      0.35522,
+      0.30669
+    ],
+    "clipRef": 71.7,
+    "poleRef": 74.584
+  },
+  "lantern-quay": {
+    "grip": 0.97,
+    "sectors": [
+      0.35353,
+      0.32919,
+      0.31728
+    ],
+    "clipRef": 69.23,
+    "poleRef": 79.237
+  },
+  "thornfield": {
+    "grip": 1.09,
+    "sectors": [
+      0.34276,
+      0.34622,
+      0.31101
+    ],
+    "clipRef": 89.86,
+    "poleRef": 61.643
+  },
+  "midnight-strip": {
+    "grip": 0.93,
+    "sectors": [
+      0.34665,
+      0.34733,
+      0.30602
+    ],
+    "clipRef": 77.17,
+    "poleRef": 108.116
+  },
+  "ridgeback": {
+    "grip": 0.98,
+    "sectors": [
+      0.34542,
+      0.32101,
+      0.33357
+    ],
+    "clipRef": 73.83,
+    "poleRef": 63.296
+  },
+  "cinder-ring": {
+    "grip": 1.06,
+    "sectors": [
+      0.28058,
+      0.38566,
+      0.33376
+    ],
+    "clipRef": 92.29,
+    "poleRef": 44.502
+  },
+  "saffron-dunes": {
+    "grip": 1.02,
+    "sectors": [
+      0.31138,
+      0.33726,
+      0.35135
+    ],
+    "clipRef": 83.04,
+    "poleRef": 63.32
+  },
+  "bluebell-hollow": {
+    "grip": 1.1,
+    "sectors": [
+      0.348,
+      0.33085,
+      0.32115
+    ],
+    "clipRef": 69.61,
+    "poleRef": 60.993
+  },
+  "copperhead": {
+    "grip": 1.04,
+    "sectors": [
+      0.34175,
+      0.31277,
+      0.34548
+    ],
+    "clipRef": 76.22,
+    "poleRef": 69.534
+  },
+  "tidewater-bay": {
+    "grip": 1.07,
+    "sectors": [
+      0.34656,
+      0.34253,
+      0.31091
+    ],
+    "clipRef": 74.27,
+    "poleRef": 63.203
+  },
+  "fox-hollow": {
+    "grip": 1.1,
+    "sectors": [
+      0.34425,
+      0.32993,
+      0.32583
+    ],
+    "clipRef": 75.29,
+    "poleRef": 61.127
+  },
+  "granite-pass": {
+    "grip": 1.08,
+    "sectors": [
+      0.31406,
+      0.32811,
+      0.35782
+    ],
+    "clipRef": 85.59,
+    "poleRef": 71.039
+  },
+  "starlight-pier": {
+    "grip": 0.96,
+    "sectors": [
+      0.33531,
+      0.34832,
+      0.31637
+    ],
+    "clipRef": 69.74,
+    "poleRef": 75.385
+  },
+  "aurora-point": {
+    "grip": 1.12,
+    "sectors": [
+      0.34316,
+      0.31947,
+      0.33737
+    ],
+    "clipRef": 81.1,
+    "poleRef": 81.794
+  }
+}

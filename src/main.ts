@@ -9,8 +9,12 @@ import { DrawScreen } from './screens/draw';
 import { RaceScreen, timeAtProgress, type CamSnapshot, type RaceCaption } from './screens/race';
 import { ResultsScreen } from './screens/results';
 import { openLeaderboard } from './screens/leaderboard';
+import { openTimes } from './screens/times';
 import { flushUnsubmitted } from './app/sync';
 import { fetchLap, type ReplayLap } from './app/api';
+import { addLap, getLaps, whenText, type SavedLap } from './app/laps';
+import { LOCAL_ONLY, REAL_CIRCUITS } from './app/edition';
+import { initNative } from './app/native';
 import { unpackLine } from './sim/pack';
 import type { LapResult } from './sim/lapsim';
 import { initPwa } from './app/pwa';
@@ -25,8 +29,9 @@ import type { Track } from './sim/track';
 import type { Compound } from './sim/types';
 
 const app = new App();
-const updates = new UpdateBanner(app, (s) => s instanceof HomeScreen || s instanceof ResultsScreen);
-app.onShow = () => updates.sync();
+// The Toybox edition ships as an app store build: no newer deploy to spot.
+const updates = LOCAL_ONLY ? null : new UpdateBanner(app, (s) => s instanceof HomeScreen || s instanceof ResultsScreen);
+app.onShow = () => updates?.sync();
 setSoundEnabled(getSettings().sound);
 setKeepAwake(getSettings().keepAwake);
 let currentSlug = getSettings().lastTrack;
@@ -76,16 +81,41 @@ function championshipSlug(): string {
   return last.tutorial ? CATALOG.find((m) => !m.tutorial)!.slug : last.slug;
 }
 
-/** A circuit's leaderboard, from wherever it is opened. */
+/** A circuit's leaderboard (the web edition) or your own times (the Toybox edition), from wherever it is opened. */
 function board(slug: string): void {
-  openLeaderboard(app, slug, {
-    watch: (rank) => watch(slug, rank),
-    // Copying a setup can change the tyre the home screen shows.
-    copied: () => {
-      const cur = app.current;
-      if (cur instanceof HomeScreen) cur.refresh();
-    },
-  });
+  // Copying a setup can change the tyre the home screen shows.
+  const copied = () => {
+    const cur = app.current;
+    if (cur instanceof HomeScreen) cur.refresh();
+  };
+  if (LOCAL_ONLY) {
+    openTimes(app, slug, { watch: (index) => watchOwn(slug, index), copied });
+    return;
+  }
+  openLeaderboard(app, slug, { watch: (rank) => watch(slug, rank), copied });
+}
+
+/**
+ * Watch one of your own saved laps in real time, against your quickest lap
+ * (or the next quickest, when watching the quickest).
+ */
+async function watchOwn(slug: string, index: number): Promise<void> {
+  const track = await app.track(slug);
+  const laps = getLaps(slug);
+  const lap = laps[index];
+  if (!lap) throw new Error('no such lap');
+  const run = (l: SavedLap) => simulateLap(track, decodePath(l.code), l.compound);
+  const result = run(lap);
+  const other = index === 0 ? laps[1] : laps[0];
+  const ghost = other ? run(other) : null;
+  const ghostName = other ? (index === 0 ? 'your second best' : 'your best') : null;
+  currentSlug = slug;
+  if (history.state?.screen !== 'session') history.pushState({ screen: 'session' }, '');
+  const back = () => {
+    home(slug);
+    board(slug);
+  };
+  app.show(new RaceScreen(app, track, app.art(track), result, ghost, ghost ? ghost.sectorsMs : null, { finished: back, exit: back }, { driver: whenText(lap.date), rank: index + 1, ghostName }));
 }
 
 /**
@@ -172,11 +202,13 @@ function race(track: Track, compound: Compound, pts: number[], walkthrough = fal
     setBest(slug, { timeMs: lap.timeMs, compound, sectorsMs: lap.sectorsMs, code, date: new Date().toISOString(), submitted: false, setup });
   }
   updateBestSectors(slug, lap.sectorsMs);
+  // The Toybox edition keeps your quickest laps on the device instead of a leaderboard.
+  const kept = LOCAL_ONLY ? addLap(slug, { timeMs: lap.timeMs, compound, sectorsMs: lap.sectorsMs, code, date: new Date().toISOString(), setup }) : null;
   const showResults = (from: CamSnapshot) => {
     // Finishing the walkthrough lap completes the tutorial.
     if (walkthrough) endTutorial('done');
     app.show(
-      new ResultsScreen(app, track, art, { lap, points, code, previous, bestSectorsBefore, isPb, attempt, setup, walkthrough }, {
+      new ResultsScreen(app, track, art, { lap, points, code, previous, bestSectorsBefore, isPb, attempt, setup, walkthrough, kept }, {
         // The tyre chosen for this circuit, which copying a setup from the leaderboard can change.
         again: () => void draw(slug, getTyre(slug)),
         leaderboard: () => board(slug),
@@ -192,7 +224,7 @@ function race(track: Track, compound: Compound, pts: number[], walkthrough = fal
     ? [
         { at: -2.4, dur: 3.2, text: 'Here it comes on a flying lap, driving the line exactly.' },
         { at: 2.5, dur: 4.5, text: 'Speed, gear, battery and tyres live in the bar below.' },
-        { at: 9, dur: 4.5, text: 'Sectors turn purple when they beat real pole pace.' },
+        { at: 9, dur: 4.5, text: REAL_CIRCUITS ? 'Sectors turn purple when they beat real pole pace.' : 'Sectors turn purple when they beat pole pace.' },
         { at: yours - 0.8, dur: 4.5, text: 'Now the corner you drew.' },
       ]
     : [];
@@ -237,6 +269,28 @@ if (openLink(location.search)) {
 } else {
   home();
 }
-initPwa((search) => void openLink(search));
-watchForUpdates(() => updates.available());
-void flushUnsubmitted();
+if (!LOCAL_ONLY) {
+  initPwa((search) => void openLink(search));
+  watchForUpdates(() => updates?.available());
+  void flushUnsubmitted();
+} else if ('serviceWorker' in navigator) {
+  // Nothing is fetched, so nothing is cached: drop any worker left by an earlier build in this WebView.
+  navigator.serviceWorker.getRegistrations().then((rs) => rs.forEach((r) => void r.unregister())).catch(() => {});
+}
+// The native shell: splash screen, haptics, keeping the screen awake and the Android back button.
+void initNative({
+  back: () => {
+    const overlay = app.root.querySelector<HTMLElement>('.overlay');
+    if (overlay) {
+      overlay.remove();
+      return true;
+    }
+    // On the circuits screen there is nothing to go back to: leave the app.
+    if (app.current instanceof HomeScreen) return false;
+    if (history.state?.screen === 'session') {
+      history.back();
+      return true;
+    }
+    return false;
+  },
+});
