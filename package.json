@@ -18,7 +18,8 @@
     "mobile:sync": "npm run build:toybox && npx cap sync",
     "mobile:android": "npx cap open android",
     "mobile:ios": "npx cap open ios",
-    "mobile:assets": "npx capacitor-assets generate --ios --android --assetPath mobile/assets --androidProject mobile/android --iosProject mobile/ios/App --iconBackgroundColor \"#000000\" --iconBackgroundColorDark \"#000000\" --splashBackgroundColor \"#eef1f4\" --splashBackgroundColorDark \"#eef1f4\""
+    "mobile:assets": "npx capacitor-assets generate --ios --android --assetPath mobile/assets --androidProject mobile/android --iosProject mobile/ios/App --iconBackgroundColor \"#000000\" --iconBackgroundColorDark \"#000000\" --splashBackgroundColor \"#eef1f4\" --splashBackgroundColorDark \"#eef1f4\"",
+    "toybox:check": "node scripts/toybox/check-release.mjs dist-toybox"
   },
   "dependencies": {
     "@capacitor-community/keep-awake": "^8.0.1",

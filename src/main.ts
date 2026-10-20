@@ -273,6 +273,9 @@ if (!LOCAL_ONLY) {
   initPwa((search) => void openLink(search));
   watchForUpdates(() => updates?.available());
   void flushUnsubmitted();
+} else if ('serviceWorker' in navigator) {
+  // Nothing is fetched, so nothing is cached: drop any worker left by an earlier build in this WebView.
+  navigator.serviceWorker.getRegistrations().then((rs) => rs.forEach((r) => void r.unregister())).catch(() => {});
 }
 // The native shell: splash screen, haptics, keeping the screen awake and the Android back button.
 void initNative({

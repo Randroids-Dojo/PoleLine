@@ -12,6 +12,7 @@ import { openGarage } from './garage';
 import { APP_RELEASE, LOCAL_ONLY } from '../app/edition';
 import { eraseAllData } from '../app/laps';
 import { APP_VERSION } from '../app/update';
+import { keepAwake } from '../app/native';
 import { liveryPreview } from '../render/car-art';
 import { liveryById } from '../render/liveries';
 
@@ -130,6 +131,7 @@ export function openSettings(app: App, onChange?: (s: Settings) => void): void {
         toggle('Keep the screen awake', 'Stops the screen dimming while you play.', s.keepAwake, (v) => {
           changed({ keepAwake: v });
           setKeepAwake(v);
+          void keepAwake(v);
         }),
         LOCAL_ONLY ? null : alertsRow(s.alerts),
         LOCAL_ONLY ? null : installRow(),

@@ -20,7 +20,7 @@ npm run mobile:ios       # open the Xcode project
 npm run mobile:assets    # regenerate icons and splash screens from mobile/assets
 ```
 
-Run `npm run mobile:sync` after every change to the game or to `capacitor.config.ts`, then build in Android Studio or Xcode. `node mobile/assets/make.mjs` rebuilds the source art in `mobile/assets` from `public/icon.svg` before `npm run mobile:assets`.
+`npm run toybox:check` scans `dist-toybox` for real circuit or team names and server routes; run it before any store upload. Run `npm run mobile:sync` after every change to the game or to `capacitor.config.ts`, then build in Android Studio or Xcode. `node mobile/assets/make.mjs` rebuilds the source art in `mobile/assets` from `public/icon.svg` before `npm run mobile:assets`.
 
 ## Versioning
 
@@ -57,3 +57,18 @@ xcodebuild -project App.xcodeproj -scheme App -configuration Release -destinatio
 ```
 
 Look at the screenshots: the home screen (wordmark, circuit strip, Draw a lap) must be fully visible with dark system bar icons over the paper background and nothing hidden under the bars.
+
+A full lap can be drawn inside the Android app from this Mac. The debug build exposes the WebView to DevTools; the scripted playtest then drives it with real pointer input and takes its screenshots from the device, system bars included:
+
+```bash
+export ANDROID_SERIAL=emulator-5584
+pid=$(adb shell pidof app.toyboxes.poleline | tr -d '\r')
+adb forward tcp:9223 localabstract:webview_devtools_remote_$pid
+CDP=http://localhost:9223 SHEETS=1 EDITION=toybox npx tsx scripts/playtest.ts ember-gorge good,offtrack /tmp/device-play
+```
+
+On a software rendered emulator this takes several minutes per lap; a real phone over Wi-Fi debugging works the same way and is far quicker.
+
+## Store listing
+
+`mobile/store/listing.json` holds the copy and identifiers for both stores. The Play listing (Toyboxes developer account, app id 4975227597757531667) already has a processed draft of an earlier build 2, which is why this shell starts at build 3.

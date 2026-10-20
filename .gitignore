@@ -18,3 +18,5 @@ mobile/ios/DerivedData
 mobile/ios/App/App.xcodeproj/xcuserdata
 mobile/ios/App/App.xcodeproj/project.xcworkspace/xcuserdata
 mobile/ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm
+mobile/ios/Playtest/Playtest.xcodeproj
+mobile/ios/DerivedData-playtest

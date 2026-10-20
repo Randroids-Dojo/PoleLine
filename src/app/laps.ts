@@ -64,14 +64,14 @@ export function eraseAllData(): void {
   for (const k of keys) localStorage.removeItem(k);
 }
 
-/** "Today 14:02", "Yesterday 09:30", "3 Oct" or "3 Oct 2025". */
+/** "14:02" for today, then "Yesterday", "3 Oct" or "3 Oct 2025". Short, so it fits beside a grid slot. */
 export function whenText(iso: string, now = new Date()): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
   const day = (x: Date) => Math.floor((x.getTime() - x.getTimezoneOffset() * 60000) / 86400000);
   const diff = day(now) - day(d);
   const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-  if (diff === 0) return `Today ${time}`;
-  if (diff === 1) return `Yesterday ${time}`;
+  if (diff === 0) return time;
+  if (diff === 1) return 'Yesterday';
   return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', ...(d.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}) });
 }

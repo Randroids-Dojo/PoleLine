@@ -4,12 +4,16 @@
 //   npx tsx scripts/playtest.ts [slug] [ideal|good|wobbly|centre|offtrack] [outDir] [url]
 // offtrack: goes over the white line once, taps Undo stroke, then finishes cleanly.
 
+import { execSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
-import { CATALOG } from '../src/data/catalog.js';
 import { buildTrack } from '../src/sim/track.js';
 import { minCurvatureOffsets, wobble } from './optimal.js';
+
+// EDITION=toybox plays the Toybox edition (run the dev server with VITE_EDITION=toybox).
+const DATA = process.env.EDITION === 'toybox' ? '../src/data/toybox' : '../src/data';
+const { CATALOG } = (await import(`${DATA}/catalog.ts`)) as typeof import('../src/data/catalog.js');
 
 const slug = process.argv[2] ?? 'spielberg';
 const qualities = (process.argv[3] ?? 'ideal').split(',');
@@ -18,7 +22,7 @@ const url = process.argv[5] ?? 'http://localhost:5199/';
 mkdirSync(out, { recursive: true });
 
 const meta = CATALOG.find((m) => m.slug === slug)!;
-const geom = (await import(`../src/data/geometry/${slug}.ts`)).default as number[];
+const geom = (await import(`${DATA}/geometry/${slug}.ts`)).default as number[];
 const track = buildTrack(meta, geom);
 const ideal = minCurvatureOffsets(track);
 function linePoints(quality: string): { x: number; y: number }[] {
@@ -36,26 +40,42 @@ function linePoints(quality: string): { x: number; y: number }[] {
   return pts;
 }
 
-const browser = await chromium.launch();
-const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
-const page = await ctx.newPage();
+// CDP=http://localhost:9223 drives the game inside the mobile app's WebView (Android: adb forward
+// tcp:9223 localabstract:webview_devtools_remote_<pid>) instead of a headless browser, and the
+// screenshots come from the device so the system bars and safe areas are in them.
+const cdp = process.env.CDP;
+const browser = cdp ? await chromium.connectOverCDP(cdp) : await chromium.launch();
+const ctx = cdp ? browser.contexts()[0] : await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+const page = cdp ? ctx.pages()[0] : await ctx.newPage();
+const shot = async (file: string) => {
+  if (cdp) execSync(`adb exec-out screencap -p > ${JSON.stringify(join(out, file))}`);
+  else await shot(file);
+};
 page.on('console', (m) => {
   if (m.type() === 'error' || m.type() === 'warning') console.log('[page]', m.text());
 });
 page.on('pageerror', (e) => console.log('[pageerror]', e.message));
-await page.addInitScript(([s, mode, speed, rotate, damp]) => {
+const seed = ([s, mode, speed, rotate, damp]: readonly [string, string, string, string, string]) => {
   localStorage.setItem('poleline:v1:settings', JSON.stringify({ v: 2, tutorial: 'done', lastTrack: s, sound: false, scrollMode: mode, scrollSpeed: Number(speed), autoRotate: rotate !== 'off', cornerDamping: damp, panCoachSeen: true }));
-}, [slug, process.env.MODE ?? 'pause', process.env.SPEED ?? '1', process.env.ROTATE ?? 'on', process.env.DAMP ?? 'off'] as const);
-await page.goto(url);
-await page.waitForTimeout(900);
-await page.screenshot({ path: join(out, '1-home.png') });
+};
+const seedArgs = [slug, process.env.MODE ?? 'pause', process.env.SPEED ?? '1', process.env.ROTATE ?? 'on', process.env.DAMP ?? 'off'] as const;
+if (cdp) {
+  // The app is already open: seed its storage, then reload with the debug handle on.
+  await page.evaluate(seed, seedArgs);
+  await page.goto(`${new URL(page.url()).origin}/?debug`);
+} else {
+  await page.addInitScript(seed, seedArgs);
+  await page.goto(url);
+}
+await page.waitForTimeout(cdp ? 2500 : 900);
+await shot('1-home.png');
 for (let attempt = 1; attempt <= qualities.length; attempt++) {
 const quality = qualities[attempt - 1];
 if (attempt === 1) await page.getByRole('button', { name: 'Draw a lap' }).click();
 else await page.getByRole('button', { name: 'Draw again' }).click();
 await page.waitForTimeout(700);
 await page.waitForTimeout(700);
-await page.screenshot({ path: join(out, `${attempt}-2-draw-idle.png`) });
+await shot(`${attempt}-2-draw-idle.png`);
 
 type Pl = { __pl: { app: { current: { worldToScreen(x: number, y: number): { x: number; y: number }; status: string; isGliding: boolean; penDown: boolean; tip: { x: number; y: number } | null } } } };
 const toScreen = (p: { x: number; y: number }) => page.evaluate(([x, y]) => (window as unknown as Pl).__pl.app.current.worldToScreen(x, y), [p.x, p.y]);
@@ -68,7 +88,8 @@ const offTrackAt = () => page.evaluate(() => (window as unknown as { __pl: { app
 let pts = linePoints(quality);
 let idx = 0;
 let strokes = 0;
-const safe = { top: 110, bottom: 844 - 130, left: 18, right: 390 - 18 };
+const vp = await page.evaluate(() => ({ w: window.innerWidth, h: window.innerHeight }));
+const safe = { top: 110, bottom: vp.h - 130, left: 18, right: vp.w - 18 };
 while (true) {
   const st = await status();
   if (st === 'done') break;
@@ -90,10 +111,10 @@ while (true) {
   if (await offTrackAt()) {
     // Over the limit: show it, undo the stroke, then finish on a clean line.
     await page.waitForTimeout(250);
-    await page.screenshot({ path: join(out, `${attempt}-3b-limits.png`) });
+    await shot(`${attempt}-3b-limits.png`);
     await page.getByRole('button', { name: 'Undo stroke' }).click();
     await page.waitForTimeout(150);
-    await page.screenshot({ path: join(out, `${attempt}-3c-undone.png`) });
+    await shot(`${attempt}-3c-undone.png`);
     pts = linePoints('ideal');
   }
   // Resume from wherever the line actually stopped.
@@ -108,7 +129,7 @@ while (true) {
   }
   if (strokes === 3) {
     while (await gliding()) await page.waitForTimeout(30);
-    await page.screenshot({ path: join(out, `${attempt}-3-draw-mid.png`) });
+    await shot(`${attempt}-3-draw-mid.png`);
   }
   if (moved === 0) {
     console.log('stuck at', idx, await status());
@@ -117,26 +138,49 @@ while (true) {
   if (strokes > 120) break;
 }
 console.log(`strokes ${strokes}, status ${await status()}`);
-await page.screenshot({ path: join(out, `${attempt}-4-draw-end.png`) });
+await shot(`${attempt}-4-draw-end.png`);
 if ((await status()) !== 'done') break;
 await page.waitForTimeout(1500);
-await page.screenshot({ path: join(out, `${attempt}-5-race-start.png`) });
+await shot(`${attempt}-5-race-start.png`);
 await page.waitForTimeout(5000);
-await page.screenshot({ path: join(out, `${attempt}-6-race-mid.png`) });
+await shot(`${attempt}-6-race-mid.png`);
 await page.getByRole('button', { name: /skip/i }).click();
 await page.waitForTimeout(1450);
-await page.screenshot({ path: join(out, `${attempt}-6b-finish.png`) });
+await shot(`${attempt}-6b-finish.png`);
 await page.waitForTimeout(2400);
-await page.screenshot({ path: join(out, `${attempt}-6c-pullback.png`) });
+await shot(`${attempt}-6c-pullback.png`);
 await page.waitForTimeout(1500);
-await page.screenshot({ path: join(out, `${attempt}-7-results.png`) });
+await shot(`${attempt}-7-results.png`);
 if (process.env.POST_NAME && (await page.locator('.name-input').count())) {
   await page.locator('.name-input').fill(process.env.POST_NAME);
   await page.getByRole('button', { name: 'Post time' }).click();
   await page.waitForFunction(() => /World #|Not posted/.test(document.querySelector('.res-world-status')?.textContent ?? ''), null, { timeout: 15000 }).catch(() => {});
-  await page.screenshot({ path: join(out, `${attempt}-8-posted.png`) });
+  await shot(`${attempt}-8-posted.png`);
 }
 const text = await page.locator('.res-sheet').innerText();
+if (process.env.SHEETS) {
+  // The sheets behind the results: your times (Toybox) or the leaderboard, then settings from home.
+  await page.getByRole('button', { name: process.env.EDITION === 'toybox' ? 'Your times' : 'Leaderboard' }).click();
+  await page.waitForTimeout(500);
+  await shot(`${attempt}-8-times.png`);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+  if (attempt === qualities.length) {
+    await page.getByRole('button', { name: 'Circuits' }).click();
+    await page.waitForTimeout(500);
+    await shot(`${attempt}-9-home.png`);
+    await page.getByRole('button', { name: 'Settings' }).click();
+    await page.waitForTimeout(400);
+    await shot(`${attempt}-10-settings.png`);
+    await page.locator('.settings-body').evaluate((el) => el.scrollTo(0, el.scrollHeight));
+    await page.waitForTimeout(200);
+    await shot(`${attempt}-11-settings-end.png`);
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
+  }
+}
 console.log(text.replace(/\n+/g, ' | '));
 }
+// Over CDP the close can hang on the WebView; the process has nothing left to do.
+if (cdp) process.exit(0);
 await browser.close();

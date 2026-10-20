@@ -15,6 +15,10 @@ PoleLine is a mobile web game set on 24 real Formula 1 circuits. You draw your r
 - **Copy a rival.** Every best lap on a leaderboard carries the setup it was drawn with (scroll mode and speed, corner slowdown, map rotation and tyre). Tap a driver to see it and copy it in one tap; your next lap on that circuit draws the same way.
 - **Stay in the fight.** After your first lap the game offers to go on your home screen (the browser's install prompt on Android and desktop, Share then Add to Home Screen on iPhone), then to turn on lap alerts: a push notification when someone beats one of your times, which opens that circuit's leaderboard. Each prompt shows once; Settings keeps an Add to home screen row and a lap alerts switch for later. On iPhone they work from the home screen app.
 
+## The mobile app
+
+The same game ships for Android and iOS as a paid, offline app from Toyboxes (`app.toyboxes.poleline`), built from this repository with `VITE_EDITION=toybox`. It keeps everything above except the parts that need a server: instead of 24 real circuits it has twenty made-up ones (Harbour Loop to Aurora Point, plus the Rookie Ring tutorial), the teams in the garage are made up, and where the web game shows the world leaderboard the app keeps your ten quickest laps per circuit on the device, each watchable again with its setup one tap from reuse. No account, no ads, no analytics, no network permission. The shell (Capacitor) adds the icon, splash screen, haptics, keep awake, the share sheet and the Android back button. See `mobile/README.md` for building and releasing it.
+
 ## The simulation
 
 `src/sim` is a deterministic quasi-steady-state lap simulator shared by the browser and the leaderboard API:
@@ -42,6 +46,8 @@ Each build bakes in its version (the deployed commit) and writes it to `/version
 
 Lap alerts (`api/push.ts`, `api/_push.ts`, `public/sw.js`) use Web Push with VAPID keys in `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT`. A new best alerts every player it passed on that circuit's board, at most once per player and circuit every 15 minutes. Generate a key pair with `npx web-push generate-vapid-keys`; without keys the route reports alerts as unavailable and nothing is sent.
 
+The Toybox edition builds with `npm run build:toybox` into `dist-toybox`; `npm run toybox:check` then confirms the bundle names no real circuit or team and reaches no server route. `VITE_EDITION=toybox npx vite --port 5299` runs it in a browser.
+
 Track geometry is generated:
 
 ```bash
@@ -51,6 +57,13 @@ npx tsx scripts/rookie-ring.ts   # regenerate the tutorial circuit's outline fro
 ```
 
 The tutorial circuit is calibrated on mediums (its conditions are chosen so they are the quickest tyre); every other circuit is calibrated on softs.
+
+The made-up circuits of the Toybox edition are corner lists in `scripts/toybox/circuits.ts` (each corner a point and a radius, rounded into arcs by `scripts/toybox/plan.ts`):
+
+```bash
+npm run toybox:tracks       # solve and check every plan, write data-src/toybox and src/data/toybox
+npm run toybox:calibrate    # pole pace from each circuit's grip, then run toybox:tracks again
+```
 
 ## Data and credits
 

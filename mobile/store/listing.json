@@ -1,0 +1,21 @@
+{
+  "publisher": "Toyboxes",
+  "legalEntity": "Randroid LLC",
+  "name": "PoleLine",
+  "bundleId": "app.toyboxes.poleline",
+  "version": "1.0.0",
+  "build": 3,
+  "language": "en-US",
+  "priceModel": "paid",
+  "price": null,
+  "category": "Racing",
+  "subtitle": "Draw the lap. Take pole.",
+  "shortDescription": "Draw your racing line with a finger and watch the car run it. Twenty circuits, all offline.",
+  "description": "A great lap starts with a line.\n\nPick your tyres, draw your racing line around the circuit with one finger, and watch a modern single-seater drive exactly that line in real time: live sectors, gear, revs, active aero, battery and tyre temperature. Then read the result. Which sector cost you? Did the softs overheat? Did the battery clip early? Draw again.\n\nTWENTY CIRCUITS OF YOUR OWN\nFrom the tight streets of Harbour Loop to the long, cold sweeps of Aurora Point: street circuits at night, fast parks, hairpins, esses and a short club circuit. Each one has its own locked conditions, so every lap is comparable. A guided first lap on the Rookie Ring teaches the game in a minute.\n\nYOUR LINE IS THE LAP\nThe car cannot follow a wobble, so a smooth, wide entry and a clipped apex beat a short cut. Go over the white line and the stroke stops; undo it and try the corner again. Pole pace, a grid slot from P1 to P20 and a race engineer's note tell you where the time is.\n\nYOUR TIMES, YOUR DEVICE\nYour ten quickest laps on every circuit stay on your phone with their lines. Watch any of them again against your best, and reuse the drawing setup it was set with. No account, no ads, no analytics, no internet connection. The app never asks for a permission beyond vibration.\n\nPick your car's colours from nine teams, or keep the PoleLine purple.\n\nPoleLine is a Toyboxes game by Randroid LLC.",
+  "keywords": "racing,drawing,offline,lap,time trial,circuit,car,single player,tyres,ghost",
+  "supportUrl": "https://toyboxes.app/games/poleline/support/",
+  "privacyUrl": "https://toyboxes.app/games/poleline/privacy/",
+  "marketingUrl": "https://toyboxes.app/",
+  "releaseNotes": "First release: twenty circuits, touch-drawn racing lines, tyre strategy, your ten quickest laps per circuit with replays, a guided first lap, and nothing that needs a connection.",
+  "reviewNotes": "No login or network connection is needed. The first launch opens a guided lap on the Rookie Ring (Skip is available). Then pick a circuit, tap Draw a lap, choose a tyre, start on the chequered line and drag along the road; lift and carry on from the purple tip. The car runs the line when the loop closes. Your times are stored on the device. This is a paid download without ads or in-app purchases."
+}
