@@ -13,8 +13,11 @@ final class LaunchTests: XCTestCase {
         let app = XCUIApplication();app.launch()
         XCTAssertTrue(app.buttons["circuit-0"].waitForExistence(timeout:10))
         app.buttons["Settings"].tap()
-        app.buttons["Delete all local records"].tap()
-        app.buttons["Delete records"].tap()
+        let reset = app.buttons["Delete all local records"]
+        for _ in 0..<8 { if reset.exists { break };app.swipeUp() }
+        XCTAssertTrue(reset.waitForExistence(timeout:5));reset.tap()
+        let confirm = app.buttons["Delete records"]
+        XCTAssertTrue(confirm.waitForExistence(timeout:5));confirm.tap()
         XCTAssertTrue(app.buttons["circuit-0"].waitForExistence(timeout:10))
         app.buttons["circuit-0"].tap()
         let canvas = app.otherElements["circuitCanvas"]
