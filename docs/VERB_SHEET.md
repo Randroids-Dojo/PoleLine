@@ -29,3 +29,9 @@ First action is visible on arrival: pulsing chequered band, chevrons and an anim
 
 A full lap can be drawn with touch input, a track-limits violation is legible and undone in one tap, and the race and results present the same time the server records. Evidence: `scripts/touchtest.ts`, `scripts/playtest.ts`, `tests/`.
 Remaining human judgment: stroke length in pause mode (about 140 m of track per stroke on a phone, so 30 to 40 strokes a lap), continuous-mode speed defaults, and whether the difficulty ladder feels fair.
+
+## Toyboxes native mobile editions
+
+The native loop is: choose a fictional circuit and tyre, draw within the road, watch a physically timed lap, read sectors and a medal, then retry against a local ghost. Input must affect the actual line and resulting lap time. No account or network connection is part of this loop.
+
+Native acceptance covers first launch with networking disabled, a complete lap drawn with native touch input, track-limit rejection and stroke undo, real-time playback and pause, results, persistent personal best, restored ghost, and another attempt. The same checks apply to Kotlin/Android Canvas and SwiftUI/iOS Canvas. Core tests and screenshots support this acceptance but do not replace it. Physical-device comfort and enjoyment remain human playtest judgments.

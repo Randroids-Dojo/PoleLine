@@ -1,0 +1,29 @@
+plugins { id 'com.android.application'; id 'org.jetbrains.kotlin.android' }
+android {
+    namespace 'app.toyboxes.poleline'
+    compileSdk 36
+    ndkVersion '27.1.12297006'
+    defaultConfig {
+        applicationId 'app.toyboxes.poleline'
+        minSdk 26
+        targetSdk 36
+        versionCode 1
+        versionName '1.0.0'
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+        externalNativeBuild { cmake { cppFlags '-std=c++17 -ffp-contract=off -fno-fast-math'; arguments '-DANDROID_STL=c++_static', '-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON'; targets 'poleline' } }
+        ndk { abiFilters 'arm64-v8a', 'x86_64' }
+    }
+    buildTypes {
+        debug { signingConfig null }
+        release { signingConfig null; minifyEnabled false }
+    }
+    externalNativeBuild { cmake { path '../../shared/CMakeLists.txt'; version '3.22.1' } }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    kotlinOptions { jvmTarget = '17' }
+    lint { abortOnError true; disable 'ExpiredTargetSdkVersion' }
+}
+dependencies {
+    androidTestImplementation 'androidx.test:runner:1.6.2'
+    androidTestImplementation 'androidx.test:rules:1.6.1'
+    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
+}

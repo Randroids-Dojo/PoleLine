@@ -1,0 +1,55 @@
+name: Native mobile
+on:
+  push:
+    branches: ['feat/toyboxes-native-offline']
+    paths: ['native/**', '.github/workflows/native.yml']
+  pull_request:
+    paths: ['native/**', '.github/workflows/native.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  simulation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S native/shared -B native/build -DCMAKE_BUILD_TYPE=Release && cmake --build native/build && ctest --test-dir native/build --output-on-failure
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - run: bash ./gradlew assembleRelease bundleRelease lintRelease --console=plain
+        working-directory: native/android
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-unsigned
+          path: |
+            native/android/app/build/outputs/apk/release/*.apk
+            native/android/app/build/outputs/bundle/release/*.aab
+            native/android/app/build/reports/lint-results-release.*
+  ios:
+    runs-on: macos-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install xcodegen
+      - run: xcodegen generate
+        working-directory: native/ios
+      - name: Test native iOS app
+        working-directory: native/ios
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for group in d["devices"].values() for x in group if "iPhone" in x["name"]))')
+          xcodebuild test -project PoleLine.xcodeproj -scheme PoleLine -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath build -resultBundlePath build/NativeTests.xcresult CODE_SIGNING_ALLOWED=NO
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-simulator-verification
+          path: |
+            native/ios/build/NativeTests.xcresult
+            native/ios/build/Build/Products/Debug-iphonesimulator/PoleLine.app
