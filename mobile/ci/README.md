@@ -20,3 +20,5 @@ The IPA is not distribution signed and is not suitable for App Store upload.
 
 Evidence includes the simulator identity, Xcode version, build and test logs,
 asset verification, the unsigned IPA identity, and the IPA SHA-256.
+The `screenshots` directory exports the original PNG attachments from the result
+bundle with Apple's `xcresulttool`; the images are not resized or edited.

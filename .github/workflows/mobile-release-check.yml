@@ -49,6 +49,7 @@ jobs:
             ${{ runner.temp }}/poleline-${{ matrix.device }}/*.png
             ${{ runner.temp }}/poleline-${{ matrix.device }}/*.mp4
             ${{ runner.temp }}/poleline-${{ matrix.device }}/*.ipa
+            ${{ runner.temp }}/poleline-${{ matrix.device }}/screenshots
             ${{ runner.temp }}/poleline-${{ matrix.device }}/SHA256SUMS.txt
             ${{ runner.temp }}/poleline-${{ matrix.device }}/tests.xcresult
           retention-days: 7

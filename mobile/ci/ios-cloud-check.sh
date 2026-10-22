@@ -92,3 +92,8 @@ xcodebuild test -project mobile/ios/Playtest/Playtest.xcodeproj -scheme Playtest
     -destination "platform=iOS Simulator,id=$poleline_udid" \
     -derivedDataPath "$poleline_out/test-build" -resultBundlePath "$poleline_out/tests.xcresult" \
     -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO > "$poleline_out/ui-tests.log" 2>&1
+
+# Export the unedited screen attachments for visual review and store preparation.
+xcrun xcresulttool help export attachments > "$poleline_out/attachment-export-help.log"
+xcrun xcresulttool export attachments --path "$poleline_out/tests.xcresult" \
+    --output-path "$poleline_out/screenshots" > "$poleline_out/attachment-export.log" 2>&1
