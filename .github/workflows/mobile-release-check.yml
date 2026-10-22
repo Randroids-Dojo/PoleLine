@@ -1,0 +1,55 @@
+name: Mobile release evidence
+
+on:
+  push:
+    branches: [release/cloud-validation-20261022]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-release-evidence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ios:
+    name: iOS ${{ matrix.device }} release checks
+    runs-on: macos-15
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        device: [iphone, ipad]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Restore the exact web bundle from signed Android build 3
+        run: |
+          python3 -m zipfile -e mobile/ci/build3-web.zip dist-toybox
+          python3 mobile/ci/verify-web.py dist-toybox mobile/ci/build3-web-manifest.json
+          npm run toybox:check
+          npx cap sync ios
+      - name: Build device package and run installed-app touch checks
+        run: bash mobile/ci/ios-cloud-check.sh '${{ matrix.device }}' '${{ runner.temp }}/poleline-${{ matrix.device }}'
+      - name: Preserve evidence even when a check fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: poleline-build3-${{ matrix.device }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/poleline-${{ matrix.device }}/**/*.log
+            ${{ runner.temp }}/poleline-${{ matrix.device }}/*.json
+            ${{ runner.temp }}/poleline-${{ matrix.device }}/*.png
+            ${{ runner.temp }}/poleline-${{ matrix.device }}/*.mp4
+            ${{ runner.temp }}/poleline-${{ matrix.device }}/*.ipa
+            ${{ runner.temp }}/poleline-${{ matrix.device }}/SHA256SUMS.txt
+            ${{ runner.temp }}/poleline-${{ matrix.device }}/tests.xcresult
+          retention-days: 7
+          if-no-files-found: error
