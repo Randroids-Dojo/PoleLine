@@ -22,3 +22,30 @@ Evidence includes the simulator identity, Xcode version, build and test logs,
 asset verification, the unsigned IPA identity, and the IPA SHA-256.
 The `screenshots` directory exports the original PNG attachments from the result
 bundle with Apple's `xcresulttool`; the images are not resized or edited.
+
+## BrowserStack and Firebase
+
+The iPhone job can upload its verified device IPA to BrowserStack App Live.
+Configure `BROWSERSTACK_USERNAME` and `BROWSERSTACK_ACCESS_KEY` as private
+repository Actions secrets. Enter them directly in GitHub. No credential is
+stored in the repository, command arguments, logs or receipts. Without these
+secrets the job records `not_configured`, which is not a successful upload.
+BrowserStack re-signs the device IPA with its own provisioning profile.
+
+`upload-browserstack.py` also accepts the retained, signed build 3 APK or AAB.
+It checks the exact Android artifact hash or iOS identity and all 71 retained
+web files before making any request. Use `--dry-run` to validate without network
+access. The receipt records the artifact hash and confirmed BrowserStack app ID.
+This upload does not start a device test or upload anything to either store.
+
+The isolated Firebase project is `poleline-release-qa`, on the Spark plan with
+Google Analytics disabled. The Android app is `app.toyboxes.poleline`.
+Firebase App Distribution contains the retained signed build 3 APK and release
+notes. No testers were invited. BrowserStack's Firebase source additionally
+requires a Google OAuth web client with this redirect URI:
+`https://app-live.browserstack.com/firebase/oauth`. Its connection is pending
+Google Cloud re-authentication and approval of the displayed OAuth access.
+
+Provider documentation:
+- https://www.browserstack.com/app-live/rest-api
+- https://www.browserstack.com/docs/app-live/app-source/firebase-integration

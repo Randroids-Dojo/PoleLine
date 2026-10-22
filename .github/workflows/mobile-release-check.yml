@@ -38,6 +38,15 @@ jobs:
           npx cap sync ios
       - name: Build device package and run installed-app touch checks
         run: bash mobile/ci/ios-cloud-check.sh '${{ matrix.device }}' '${{ runner.temp }}/poleline-${{ matrix.device }}'
+      - name: Upload verified iOS device package to BrowserStack App Live
+        if: matrix.device == 'iphone'
+        env:
+          BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
+          BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
+        run: >-
+          python3 mobile/ci/upload-browserstack.py
+          '${{ runner.temp }}/poleline-iphone/poleline-1.0.0-build3-device-unsigned.ipa'
+          --if-configured --receipt '${{ runner.temp }}/poleline-iphone/browserstack-upload.json'
       - name: Preserve evidence even when a check fails
         if: always()
         uses: actions/upload-artifact@v4
