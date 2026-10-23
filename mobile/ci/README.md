@@ -36,7 +36,9 @@ reuses the fixed App Automate upload of the retained signed APK, verified in
 bootstrap run 40038034714 against its exact hash and all 71 web files. It opens
 a Pixel 8 Pro session with video and audio requested. Later commands use the
 returned session ID for touch input, screenshots, lifecycle checks and
-provider-supported adb diagnostics. `stop` releases the device. Screenshots
+provider-supported adb diagnostics. `stop` releases the device. `recording`
+downloads its original video through the provider API without exposing signed
+access links or forwarding credentials to storage redirects. Screenshots
 remain original PNG files. The receipt records that server bytes were not
 downloaded or revalidated for each session. Other app identifiers are rejected.
 The controller never injects a lap or changes game data. A command receipt is

@@ -118,6 +118,8 @@ def save_recording(session, output, authorization, receipt):
         path = output / "session.mp4"
         with response, path.open("wb") as destination:
             while chunk := response.read(1024 * 1024):
+                if size == 0 and not (chunk[4:8] == b"ftyp" or chunk.startswith(b"\x1a\x45\xdf\xa3")):
+                    raise ValueError("Recording response is not a supported video container")
                 size += len(chunk)
                 if size > 512 * 1024 * 1024:
                     raise ValueError("Recording exceeds the evidence size limit")
