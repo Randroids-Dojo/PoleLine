@@ -170,6 +170,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apk", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--upload-only", action="store_true")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     username = os.environ.get("BROWSERSTACK_USERNAME", "").strip()
@@ -179,7 +180,11 @@ def main():
     try:
         if not username or not key:
             raise ValueError("Credentials are missing")
-        execute(json.loads(os.environ["CLOUD_DEVICE_COMMAND"]), args.apk, args.output, authorization, receipt)
+        if args.upload_only:
+            app_url, artifact = upload_app(args.apk, authorization)
+            receipt.update(state="uploaded_for_automation", appUrl=app_url, artifact=artifact, devicesStarted=0)
+        else:
+            execute(json.loads(os.environ["CLOUD_DEVICE_COMMAND"]), args.apk, args.output, authorization, receipt)
     except ProviderError as error:
         receipt.update(state="provider_error", httpStatus=error.status, category=error.category,
                        providerCode=error.code)
@@ -187,7 +192,7 @@ def main():
         receipt.update(state="command_failed")
     (args.output / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(receipt))
-    return 0 if receipt.get("state") in ("started", "command_completed", "stopped") else 1
+    return 0 if receipt.get("state") in ("started", "command_completed", "stopped", "uploaded_for_automation") else 1
 
 
 if __name__ == "__main__":

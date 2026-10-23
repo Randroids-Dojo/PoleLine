@@ -1,7 +1,11 @@
 import importlib.util
+from contextlib import redirect_stdout
+import io
 import json
 from pathlib import Path
 import tempfile
+import os
+import sys
 import unittest
 from unittest.mock import patch
 
@@ -12,6 +16,22 @@ spec.loader.exec_module(device)
 
 
 class DeviceControllerTests(unittest.TestCase):
+    def test_upload_only_does_not_start_a_device_or_print_credentials(self):
+        marker = "private-upload-fixture"
+        with tempfile.TemporaryDirectory() as directory:
+            output = io.StringIO()
+            with patch.dict(os.environ, BROWSERSTACK_USERNAME="fixture", BROWSERSTACK_ACCESS_KEY=marker):
+                with patch.object(sys, "argv", ["device", "--upload-only", "--apk", "unused.apk", "--output", directory]):
+                    with patch.object(device, "upload_app", return_value=("bs://fixture", {"build": 3})):
+                        with patch.object(device, "execute") as execute:
+                            with redirect_stdout(output):
+                                self.assertEqual(device.main(), 0)
+                            execute.assert_not_called()
+            self.assertNotIn(marker, output.getvalue())
+            receipt = json.loads((Path(directory) / "receipt.json").read_text())
+            self.assertEqual(receipt["devicesStarted"], 0)
+            self.assertFalse(receipt["fullDeviceAcceptance"])
+
     def test_touch_input_rejects_invalid_coordinates_and_excessive_durations(self):
         for points, duration in (([[-1, 1]], 100), ([[1, 10001]], 100), ([[1, 1]], 5000), ([], 100)):
             with self.assertRaises(ValueError):

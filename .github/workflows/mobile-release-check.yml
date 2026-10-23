@@ -13,6 +13,10 @@ on:
         description: Native device command JSON (start, observe, tap, stroke, back, home, resume, diagnostics, stop)
         type: string
         default: ''
+      bootstrap_draft_asset:
+        description: One-time retained APK upload to App Automate (temporary job write permission)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -23,7 +27,7 @@ concurrency:
 
 jobs:
   cloud-access:
-    if: inputs.cloud_device_command == ''
+    if: inputs.cloud_device_command == '' && !inputs.bootstrap_draft_asset
     name: BrowserStack API access
     runs-on: ubuntu-latest
     timeout-minutes: 3
@@ -44,6 +48,41 @@ jobs:
         with:
           name: browserstack-access-${{ github.run_id }}
           path: ${{ runner.temp }}/browserstack-access.json
+          retention-days: 7
+          if-no-files-found: warn
+  bootstrap-automation-app:
+    if: github.event_name == 'workflow_dispatch' && inputs.bootstrap_draft_asset
+    name: One-time App Automate APK upload
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Check safe provider handling
+        run: python3 -m unittest discover -s mobile/ci -p 'test_browserstack_*.py'
+      - name: Read the unpublished QA asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh api repos/Randroids-Dojo/PoleLine/releases/assets/670645308
+          -H 'Accept: application/octet-stream' > '${{ runner.temp }}/poleline-build3.apk'
+      - name: Upload only the verified retained APK
+        env:
+          BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
+          BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
+        run: >-
+          python3 mobile/ci/browserstack-device.py --upload-only
+          --apk '${{ runner.temp }}/poleline-build3.apk'
+          --output '${{ runner.temp }}/automation-bootstrap'
+      - name: Save upload receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: automation-bootstrap-${{ github.run_id }}
+          path: ${{ runner.temp }}/automation-bootstrap
           retention-days: 7
           if-no-files-found: warn
   cloud-device:
@@ -82,7 +121,7 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
   ios:
-    if: (github.event_name != 'workflow_dispatch' || !inputs.cloud_access_only) && inputs.cloud_device_command == ''
+    if: (github.event_name != 'workflow_dispatch' || !inputs.cloud_access_only) && inputs.cloud_device_command == '' && !inputs.bootstrap_draft_asset
     name: iOS ${{ matrix.device }} release checks
     runs-on: macos-15
     timeout-minutes: 25

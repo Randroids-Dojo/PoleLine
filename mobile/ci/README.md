@@ -43,6 +43,13 @@ were not downloaded or revalidated. Other app identifiers are rejected.
 The controller never injects a lap or changes game data. A command receipt is
 not a completed acceptance checklist. All secrets remain in runner memory.
 
+The optional `bootstrap_draft_asset` job performs a one-time upload of the
+unpublished signed APK to App Automate. GitHub rejected the draft-asset read
+with the normal read-only job token. This separate bootstrap job therefore
+uses temporary `contents: write` permission within the authorized release
+integration setup. It starts no device. Remove its write grant after the
+verified App Automate upload; later device commands retain read-only access.
+
 The iPhone job can upload its verified device IPA to BrowserStack App Live.
 Configure `BROWSERSTACK_USERNAME` and `BROWSERSTACK_ACCESS_KEY` as private
 repository Actions secrets. Enter them directly in GitHub. No credential is
