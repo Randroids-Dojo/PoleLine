@@ -25,6 +25,12 @@ bundle with Apple's `xcresulttool`; the images are not resized or edited.
 
 ## BrowserStack and Firebase
 
+For a quick credential and product-access check, dispatch the workflow with
+`cloud_access_only=true`. It reads App Live uploads, App Automate uploads and
+the App Automate plan through the documented provider APIs. Its receipt keeps
+only PoleLine app identifiers and plan capacity, with no credential values.
+This mode starts no devices and does not establish gameplay acceptance.
+
 The iPhone job can upload its verified device IPA to BrowserStack App Live.
 Configure `BROWSERSTACK_USERNAME` and `BROWSERSTACK_ACCESS_KEY` as private
 repository Actions secrets. Enter them directly in GitHub. No credential is
