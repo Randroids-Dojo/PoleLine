@@ -3,6 +3,7 @@
 
 import argparse
 import base64
+import hashlib
 from datetime import datetime, timezone
 import importlib.util
 import json
@@ -12,6 +13,7 @@ import re
 import struct
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 
@@ -79,6 +81,54 @@ def upload_app(apk, authorization):
     return app_url, artifact
 
 
+def video_url_allowed(url):
+    parsed = urllib.parse.urlsplit(url)
+    host = parsed.hostname or ""
+    return (parsed.scheme == "https" and parsed.username is None and parsed.password is None
+            and parsed.port in (None, 443) and (host in ("app-automate.browserstack.com", "api-cloud.browserstack.com")
+            or host.endswith(".amazonaws.com") or host.endswith(".cloudfront.net")))
+
+
+def save_recording(session, output, authorization, receipt):
+    details = request(API, "/app-automate/sessions/" + session + ".json", authorization)
+    details = details.get("automation_session", {})
+    receipt["providerSession"] = {k: details[k] for k in ("duration", "os", "os_version", "device", "status")
+                                  if isinstance(details.get(k), (str, int))}
+    reason = details.get("reason", "")
+    if isinstance(reason, str) and re.fullmatch(r"[A-Z0-9_]{1,80}", reason):
+        receipt["providerSession"]["reason"] = reason
+    url = details.get("video_url", "")
+    for _ in range(5):
+        if not isinstance(url, str) or not video_url_allowed(url):
+            raise ValueError("Unexpected recording destination")
+        headers = {}
+        if urllib.parse.urlsplit(url).hostname in ("app-automate.browserstack.com", "api-cloud.browserstack.com"):
+            headers["Authorization"] = authorization
+        try:
+            response = urllib.request.build_opener(upload.NoRedirect).open(
+                urllib.request.Request(url, headers=headers), timeout=120)
+        except urllib.error.HTTPError as error:
+            if error.code in (301, 302, 303, 307, 308):
+                url = urllib.parse.urljoin(url, error.headers.get("Location", ""))
+                error.close()
+                continue
+            raise ProviderError(error.code, "Recording download failed") from None
+        digest = hashlib.sha256()
+        size = 0
+        path = output / "session.mp4"
+        with response, path.open("wb") as destination:
+            while chunk := response.read(1024 * 1024):
+                size += len(chunk)
+                if size > 512 * 1024 * 1024:
+                    raise ValueError("Recording exceeds the evidence size limit")
+                digest.update(chunk)
+                destination.write(chunk)
+        receipt["recording"] = {"file": path.name, "bytes": size, "sha256": digest.hexdigest()}
+        receipt["state"] = "recording_saved"
+        return
+    raise ValueError("Too many recording redirects")
+
+
 def touch(points, duration):
     if not isinstance(points, list) or not 1 <= len(points) <= 80:
         raise ValueError("Expected between 1 and 80 touch points")
@@ -99,7 +149,7 @@ def touch(points, duration):
 
 def execute(command, apk, output, authorization, receipt):
     action = command.get("action")
-    if action not in ("start", "observe", "tap", "stroke", "back", "home", "resume", "diagnostics", "stop"):
+    if action not in ("start", "observe", "tap", "stroke", "back", "home", "resume", "diagnostics", "stop", "recording"):
         raise ValueError("Unknown device action")
     receipt.update(action=action, checkedAtUtc=datetime.now(timezone.utc).isoformat(),
                    toolingCommit=os.environ.get("GITHUB_SHA"), fullDeviceAcceptance=False)
@@ -130,6 +180,9 @@ def execute(command, apk, output, authorization, receipt):
     if not isinstance(session, str) or not re.fullmatch(r"[A-Za-z0-9_-]{16,100}", session):
         raise ValueError("Invalid session identifier")
     receipt["sessionId"] = session
+    if action == "recording":
+        save_recording(session, output, authorization, receipt)
+        return receipt
     prefix = "/session/" + session
     if action in ("tap", "stroke"):
         request(HUB, prefix + "/actions", authorization, "POST",
@@ -200,7 +253,7 @@ def main():
         receipt.update(state="command_failed", errorType=type(error).__name__)
     (args.output / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(receipt))
-    return 0 if receipt.get("state") in ("started", "command_completed", "stopped", "uploaded_for_automation") else 1
+    return 0 if receipt.get("state") in ("started", "command_completed", "stopped", "uploaded_for_automation", "recording_saved") else 1
 
 
 if __name__ == "__main__":

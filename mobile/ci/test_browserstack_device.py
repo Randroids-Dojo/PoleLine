@@ -16,6 +16,14 @@ spec.loader.exec_module(device)
 
 
 class DeviceControllerTests(unittest.TestCase):
+    def test_recording_download_rejects_other_hosts_and_embedded_credentials(self):
+        for url in ("http://app-automate.browserstack.com/video", "https://example.com/video",
+                    "https://app-automate.browserstack.com.example.com/video",
+                    "https://private:fixture@app-automate.browserstack.com/video"):
+            self.assertFalse(device.video_url_allowed(url))
+        self.assertTrue(device.video_url_allowed("https://app-automate.browserstack.com/video?token=fixture"))
+        self.assertTrue(device.video_url_allowed("https://fixture.s3.amazonaws.com/video"))
+
     def test_legacy_provider_failure_is_not_treated_as_a_screenshot(self):
         body = json.dumps({"status": 13, "value": "BROWSERSTACK_FIXTURE_ERROR private-error-fixture"}).encode()
         with patch.object(device.urllib.request, "build_opener") as opener:
