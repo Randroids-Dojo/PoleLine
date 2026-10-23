@@ -152,14 +152,19 @@ def execute(command, apk, output, authorization, receipt):
     elif action not in ("start", "observe"):
         raise ValueError("Unknown device action")
     time.sleep(1)
+    receipt["evidenceStage"] = "request_screenshot"
     encoded = request(HUB, prefix + "/screenshot", authorization).get("value")
+    receipt["evidenceStage"] = "decode_screenshot"
     png = base64.b64decode(encoded, validate=True)
+    receipt["evidenceStage"] = "validate_screenshot"
     if not png.startswith(b"\x89PNG\r\n\x1a\n"):
         raise ValueError("Device screenshot is not a PNG")
     (output / "screen.png").write_bytes(png)
     receipt["screenshotDimensions"] = struct.unpack(">II", png[16:24])
+    receipt["evidenceStage"] = "request_ui_source"
     source = request(HUB, prefix + "/source", authorization).get("value")
     (output / "ui.xml").write_text(str(source), encoding="utf-8")
+    receipt["evidenceStage"] = "captured"
     return receipt
 
 
@@ -185,8 +190,8 @@ def main():
     except ProviderError as error:
         receipt.update(state="provider_error", httpStatus=error.status, category=error.category,
                        providerCode=error.code)
-    except Exception:
-        receipt.update(state="command_failed")
+    except Exception as error:
+        receipt.update(state="command_failed", errorType=type(error).__name__)
     (args.output / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(receipt))
     return 0 if receipt.get("state") in ("started", "command_completed", "stopped", "uploaded_for_automation") else 1
