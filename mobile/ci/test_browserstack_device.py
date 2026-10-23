@@ -16,6 +16,15 @@ spec.loader.exec_module(device)
 
 
 class DeviceControllerTests(unittest.TestCase):
+    def test_legacy_provider_failure_is_not_treated_as_a_screenshot(self):
+        body = json.dumps({"status": 13, "value": "BROWSERSTACK_FIXTURE_ERROR private-error-fixture"}).encode()
+        with patch.object(device.urllib.request, "build_opener") as opener:
+            opener.return_value.open.return_value = io.BytesIO(body)
+            with self.assertRaises(device.ProviderError) as caught:
+                device.request(device.HUB, "/session/fixture/screenshot", "fixture")
+        self.assertEqual(caught.exception.code, "BROWSERSTACK_FIXTURE_ERROR")
+        self.assertNotIn("private-error-fixture", str(caught.exception))
+
     def test_upload_only_does_not_start_a_device_or_print_credentials(self):
         marker = "private-upload-fixture"
         with tempfile.TemporaryDirectory() as directory:

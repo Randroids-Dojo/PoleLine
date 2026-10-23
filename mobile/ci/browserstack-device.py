@@ -58,6 +58,8 @@ def request(base, route, authorization, method="GET", payload=None, content_type
             result = json.load(response)
     except urllib.error.HTTPError as error:
         raise ProviderError(error.code, error.read()) from None
+    if isinstance(result, dict) and result.get("status") not in (None, 0):
+        raise ProviderError(200, result.get("value")) from None
     if isinstance(result, dict) and isinstance(result.get("value"), dict) and result["value"].get("error"):
         raise ProviderError(200, result["value"]) from None
     return result
@@ -155,7 +157,11 @@ def execute(command, apk, output, authorization, receipt):
     receipt["evidenceStage"] = "request_screenshot"
     encoded = request(HUB, prefix + "/screenshot", authorization).get("value")
     receipt["evidenceStage"] = "decode_screenshot"
-    png = base64.b64decode(encoded, validate=True)
+    if not isinstance(encoded, str):
+        raise ValueError("Screenshot encoding is not text")
+    compact = "".join(encoded.split())
+    receipt["screenshotEncoding"] = {"characters": len(encoded), "whitespace": len(encoded) - len(compact)}
+    png = base64.b64decode(compact, validate=True)
     receipt["evidenceStage"] = "validate_screenshot"
     if not png.startswith(b"\x89PNG\r\n\x1a\n"):
         raise ValueError("Device screenshot is not a PNG")
