@@ -98,20 +98,26 @@ def save_recording(session, output, authorization, receipt):
     if isinstance(reason, str) and re.fullmatch(r"[A-Z0-9_]{1,80}", reason):
         receipt["providerSession"]["reason"] = reason
     url = details.get("video_url", "")
-    for _ in range(5):
+    for attempt in range(5):
         if not isinstance(url, str) or not video_url_allowed(url):
             raise ValueError("Unexpected recording destination")
-        headers = {}
-        if urllib.parse.urlsplit(url).hostname in ("app-automate.browserstack.com", "api-cloud.browserstack.com"):
-            headers["Authorization"] = authorization
+        host = urllib.parse.urlsplit(url).hostname
+        receipt["recordingDownload"] = {"host": host, "attempt": attempt + 1}
         try:
             response = urllib.request.build_opener(upload.NoRedirect).open(
-                urllib.request.Request(url, headers=headers), timeout=120)
+                urllib.request.Request(url), timeout=120)
         except urllib.error.HTTPError as error:
             if error.code in (301, 302, 303, 307, 308):
                 url = urllib.parse.urljoin(url, error.headers.get("Location", ""))
                 error.close()
                 continue
+            receipt["recordingDownload"]["httpStatus"] = error.code
+            body = error.read(65536).decode("utf-8", errors="replace")
+            for code in ("AccessDenied", "SignatureDoesNotMatch", "ExpiredToken", "AuthorizationHeaderMalformed"):
+                if "<Code>" + code + "</Code>" in body:
+                    receipt["recordingDownload"]["storageCode"] = code
+                    break
+            error.close()
             raise ProviderError(error.code, "Recording download failed") from None
         digest = hashlib.sha256()
         size = 0
