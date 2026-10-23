@@ -12,6 +12,17 @@
 // button glides back to the tip when it is off screen. A stroke that crosses the
 // white line stops at the edge; the player undoes that stroke (or carries on
 // from the tip). Only a line that stays inside the limits can be raced.
+//
+// That is freehand, the hard mode. Two easy modes help the line come out
+// smooth (src/app/draw-mode.ts):
+//   tidy strokes: drawing is freehand, but the line slides along the white
+//     line instead of stopping at it, and each stroke is refitted when the
+//     finger lifts (src/app/tidy.ts): wobbles straighten, corners round off
+//     and the stroke joins the line without a kink.
+//   tap and bend: a touch on the track ahead lays a curve from the tip to the
+//     finger (src/app/curve.ts). It stays pending, with a handle at its end to
+//     move and one at its middle to bend it, until the player sets it (the
+//     button, or a touch further on, which starts the next curve).
 
 import type { App, Screen } from '../app/app';
 import { REAL_CIRCUITS } from '../app/edition';
@@ -30,6 +41,9 @@ import { COMPOUNDS, type Compound } from '../sim/types';
 import { ICONS, h, setText, tyreBadge } from '../ui/dom';
 import { Compass, angleForBearing, bearingAtTop, nextCardinal } from '../ui/compass';
 import { CornerDamper, type CornerDamping } from '../app/damping';
+import type { DrawMode } from '../app/draw-mode';
+import { blend, tidyStroke, type Tidied } from '../app/tidy';
+import { endDir, headingAtEnd, midpoint, sampleCurve, startBend, type Curve, type Vec } from '../app/curve';
 
 export interface DrawActions {
   complete(points: number[], compound: Compound): void;
@@ -82,6 +96,15 @@ const MIN_STROKE = 8;
 const PICKUP_EASE = 70;
 /** Start warning when the line is this close (metres) to the edge of the track. */
 const EDGE_WARN = 1.2;
+/** Easy modes keep the finger's point (and a curve's handles) this far inside the limit (metres). */
+const CLAMP_MARGIN = 0.3;
+/** Tidy strokes: how long a stroke takes to ease into its tidied shape. */
+const MORPH_MS = 260;
+/** Tap and bend: touch radius of a curve's handles (px), and the shortest curve (metres). */
+const KNOB_GRAB = 34;
+const MIN_CURVE = 3;
+/** Tap and bend: when less road than this share of the screen shows past a curve's end, the map moves on. */
+const CURVE_ROOM = 0.36;
 const HINTS = {
   start: 'Put your finger on the chequered line and drag along the track.',
   drawing: 'Stay inside the white lines.',
@@ -96,6 +119,15 @@ const HINTS = {
   backward: 'The line only flows forward.',
   grab: 'Carry on from the end of your line.',
   tutorialStart: 'Put your finger on the purple tip and draw to the finish line.',
+  curvesStart: 'Touch the chequered line, then tap the track ahead to lay your line.',
+  curveFirst: 'Tap the track ahead of the purple tip to lay a curve.',
+  curveBend: 'Drag the middle dot to bend it. Tap further on to carry on.',
+  curveOff: 'That curve leaves the track. Drag the middle dot to bring it inside.',
+  curveBack: 'Tap further along the track, ahead of the purple tip.',
+  curveFinish: 'Tap Finish lap, or bend the last curve first.',
+  curveInside: 'Back inside. Tap further on, or Set curve.',
+  curveFixed: 'Bent to stay on the track. Drag the middle dot to change it.',
+  curveTutorial: 'Tap the track ahead of the purple tip, through the last corner to the finish line.',
 };
 
 /** Coaching while the walkthrough player draws the final corner: [lap metres, tip]. */
@@ -185,6 +217,20 @@ export class DrawScreen implements Screen {
   private recenterLabel!: HTMLElement;
   private recenterShown = false;
   private hintTimer: ReturnType<typeof setTimeout> | null = null;
+  private drawMode: DrawMode;
+  /** Tidy strokes: the stroke easing from as drawn to tidied, after a lift. */
+  private morph: { tidied: Tidied; to: Vec[]; anchor: Vec; t0: number } | null = null;
+  /** Tap and bend: the curve laid but not set yet, its points, and how far they get. */
+  private pending: Curve | null = null;
+  private pendingPts: Vec[] = [];
+  private pendingPath: Path2D | null = null;
+  private pendingProbe: ReturnType<LineBuilder['probe']> | null = null;
+  /** Which of the pending curve's handles the finger is moving. */
+  private knob: 'end' | 'bend' | null = null;
+  /** Where the last set curve left off, so the next one starts exactly along it. */
+  private curveExit: { count: number; dir: Vec } | null = null;
+  private curvesLaid = 0;
+  private setBtn!: HTMLButtonElement;
 
   constructor(
     private app: App,
@@ -208,6 +254,7 @@ export class DrawScreen implements Screen {
     this.scrollSpeed = settings.scrollSpeed;
     this.autoRotate = settings.autoRotate;
     this.damping = settings.cornerDamping;
+    this.drawMode = settings.drawMode;
     this.compass = new Compass({
       tap: () => this.compassTap(),
       dragStart: () => this.compassDragStart(),
@@ -219,7 +266,7 @@ export class DrawScreen implements Screen {
     this.zoom = this.drawZoom();
 
     // The walkthrough introduces itself; no start hint underneath it.
-    this.hint = h('p', { class: `draw-hint${tutorial?.walkthrough ? ' is-hidden' : ''}`, role: 'status' }, tutorial ? '' : HINTS.start);
+    this.hint = h('p', { class: `draw-hint${tutorial?.walkthrough ? ' is-hidden' : ''}`, role: 'status' }, tutorial ? '' : this.startHint);
     this.bar = h('i');
     this.pct = h('span', { class: 'draw-pct' }, '0%');
     this.undoBtn = h('button', { class: 'icon-btn', 'aria-label': 'Undo last stroke', html: ICONS.undo, onclick: () => this.undo() }) as HTMLButtonElement;
@@ -246,11 +293,13 @@ export class DrawScreen implements Screen {
       });
       this.tyreStrip.append(b);
     }
+    this.setBtn = h('button', { class: 'btn-ink draw-set', hidden: true, onclick: () => this.setFromButton() }, 'Set curve') as HTMLButtonElement;
     this.bottomStrip = h(
       'div',
       { class: 'strip strip-bottom' },
       this.undoBtn,
       this.pct,
+      this.setBtn,
       h('button', { class: 'icon-btn', 'aria-label': 'Start the lap again', html: ICONS.restart, onclick: () => this.restart() }),
     );
     this.recenterLabel = h('span', null, 'Back to the start');
@@ -277,10 +326,10 @@ export class DrawScreen implements Screen {
       void this.walkthrough();
     } else if (tutorial) {
       this.setCam(this.frameFor(this.builder.progress, this.builder.lastPoint!));
-      this.showHint(HINTS.tutorialStart);
+      this.showHint(this.tutorialHint);
     } else {
       this.setCam(this.startFrame());
-      this.showHint(HINTS.start);
+      this.showHint(this.startHint);
     }
 
     const c = app.canvas;
@@ -297,12 +346,28 @@ export class DrawScreen implements Screen {
 
   private applySettings(s: Settings): void {
     const was = this.mode;
+    if (s.drawMode !== this.drawMode) {
+      this.drawMode = s.drawMode;
+      this.dropPending();
+      this.endMorph();
+      this.updateHud();
+      if (this.builder.status === 'idle') this.showHint(this.startHint);
+      else if (s.drawMode === 'curves') this.showHint(HINTS.curveFirst);
+    }
     this.mode = s.scrollMode;
     this.scrollSpeed = s.scrollSpeed;
     this.damping = s.cornerDamping;
     this.updateSubtitle(this.cornerFactor());
     if (s.autoRotate !== this.autoRotate) this.setAutoRotate(s.autoRotate, false);
     else if (was !== this.mode && !this.drawing) this.glideToTip();
+  }
+
+  private get startHint(): string {
+    return this.drawMode === 'curves' ? HINTS.curvesStart : HINTS.start;
+  }
+
+  private get tutorialHint(): string {
+    return this.drawMode === 'curves' ? HINTS.curveTutorial : HINTS.tutorialStart;
   }
 
   /** Turn auto-rotation on or off. Turning it on re-frames with the road ahead pointing up. */
@@ -391,12 +456,12 @@ export class DrawScreen implements Screen {
     });
   }
 
-  /** Pixels between the tip and the edge of the drawing area, along the direction of travel. */
-  private roomAhead(): number {
-    const tip = this.builder.lastPoint;
+  /** Pixels between the tip (or another point at lap progress s) and the edge of the drawing area, along the direction of travel. */
+  private roomAhead(at: Vec | null = this.builder.lastPoint, s = this.builder.progress): number {
+    const tip = at;
     if (!tip) return Infinity;
     const ts = this.cam.toScreen(tip.x, tip.y);
-    const f = frameAt(this.track, this.builder.progress);
+    const f = frameAt(this.track, s);
     const d = this.cam.dirToScreen(f.tx, f.ty);
     const { top, bottom, left, right } = this.safe;
     let room = Infinity;
@@ -421,7 +486,8 @@ export class DrawScreen implements Screen {
 
   /** Camera that frames the next section of track ahead of progress s. */
   private frameFor(s: number, tip: { x: number; y: number }): CamState {
-    if (this.mode === 'pause') return this.frameLow(s, tip);
+    // Tap and bend never scrolls under the finger: it frames like pause mode.
+    if (this.mode === 'pause' || this.drawMode === 'curves') return this.frameLow(s, tip);
     const look = Math.min(220, (this.app.h * 0.6) / this.zoom);
     const a = frameAt(this.track, s + 4);
     const b = frameAt(this.track, s + look * 0.55);
@@ -470,8 +536,8 @@ export class DrawScreen implements Screen {
    * Pause mode framing: the tip sits low on the screen and the next stretch of
    * track points up, so each stroke gets as much road as the screen can show.
    */
-  private frameLow(s: number, tip: { x: number; y: number }): CamState {
-    const tipY = Math.max(this.safe.top + 160, Math.min(this.safe.bottom - 28, this.app.h * 0.8));
+  private frameLow(s: number, tip: { x: number; y: number }, low = 0.8): CamState {
+    const tipY = Math.max(this.safe.top + 160, Math.min(this.safe.bottom - 28, this.app.h * low));
     const ay = tipY / this.app.h;
     const look = (tipY - this.safe.top) / this.zoom;
     const a = frameAt(this.track, s + 3);
@@ -583,6 +649,19 @@ export class DrawScreen implements Screen {
     return this.builder.lastPoint;
   }
 
+  /** Tap and bend: the waiting curve's handles on screen and how far it gets (test hook). */
+  get curveState(): { end: Vec; bend: Vec; kind: string } | null {
+    const c = this.pending;
+    if (!c) return null;
+    const m = midpoint(c);
+    return { end: this.cam.toScreen(c.to.x, c.to.y), bend: this.cam.toScreen(m.x, m.y), kind: this.pendingProbe?.kind ?? 'skip' };
+  }
+
+  /** Tidy strokes: a stroke is still easing into its tidied shape (test hook). */
+  get isTidying(): boolean {
+    return this.morph !== null;
+  }
+
   // Input ------------------------------------------------------------------
 
   private local(e: PointerEvent): { x: number; y: number } {
@@ -607,19 +686,30 @@ export class DrawScreen implements Screen {
         sfx.penDown();
         buzz(8);
         this.pointerId = e.pointerId;
-        this.drawing = true;
         this.strokes = 1;
         this.strokeFrom = 0;
         this.rebuildInk();
         this.app.canvas.setPointerCapture(e.pointerId);
+        if (this.drawMode === 'curves') {
+          // Drag on from the line to lay the first curve, or lift and tap ahead.
+          this.knob = 'end';
+          this.showHint(HINTS.curveFirst);
+          return;
+        }
+        this.drawing = true;
         this.showHint(HINTS.drawing);
         return;
       }
       if (this.isGrass(w.x, w.y)) this.beginPan(e, p);
-      else this.flashHint(HINTS.start);
+      else this.flashHint(this.startHint);
       return;
     }
     if (this.builder.status !== 'drawing') return;
+    this.endMorph();
+    if (this.drawMode === 'curves') {
+      this.curveDown(e, p, w);
+      return;
+    }
     const tip = this.builder.lastPoint!;
     const ts = this.cam.toScreen(tip.x, tip.y);
     if (Math.hypot(ts.x - p.x, ts.y - p.y) > TIP_GRAB_RADIUS) {
@@ -687,6 +777,11 @@ export class DrawScreen implements Screen {
       this.panLast = { x: p.x, y: p.y, t: now };
       return;
     }
+    if (this.knob) {
+      const p = this.local(e);
+      this.moveKnob(this.cam.toWorld(p.x, p.y));
+      return;
+    }
     if (!this.drawing) return;
     const events = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : [];
     const list = events.length ? events : [e];
@@ -724,6 +819,10 @@ export class DrawScreen implements Screen {
       if (idle < 80 && speed > 250) this.momentum = { x: v.x * cap, y: v.y * cap };
       return;
     }
+    if (this.knob) {
+      this.knobUp();
+      return;
+    }
     if (this.awaitLift) {
       this.awaitLift = false;
       if (this.builder.status === 'drawing' && !this.limitsCard) this.showHint(HINTS.resume);
@@ -732,6 +831,7 @@ export class DrawScreen implements Screen {
     if (!this.drawing) return;
     this.drawing = false;
     if (this.builder.status === 'drawing') {
+      this.tidy();
       sfx.lift();
       this.glideToTip();
       if (this.strokes === 1 && !getSettings().tutorialDone) this.showHint(HINTS.lifted);
@@ -841,6 +941,8 @@ export class DrawScreen implements Screen {
   }
 
   private feed(x: number, y: number): void {
+    // Tidy strokes: past the white line the line runs along it instead of stopping.
+    if (this.drawMode === 'smooth') ({ x, y } = this.clampInside(x, y));
     const before = this.builder.progress;
     const r = this.builder.extend(x, y);
     if (r !== 'backward' && r !== 'skip') this.backwardRun = 0;
@@ -872,6 +974,7 @@ export class DrawScreen implements Screen {
     this.drawing = false;
     this.pickup = null;
     this.awaitLift = true;
+    this.tidy();
     sfx.lift();
     buzz(15);
     this.glideToTip();
@@ -911,18 +1014,351 @@ export class DrawScreen implements Screen {
     this.shiftY += f.ty * ds * gain;
   }
 
+  // Easy modes -------------------------------------------------------------
+
+  /** A point on the asphalt: past the white line it comes back just inside. */
+  private clampInside(x: number, y: number, hint = this.builder.hint, window = 12): Vec {
+    const p = projectNear(this.track, x, y, hint, window);
+    const lim = this.track.limit - CLAMP_MARGIN;
+    if (p.dist <= lim) return { x, y };
+    const f = frameAt(this.track, p.s);
+    const side = p.d >= 0 ? lim : -lim;
+    return { x: f.x + f.nx * side, y: f.y + f.ny * side };
+  }
+
+  /** Tidy strokes: refit the stroke just drawn, and let the ink ease into its new shape. */
+  private tidy(): void {
+    if (this.drawMode !== 'smooth') return;
+    const b = this.builder;
+    const anchor = b.strokeAnchor;
+    if (b.count - anchor < 4) return;
+    const line = Float64Array.from(b.points, (v) => v / UNITS_PER_METRE);
+    const start = frameAt(this.track, 0);
+    const t = tidyStroke(this.track, line, anchor, { x: start.tx, y: start.ty }, b.strokeHint);
+    if (!t) return;
+    // A fit the walk refuses (rare: it would run backwards) eases back towards the stroke as drawn.
+    for (const k of [1, 0.6, 0.3]) {
+      const pts = k === 1 ? t.tidy : blend(t, k);
+      if (!b.replaceStroke(pts)) continue;
+      this.morph = { tidied: t, to: pts, anchor: { x: line[anchor * 2], y: line[anchor * 2 + 1] }, t0: performance.now() };
+      this.rebuildInk(anchor + 1);
+      return;
+    }
+  }
+
+  private endMorph(): void {
+    if (!this.morph) return;
+    this.morph = null;
+    this.rebuildInk();
+  }
+
+  /** Tap and bend: where a touch lands, in lap metres ahead of the tip (negative behind), and the circuit's direction there. */
+  private ahead(w: Vec): { by: number; dir: Vec } {
+    const b = this.builder;
+    const t = this.track;
+    // From a little behind the tip to well past anything on screen.
+    const p = projectNear(t, w.x, w.y, (b.hint + 60) % t.n, 90);
+    let by = p.s - (b.progress % t.length);
+    if (by < -t.length / 2) by += t.length;
+    else if (by > t.length / 2) by -= t.length;
+    const f = frameAt(t, p.s);
+    return { by, dir: { x: f.tx, y: f.ty } };
+  }
+
+  /** A curve's handle kept on the asphalt, however far ahead of the tip it is. */
+  private clampFar(w: Vec): Vec {
+    return this.clampInside(w.x, w.y, (this.builder.hint + 60) % this.track.n, 90);
+  }
+
+  /** The way the next curve leaves the tip: along the last curve, or along whatever line is there. */
+  private exitDir(): Vec {
+    const b = this.builder;
+    if (this.curveExit && this.curveExit.count === b.count) return this.curveExit.dir;
+    const pts = b.points;
+    const tail: number[] = [];
+    for (let i = Math.max(0, pts.length - 80); i < pts.length; i++) tail.push(pts[i] / UNITS_PER_METRE);
+    const d = tail.length >= 4 ? headingAtEnd(tail) : null;
+    if (d) return d;
+    const f = frameAt(this.track, b.progress);
+    return { x: f.tx, y: f.ty };
+  }
+
+  private newCurve(w: Vec): Curve {
+    const to = this.clampFar(w);
+    const from = this.builder.lastPoint!;
+    return { from, dir: this.inward(from, this.exitDir()), to, toDir: this.ahead(to).dir, bend: null };
+  }
+
+  /** Would a curve leaving `from` along `dir` still be on the asphalt a few metres on? */
+  private headsInside(from: Vec, dir: Vec): boolean {
+    const t = this.track;
+    const p = projectNear(t, from.x + dir.x * 3, from.y + dir.y * 3, (this.builder.hint + 60) % t.n, 90);
+    return p.dist <= t.limit - 0.1;
+  }
+
+  /**
+   * A tip right on the white line and pointing over it would send every curve
+   * off the track at once, however it is bent. Turn such a heading in along
+   * the edge: a slight kink beats a line that cannot go on.
+   */
+  private inward(from: Vec, dir: Vec): Vec {
+    if (this.headsInside(from, dir)) return dir;
+    const t = this.track;
+    const p = projectNear(t, from.x, from.y, (this.builder.hint + 60) % t.n, 90);
+    const f = frameAt(t, p.s);
+    const ox = p.d >= 0 ? f.nx : -f.nx;
+    const oy = p.d >= 0 ? f.ny : -f.ny;
+    const out = dir.x * ox + dir.y * oy;
+    // Already heading in: the edge itself bends away, and a curve can be bent to follow it.
+    if (out <= 0) return dir;
+    for (const k of [0.4, 0.8, 1.2, 1.6]) {
+      const x = dir.x - ox * out * k;
+      const y = dir.y - oy * out * k;
+      const l = Math.hypot(x, y) || 1;
+      const d = { x: x / l, y: y / l };
+      if (this.headsInside(from, d)) return d;
+    }
+    return { x: f.tx, y: f.ty };
+  }
+
+  private curveDown(e: PointerEvent, p: Vec, w: Vec): void {
+    const c = this.pending;
+    if (c) {
+      const m = midpoint(c);
+      const ms = this.cam.toScreen(m.x, m.y);
+      const es = this.cam.toScreen(c.to.x, c.to.y);
+      const dm = Math.hypot(ms.x - p.x, ms.y - p.y);
+      const de = Math.hypot(es.x - p.x, es.y - p.y);
+      if (Math.min(dm, de) <= KNOB_GRAB) {
+        this.grabKnob(e, dm < de ? 'bend' : 'end');
+        return;
+      }
+    }
+    if (this.isGrass(w.x, w.y)) {
+      this.beginPan(e, p);
+      return;
+    }
+    const a = this.ahead(w);
+    if (a.by < MIN_CURVE) {
+      this.tipPulse = performance.now();
+      this.flashHint(HINTS.curveBack);
+      buzz([10, 40, 10]);
+      return;
+    }
+    if (c) {
+      // Between the tip and the waiting curve's end: that end comes here.
+      if (a.by <= this.ahead(c.to).by) {
+        this.grabKnob(e, 'end');
+        this.moveKnob(w);
+        return;
+      }
+      // Further on: the waiting curve now knows where the line goes next, so
+      // it settles into it, is set, and the next one starts from its end.
+      this.settle(this.clampFar(w));
+      if (!this.setCurve() || this.builder.status !== 'drawing') return;
+    }
+    this.waitDraw?.();
+    this.pending = this.newCurve(w);
+    this.updatePending();
+    this.grabKnob(e, 'end');
+    sfx.penDown();
+  }
+
+  private grabKnob(e: PointerEvent, knob: 'end' | 'bend'): void {
+    this.knob = knob;
+    this.pointerId = e.pointerId;
+    this.glide = null;
+    this.momentum = null;
+    this.app.canvas.setPointerCapture(e.pointerId);
+    if (knob === 'bend' && this.pending) this.pending = startBend(this.pending);
+  }
+
+  /** The end follows the finger along the track; the middle bends the curve through the finger. */
+  private moveKnob(w: Vec): void {
+    const c = this.pending;
+    if (!c) {
+      // Still on the start line: the first curve begins once the finger moves on.
+      if (this.knob !== 'end' || this.builder.status !== 'drawing' || this.ahead(w).by < MIN_CURVE) return;
+      this.waitDraw?.();
+      this.pending = this.newCurve(w);
+    } else if (this.knob === 'end') {
+      if (this.ahead(w).by < MIN_CURVE) return;
+      const to = this.clampFar(w);
+      this.pending = { ...c, to, toDir: this.ahead(to).dir };
+    } else if (c.bend) {
+      this.pending = { ...c, bend: { ...c.bend, ...this.bendTowards(c, this.clampFar(w)) } };
+    }
+    this.updatePending();
+  }
+
+  /**
+   * A curve just laid that would leave the track: bend it by the least that
+   * keeps it on, moving its middle towards the centre of the track first.
+   */
+  private autoBend(): boolean {
+    const c = this.pending;
+    if (!c) return false;
+    const base = startBend(c);
+    const m = { x: base.bend!.x, y: base.bend!.y };
+    const t = this.track;
+    const p = projectNear(t, m.x, m.y, (this.builder.hint + 60) % t.n, 90);
+    const f = frameAt(t, p.s);
+    const ix = p.d >= 0 ? -f.nx : f.nx;
+    const iy = p.d >= 0 ? -f.ny : f.ny;
+    for (let shift = 0.5; shift <= t.limit * 2.5; shift += 0.5) {
+      for (const side of [1, -1]) {
+        const q = { x: m.x + ix * shift * side, y: m.y + iy * shift * side };
+        const bent: Curve = { ...base, bend: { ...base.bend!, x: q.x, y: q.y } };
+        const pts = sampleCurve(bent, 1);
+        const pr = this.builder.probe(pts);
+        if (pr.kind !== 'ok' && pr.kind !== 'finish') continue;
+        this.pending = bent;
+        this.updatePending();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Where the bend handle goes when the finger moves it to `m`. A legal curve
+   * stays legal: past the point where it would leave the track the handle
+   * stops, so bending can push a curve right up to the white line but not over.
+   */
+  private bendTowards(c: Curve, m: Vec): Vec {
+    const legal = (k: string) => k === 'ok' || k === 'finish';
+    const at = (q: Vec) => this.builder.probe(sampleCurve({ ...c, bend: { ...c.bend!, x: q.x, y: q.y } }, 1)).kind;
+    if (!c.bend || !legal(this.pendingProbe?.kind ?? 'skip') || legal(at(m))) return m;
+    const from = { x: c.bend.x, y: c.bend.y };
+    let lo = 0;
+    let hi = 1;
+    for (let i = 0; i < 8; i++) {
+      const mid = (lo + hi) / 2;
+      if (legal(at({ x: from.x + (m.x - from.x) * mid, y: from.y + (m.y - from.y) * mid }))) lo = mid;
+      else hi = mid;
+    }
+    return { x: from.x + (m.x - from.x) * lo, y: from.y + (m.y - from.y) * lo };
+  }
+
+  private knobUp(): void {
+    this.knob = null;
+    const c = this.pending;
+    if (!c) return;
+    if (Math.hypot(c.to.x - c.from.x, c.to.y - c.from.y) < MIN_CURVE) {
+      this.dropPending();
+      return;
+    }
+    this.curvesLaid++;
+    const was = this.pendingProbe?.kind;
+    const fixed = (was === 'offtrack' || was === 'backward') && !c.bend && this.autoBend();
+    const kind = this.pendingProbe?.kind;
+    if (fixed) this.showHint(HINTS.curveFixed);
+    else if (kind === 'offtrack' || kind === 'backward') this.showHint(HINTS.curveOff);
+    else if (kind === 'finish') this.showHint(HINTS.curveFinish);
+    else if (this.curvesLaid <= 2) this.showHint(HINTS.curveBend);
+    else if (this.hint.textContent === HINTS.curveOff) this.showHint(HINTS.curveInside);
+    // Little road showing past the curve's end: move the map on so the next tap has somewhere to land.
+    const endS = this.builder.progress + this.ahead(c.to).by;
+    if (kind !== 'finish' && this.roomAhead(c.to, endS) < this.app.h * CURVE_ROOM) this.glideTo(this.frameLow(endS, c.to, 0.56));
+  }
+
+  /**
+   * Point the waiting curve's end between where it came from and where the
+   * line goes next (the chord bisector, as a Catmull-Rom spline would), unless
+   * the player has bent it. Kept only if the settled curve stays legal.
+   */
+  private settle(next: Vec): void {
+    const c = this.pending;
+    if (!c || c.bend) return;
+    const ax = c.to.x - c.from.x;
+    const ay = c.to.y - c.from.y;
+    const bx = next.x - c.to.x;
+    const by = next.y - c.to.y;
+    const la = Math.hypot(ax, ay);
+    const lb = Math.hypot(bx, by);
+    if (la < 1e-6 || lb < 1e-6) return;
+    const dx = ax / la + bx / lb;
+    const dy = ay / la + by / lb;
+    const l = Math.hypot(dx, dy);
+    if (l < 1e-6) return;
+    const settled: Curve = { ...c, toDir: { x: dx / l, y: dy / l } };
+    // An end on the white line that would point the next curve over it stays as it was.
+    if (!this.headsInside(c.to, settled.toDir)) return;
+    const pts = sampleCurve(settled, 1);
+    const pr = this.builder.probe(pts);
+    if (pr.kind !== 'ok' && pr.kind !== 'finish') return;
+    this.pending = settled;
+    this.pendingPts = pts;
+    this.pendingProbe = pr;
+  }
+
+  private updatePending(): void {
+    const c = this.pending!;
+    this.pendingPts = sampleCurve(c, 1);
+    this.pendingProbe = this.builder.probe(this.pendingPts);
+    const path = new Path2D();
+    path.moveTo(c.from.x, c.from.y);
+    for (const q of this.pendingPts) path.lineTo(q.x, q.y);
+    this.pendingPath = path;
+    this.updateHud();
+  }
+
+  private dropPending(): void {
+    if (!this.pending) return;
+    this.pending = null;
+    this.pendingPts = [];
+    this.pendingPath = null;
+    this.pendingProbe = null;
+    this.knob = null;
+    this.updateHud();
+  }
+
+  /** Lay the waiting curve into the line for good. False, with the reason shown, when it cannot go. */
+  private setCurve(): boolean {
+    const c = this.pending;
+    const pr = this.pendingProbe;
+    if (!c || !pr) return false;
+    if (pr.kind === 'offtrack' || pr.kind === 'backward' || pr.kind === 'skip') {
+      this.flashHint(pr.kind === 'offtrack' ? HINTS.curveOff : HINTS.curveBack);
+      buzz([30, 60, 90]);
+      return false;
+    }
+    const r = this.builder.addStroke(this.pendingPts);
+    if (r === 'offtrack' || r === 'backward') {
+      this.flashHint(HINTS.curveOff);
+      return false;
+    }
+    this.curveExit = { count: this.builder.count, dir: endDir(c) };
+    this.dropPending();
+    this.strokes++;
+    this.appendInk();
+    this.cornerCoaching();
+    sfx.lift();
+    buzz(8);
+    this.updateHud();
+    if (r === 'finish') this.finish();
+    return true;
+  }
+
+  private setFromButton(): void {
+    if (!this.setCurve() || this.builder.status !== 'drawing') return;
+    this.glideToTip();
+    if (this.builder.progress > this.track.length * 0.82) this.showHint(HINTS.closing);
+  }
+
   // Line state -------------------------------------------------------------
 
-  private rebuildInk(): void {
+  /** Ink for the line, up to point `until` (all of it by default). */
+  private rebuildInk(until?: number): void {
     this.ink = new Path2D();
     // The player's ink starts where the line drawn for them ends.
     this.inkFrom = this.inkStart = Math.max(0, this.builder.preloaded - 1);
-    this.appendInk();
+    this.appendInk(until);
   }
 
-  private appendInk(): void {
+  private appendInk(until = Infinity): void {
     const pts = this.builder.points;
-    const n = pts.length / 2;
+    const n = Math.min(pts.length / 2, until);
     for (let i = this.inkFrom; i < n; i++) {
       const x = pts[i * 2] / UNITS_PER_METRE;
       const y = pts[i * 2 + 1] / UNITS_PER_METRE;
@@ -933,7 +1369,16 @@ export class DrawScreen implements Screen {
   }
 
   private undo(): void {
-    if (this.drawing) return;
+    if (this.drawing || this.knob) return;
+    if (this.pending) {
+      // Tap and bend: the curve not set yet goes first, and the map comes back to the tip.
+      sfx.tap();
+      this.dropPending();
+      this.glideToTip();
+      this.showHint(HINTS.curveFirst);
+      return;
+    }
+    this.endMorph();
     const hadCard = !!this.limitsCard;
     this.closeLimits();
     if (!this.builder.canUndo) {
@@ -947,7 +1392,7 @@ export class DrawScreen implements Screen {
       this.rebuildInk();
       this.glideToTip();
       this.updateHud();
-      this.showHint(HINTS.resume);
+      this.showHint(this.drawMode === 'curves' ? HINTS.curveFirst : HINTS.resume);
     }
   }
 
@@ -971,8 +1416,10 @@ export class DrawScreen implements Screen {
   }
 
   private restart(): void {
-    if (this.drawing) return;
+    if (this.drawing || this.knob) return;
     sfx.tap();
+    this.dropPending();
+    this.endMorph();
     this.closeLimits();
     this.awaitLift = false;
     this.strokes = 0;
@@ -982,7 +1429,7 @@ export class DrawScreen implements Screen {
       this.rebuildInk();
       this.tipsShown = 0;
       this.glideToTip();
-      this.showHint(HINTS.tutorialStart);
+      this.showHint(this.tutorialHint);
       this.updateHud();
       return;
     }
@@ -990,7 +1437,7 @@ export class DrawScreen implements Screen {
     this.ink = new Path2D();
     this.inkFrom = 0;
     this.glideTo(this.startFrame(), 600);
-    this.showHint(HINTS.start);
+    this.showHint(this.startHint);
     this.updateHud();
   }
 
@@ -1017,7 +1464,7 @@ export class DrawScreen implements Screen {
       this.limitsCard = h(
         'div',
         { class: 'limits-card', role: 'alert' },
-        h('div', { class: 'limits-text' }, h('strong', null, 'Track limits'), h('span', null, 'Your line ran into the white line. Scroll or rotation settings can make tricky corners easier.')),
+        h('div', { class: 'limits-text' }, h('strong', null, 'Track limits'), h('span', null, 'Your line ran into the white line. An easy way to draw in Settings keeps it inside, and scroll or rotation settings can help too.')),
         h('div', { class: 'limits-actions' }, undoBtn, settingsBtn),
       );
       this.el.append(this.limitsCard);
@@ -1046,6 +1493,7 @@ export class DrawScreen implements Screen {
 
   private finish(): void {
     this.drawing = false;
+    this.tidy();
     this.pointerId = null;
     this.finishedAt = performance.now();
     sfx.lapDrawn();
@@ -1100,7 +1548,10 @@ export class DrawScreen implements Screen {
     const turn = this.coachStep({
       step: 'Step 2 of 2',
       title: 'Your turn',
-      body: 'Put your finger on the purple tip and draw through the last corner to the chequered line. The dotted line is one fast way round.',
+      body:
+        this.drawMode === 'curves'
+          ? 'Tap the track ahead of the purple tip to lay a curve, drag its middle dot to bend it, and carry on to the chequered line. The dotted line is one fast way round.'
+          : 'Put your finger on the purple tip and draw through the last corner to the chequered line. The dotted line is one fast way round.',
       target: () => {
         const tip = this.builder.lastPoint;
         if (!tip) return null;
@@ -1200,6 +1651,7 @@ export class DrawScreen implements Screen {
 
   /** Before the first stroke (or, on the tutorial, before the player adds to the drawn line). */
   private get fresh(): boolean {
+    if (this.pending) return false;
     return this.builder.status === 'idle' || (this.builder.preloaded > 0 && this.builder.status === 'drawing' && this.builder.count === this.builder.preloaded);
   }
 
@@ -1210,7 +1662,13 @@ export class DrawScreen implements Screen {
     const pc = this.builder.status === 'done' ? 100 : Math.floor(f * 100);
     this.bar.style.transform = `scaleX(${f})`;
     setText(this.pct, `${pc}%`);
-    this.undoBtn.disabled = !this.builder.canUndo;
+    this.undoBtn.disabled = !this.builder.canUndo && !this.pending;
+    // Tap and bend: while a curve waits, its set button stands in for the percentage.
+    const kind = this.pendingProbe?.kind;
+    this.setBtn.hidden = !this.pending;
+    this.pct.hidden = !!this.pending;
+    setText(this.setBtn, kind === 'finish' ? 'Finish lap' : 'Set curve');
+    this.setBtn.disabled = kind === 'offtrack' || kind === 'backward';
     // The tyre choice belongs to the start; once ink is down the bar is for drawing.
     const idle = this.fresh;
     this.tyreStrip.hidden = !idle;
@@ -1357,16 +1815,19 @@ export class DrawScreen implements Screen {
       ctx.restore();
     }
     if (status === 'idle') this.drawStartCue(ctx, now);
-    if (status === 'drawing') this.drawEdgeWarning(ctx);
+    if (status === 'drawing' && this.drawMode !== 'curves') this.drawEdgeWarning(ctx);
     if (this.givenInk) strokeInk(ctx, this.givenInk, this.cam.zoom, INK, 0.45);
     if (status !== 'idle') {
       strokeInk(ctx, this.ink, this.cam.zoom, INK);
     }
+    if (this.morph) this.drawMorph(ctx, now);
+    if (this.pendingPath) this.drawPending(ctx);
     if (status === 'drawing' && this.builder.progress > this.track.length * 0.7) this.drawStartMarker(ctx, now);
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (status === 'drawing') this.drawTip(ctx, now);
-    if (status === 'drawing' && this.builder.offTrack) this.drawOffTrack(ctx, now);
+    if (status === 'drawing' && this.builder.offTrack) this.drawOffTrack(ctx, now, this.builder.offTrack);
+    if (this.pending) this.drawKnobs(ctx, now);
     if (status === 'done') this.drawDone(ctx, now);
     this.drawMini();
     this.updateRecenter();
@@ -1474,9 +1935,9 @@ export class DrawScreen implements Screen {
   private drawTip(ctx: CanvasRenderingContext2D, now: number): void {
     const tip = this.builder.lastPoint!;
     const s = this.cam.toScreen(tip.x, tip.y);
-    if (!this.drawing) {
-      const since = now - this.tipPulse;
-      const strong = since < 700;
+    const strong = now - this.tipPulse < 700;
+    // Tap and bend never draws from the tip, so it only pulses when it has something to say.
+    if (!this.drawing && (this.drawMode !== 'curves' || strong)) {
       const ph = (now % 1400) / 1400;
       ctx.beginPath();
       ctx.arc(s.x, s.y, 12 + ph * (strong ? 34 : 20), 0, Math.PI * 2);
@@ -1493,8 +1954,7 @@ export class DrawScreen implements Screen {
     ctx.stroke();
   }
 
-  private drawOffTrack(ctx: CanvasRenderingContext2D, now: number): void {
-    const f = this.builder.offTrack!;
+  private drawOffTrack(ctx: CanvasRenderingContext2D, now: number, f: Vec): void {
     const s = this.cam.toScreen(f.x, f.y);
     const ph = (now % 900) / 900;
     ctx.beginPath();
@@ -1510,6 +1970,81 @@ export class DrawScreen implements Screen {
     ctx.lineTo(s.x + 8, s.y + 8);
     ctx.moveTo(s.x + 8, s.y - 8);
     ctx.lineTo(s.x - 8, s.y + 8);
+    ctx.stroke();
+  }
+
+  /** Tidy strokes: the stroke part way from as drawn to tidied. */
+  private drawMorph(ctx: CanvasRenderingContext2D, now: number): void {
+    const m = this.morph!;
+    const t = Math.min(1, (now - m.t0) / MORPH_MS);
+    const e = 1 - (1 - t) * (1 - t) * (1 - t);
+    const path = new Path2D();
+    path.moveTo(m.anchor.x, m.anchor.y);
+    const raw = m.tidied.raw;
+    for (let i = 0; i < raw.length; i++) path.lineTo(raw[i].x + (m.to[i].x - raw[i].x) * e, raw[i].y + (m.to[i].y - raw[i].y) * e);
+    strokeInk(ctx, path, this.cam.zoom, INK);
+    if (t >= 1) this.endMorph();
+  }
+
+  /** Tap and bend: the waiting curve, in ink with a dashed core until it is set (red while it cannot be). */
+  private drawPending(ctx: CanvasRenderingContext2D): void {
+    const k = this.pendingProbe?.kind;
+    const color = k === 'offtrack' || k === 'backward' ? '#e10600' : INK;
+    const z = this.cam.zoom;
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = color;
+    ctx.globalAlpha = 0.22;
+    ctx.lineWidth = Math.max(2.4, 11 / z);
+    ctx.stroke(this.pendingPath!);
+    ctx.globalAlpha = 0.85;
+    ctx.lineWidth = Math.max(0.9, 4.2 / z);
+    ctx.stroke(this.pendingPath!);
+    ctx.globalAlpha = 1;
+    ctx.setLineDash([6 / z, 5 / z]);
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = Math.max(0.4, 1.8 / z);
+    ctx.stroke(this.pendingPath!);
+    ctx.restore();
+  }
+
+  /** Tap and bend: the waiting curve's handles. The end is a solid dot, the middle a ring to drag. */
+  private drawKnobs(ctx: CanvasRenderingContext2D, now: number): void {
+    const c = this.pending!;
+    const k = this.pendingProbe?.kind;
+    const bad = k === 'offtrack' || k === 'backward';
+    const color = bad ? '#e10600' : INK;
+    if (bad && k === 'offtrack' && this.pendingProbe?.x !== undefined) this.drawOffTrack(ctx, now, { x: this.pendingProbe.x, y: this.pendingProbe.y! });
+    const m = midpoint(c);
+    const ms = this.cam.toScreen(m.x, m.y);
+    // Until a few curves have been laid, the middle handle pulses to show it can be moved.
+    if (!this.knob && this.curvesLaid < 3 && !c.bend) {
+      const ph = (now % 1300) / 1300;
+      ctx.beginPath();
+      ctx.arc(ms.x, ms.y, 12 + ph * 18, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(155,48,255,${(1 - ph) * 0.6})`;
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    }
+    ctx.beginPath();
+    ctx.arc(ms.x, ms.y, this.knob === 'bend' ? 13 : 10, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+    ctx.lineWidth = 3.5;
+    ctx.strokeStyle = color;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(ms.x, ms.y, 3.2, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    const es = this.cam.toScreen(c.to.x, c.to.y);
+    ctx.beginPath();
+    ctx.arc(es.x, es.y, this.knob === 'end' ? 12 : 9, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#ffffff';
     ctx.stroke();
   }
 

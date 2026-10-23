@@ -202,7 +202,7 @@ describe('leaderboard api', () => {
   });
 
   it('keeps the setup each best lap was drawn with', async () => {
-    const setup = { scrollMode: 'continuous', scrollSpeed: 0.75, cornerDamping: 'early', autoRotate: false };
+    const setup = { drawMode: 'curves', scrollMode: 'continuous', scrollSpeed: 0.75, cornerDamping: 'early', autoRotate: false };
     await call('POST', {}, { track: 'monaco', compound: 'medium', line: centre, playerId: P1, name: 'Copyme', setup });
     // A malformed setup is dropped, never the lap.
     const r = await call('POST', {}, { track: 'monaco', compound: 'soft', line: ideal, playerId: P2, name: 'Odd', setup: { scrollMode: 'sideways' } });
@@ -214,6 +214,11 @@ describe('leaderboard api', () => {
     const entries = board.json.entries as { name: string; setup: unknown; compound: string }[];
     expect(entries.find((e) => e.name === 'Copyme')).toMatchObject({ compound: 'medium', setup });
     expect(entries.find((e) => e.name === 'Odd')?.setup).toBeNull();
+    // Setups from before the easy modes have no draw mode and still count.
+    const older = { scrollMode: 'pause', scrollSpeed: 1, cornerDamping: 'off', autoRotate: true };
+    await call('POST', {}, { track: 'monaco', compound: 'soft', line: ideal, playerId: 'cccccccc-dddd-eeee-ffff-000000000000', name: 'Older', setup: older });
+    const board2 = await call('GET', { track: 'monaco' });
+    expect((board2.json.entries as { name: string; setup: unknown }[]).find((e) => e.name === 'Older')?.setup).toEqual(older);
   });
 
   it('only takes tutorial laps that start from the line drawn for the player', async () => {

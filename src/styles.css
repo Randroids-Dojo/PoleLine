@@ -914,6 +914,21 @@ button:disabled {
   font-variant-numeric: tabular-nums;
 }
 
+/* Tap and bend: sets the waiting curve, in the percentage's place. */
+.draw-set {
+  min-height: 44px;
+  padding: 0 20px;
+}
+
+.draw-set:disabled {
+  background: var(--ink-3);
+}
+
+.draw-set[hidden],
+.draw-pct[hidden] {
+  display: none;
+}
+
 .draw-hud.is-offtrack::after {
   content: '';
   position: absolute;
@@ -2675,6 +2690,24 @@ button:disabled {
 
 .set-damp:has(input:checked) .set-text small {
   display: block;
+}
+
+/* Easy or hard, beside each way of drawing. */
+.set-level {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 6px;
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 750;
+  vertical-align: 1px;
+  color: var(--ink-2);
+}
+
+.set-level.is-easy {
+  border-color: rgba(106, 18, 214, 0.35);
+  color: var(--purple-ink);
 }
 
 /* Car and garage --------------------------------------------------------- */

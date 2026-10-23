@@ -5,6 +5,7 @@ import { CATALOG } from '../data/catalog';
 import type { Compound, TrackMeta } from '../sim/types';
 import { SIM_VERSION } from '../sim/version';
 import type { CornerDamping } from './damping';
+import { isDrawMode, type DrawMode } from './draw-mode';
 
 const PREFIX = 'poleline:v1:';
 
@@ -114,6 +115,8 @@ export type ScrollMode = 'pause' | 'continuous';
 
 export interface Settings {
   sound: boolean;
+  /** Freehand (hard), or one of the easy ways to lay the line (src/app/draw-mode.ts). */
+  drawMode: DrawMode;
   tutorialDone: boolean;
   lastTrack: string;
   attempts: number;
@@ -165,6 +168,7 @@ export function getSettings(): Settings {
   void _v;
   const s: Settings = {
     sound: true,
+    drawMode: 'freehand',
     tutorialDone: false,
     lastTrack: DEFAULT_TRACK,
     attempts: 0,
@@ -182,6 +186,7 @@ export function getSettings(): Settings {
     ...stored,
   };
   if (s.scrollMode !== 'pause' && s.scrollMode !== 'continuous') s.scrollMode = 'pause';
+  if (!isDrawMode(s.drawMode)) s.drawMode = 'freehand';
   if (!['off', 'gentle', 'early', 'hold', 'pace'].includes(s.cornerDamping)) s.cornerDamping = 'off';
   const sp = Number(s.scrollSpeed);
   s.scrollSpeed = Number.isFinite(sp) ? Math.min(SCROLL_SPEED_MAX, Math.max(SCROLL_SPEED_MIN, sp)) : SCROLL_SPEED_DEFAULT;
@@ -195,6 +200,8 @@ export function saveSettings(patch: Partial<Settings>): Settings {
 
 /** The settings that shape how a lap gets drawn; posted with each lap so others can copy them. */
 export interface DrawSetup {
+  /** Missing on laps from before the easy modes: those were all freehand. */
+  drawMode?: DrawMode;
   scrollMode: ScrollMode;
   scrollSpeed: number;
   cornerDamping: CornerDamping;
@@ -203,15 +210,15 @@ export interface DrawSetup {
 
 export function currentSetup(): DrawSetup {
   const s = getSettings();
-  return { scrollMode: s.scrollMode, scrollSpeed: s.scrollSpeed, cornerDamping: s.cornerDamping, autoRotate: s.autoRotate };
+  return { drawMode: s.drawMode, scrollMode: s.scrollMode, scrollSpeed: s.scrollSpeed, cornerDamping: s.cornerDamping, autoRotate: s.autoRotate };
 }
 
 export function sameSetup(a: DrawSetup, b: DrawSetup): boolean {
-  return a.scrollMode === b.scrollMode && Math.abs(a.scrollSpeed - b.scrollSpeed) < 0.005 && a.cornerDamping === b.cornerDamping && a.autoRotate === b.autoRotate;
+  return (a.drawMode ?? 'freehand') === (b.drawMode ?? 'freehand') && a.scrollMode === b.scrollMode && Math.abs(a.scrollSpeed - b.scrollSpeed) < 0.005 && a.cornerDamping === b.cornerDamping && a.autoRotate === b.autoRotate;
 }
 
 export function applySetup(setup: DrawSetup): Settings {
-  return saveSettings({ scrollMode: setup.scrollMode, scrollSpeed: setup.scrollSpeed, cornerDamping: setup.cornerDamping, autoRotate: setup.autoRotate });
+  return saveSettings({ drawMode: setup.drawMode ?? 'freehand', scrollMode: setup.scrollMode, scrollSpeed: setup.scrollSpeed, cornerDamping: setup.cornerDamping, autoRotate: setup.autoRotate });
 }
 
 export function getTyre(slug: string): Compound {

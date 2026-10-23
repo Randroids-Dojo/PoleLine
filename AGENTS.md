@@ -34,6 +34,10 @@ npm test             # sim + API tests
 npm run build
 npx tsx scripts/playtest.ts spielberg ideal /tmp/play   # scripted phone playtest with screenshots (dev server running)
 npx tsx scripts/calibrate.ts --report                  # lap times, tyre gaps, sensitivity per circuit
+npx tsx scripts/tidytest.ts                            # tidy strokes (easy mode) against freehand on hand-like laps, headless
+npx tsx scripts/easytest.ts                            # easy modes in the browser: settings, a tidied stroke, a curve's handles (dev server running)
+npx tsx scripts/curvetest.ts spielberg /tmp/curves     # tap and bend: a whole lap of taps and bends, then the race (dev server running)
+DRAW=smooth npx tsx scripts/playtest.ts spielberg wobbly /tmp/play   # the scripted playtest with every stroke tidied
 
 npm run toybox:tracks        # solve the made-up circuits (contact sheet: add --sheet /tmp/sheet.png to make-circuits.ts) and build src/data/toybox
 npm run toybox:calibrate     # pole pace, sectors and clipping speed per made-up circuit

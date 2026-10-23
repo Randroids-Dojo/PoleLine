@@ -5,6 +5,7 @@
 import type { App } from '../app/app';
 import { sfx } from '../app/audio';
 import { CORNER_DAMPING_OPTIONS } from '../app/damping';
+import { drawModeText } from '../app/draw-mode';
 import { formatDelta, formatLap, gridSlot } from '../app/format';
 import { getLaps, LAPS_KEPT, whenText, type SavedLap } from '../app/laps';
 import { applySetup, currentSetup, getTyre, sameSetup, setTyre, type DrawSetup } from '../app/store';
@@ -64,11 +65,12 @@ export function openTimes(app: App, slug: string, opts: TimesOptions = {}): void
 
 /** How a lap was drawn, in the settings' own words. */
 function setupText(setup: DrawSetup, compound: Compound): string {
-  const parts: string[] = [];
-  if (setup.scrollMode === 'pause') {
-    parts.push('Pause my stroke');
-  } else {
-    parts.push(`Keep drawing at ${setup.scrollSpeed.toFixed(2)}×`);
+  const parts: string[] = [drawModeText(setup.drawMode)];
+  // Tap and bend never scrolls under the finger, so the scroll settings say nothing about it.
+  if (setup.drawMode !== 'curves' && setup.scrollMode === 'pause') {
+    parts.push('pause my stroke');
+  } else if (setup.drawMode !== 'curves') {
+    parts.push(`keep drawing at ${setup.scrollSpeed.toFixed(2)}×`);
     const damping = CORNER_DAMPING_OPTIONS.find((o) => o.id === setup.cornerDamping);
     parts.push(setup.cornerDamping === 'off' || !damping ? 'no corner slowdown' : damping.label.toLowerCase());
   }
