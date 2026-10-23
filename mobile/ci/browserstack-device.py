@@ -28,7 +28,12 @@ RETAINED_APP_AUTOMATE = "bs://20da9a9ba3cb51710a9f4ad8a99a3adebdcb018a"
 DIAGNOSTICS = {
     "package": "dumpsys package app.toyboxes.poleline",
     "frames": "dumpsys gfxinfo app.toyboxes.poleline",
-    "activity": 'dumpsys activity -p app.toyboxes.poleline activities | grep -E "mResumedActivity"',
+    "activity": 'dumpsys activity activities | grep -m1 "ResumedActivity"',
+}
+SYSTEM_DIAGNOSTICS = {
+    "vibration": "dumpsys vibrator_manager",
+    "windows": "dumpsys window windows",
+    "screen-timeout": "settings get system screen_off_timeout",
 }
 
 
@@ -202,12 +207,21 @@ def execute(command, apk, output, authorization, receipt):
     elif action == "resume":
         request(HUB, prefix + "/appium/device/activate_app", authorization, "POST", {"appId": PACKAGE})
     elif action == "diagnostics":
-        for label, cmd in DIAGNOSTICS.items():
-            value = request(HUB, prefix + "/execute/sync", authorization, "POST", {
-                "script": "browserstack_executor: " + json.dumps({"action": "adbShell", "arguments": {"command": cmd}}),
-                "args": [],
-            }).get("value")
-            (output / (label + ".txt")).write_text(str(value), encoding="utf-8")
+        commands = dict(DIAGNOSTICS)
+        if command.get("systemChecks") is True:
+            commands.update(SYSTEM_DIAGNOSTICS)
+        receipt["diagnostics"] = {}
+        for label, cmd in commands.items():
+            try:
+                value = request(HUB, prefix + "/execute/sync", authorization, "POST", {
+                    "script": "browserstack_executor: " + json.dumps({"action": "adbShell", "arguments": {"command": cmd}}),
+                    "args": [],
+                }).get("value")
+                (output / (label + ".txt")).write_text(str(value), encoding="utf-8")
+                receipt["diagnostics"][label] = {"state": "saved"}
+            except ProviderError as error:
+                receipt["diagnostics"][label] = {"state": "provider_error", "httpStatus": error.status,
+                    "category": error.category, "providerCode": error.code}
     elif action == "stop":
         request(HUB, prefix, authorization, "DELETE")
         receipt["state"] = "stopped"
