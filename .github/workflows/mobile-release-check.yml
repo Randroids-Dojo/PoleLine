@@ -58,7 +58,7 @@ jobs:
       - name: Check safe device command handling
         run: python3 -m unittest discover -s mobile/ci -p 'test_browserstack_*.py'
       - name: Fetch retained signed build 3 for a new session
-        if: fromJSON(inputs.cloud_device_command).action == 'start'
+        if: fromJSON(inputs.cloud_device_command).action == 'start' && !fromJSON(inputs.cloud_device_command).appUrl
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-

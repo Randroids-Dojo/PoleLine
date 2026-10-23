@@ -45,6 +45,13 @@ class DeviceControllerTests(unittest.TestCase):
                 device.execute({"action": "arbitrary"}, Path("unused.apk"), Path("."), "fixture", {})
         request.assert_not_called()
 
+    def test_reuse_is_bound_to_the_retained_app_identifier(self):
+        with patch.object(device, "request") as request:
+            with self.assertRaises(ValueError):
+                device.execute({"action": "start", "appUrl": "bs://other"}, Path("unused.apk"),
+                               Path("."), "fixture", {})
+        request.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
