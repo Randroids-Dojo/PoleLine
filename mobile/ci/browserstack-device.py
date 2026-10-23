@@ -34,6 +34,8 @@ class ProviderError(Exception):
     def __init__(self, status, body):
         super().__init__("Provider request failed")
         self.status = status
+        code = re.search(r"\b(BROWSERSTACK_[A-Z0-9_]+)\b", str(body))
+        self.code = code.group(1) if code else None
         text = str(body).lower()
         self.category = "provider_error"
         for marker, category in (("free trial", "trial_limit"), ("invalid username", "authentication"),
@@ -111,6 +113,8 @@ def execute(command, apk, output, authorization, receipt):
             app_url, receipt["artifact"] = upload_app(apk, authorization)
         receipt["appUrl"] = app_url
         options = {"projectName": "PoleLine build 3", "buildName": "PoleLine native acceptance",
+                   "userName": os.environ.get("BROWSERSTACK_USERNAME", "").strip(),
+                   "accessKey": os.environ.get("BROWSERSTACK_ACCESS_KEY", "").strip(),
                    "sessionName": "Pixel 8 Pro signed build 3", "video": True, "audio": True,
                    "deviceLogs": True, "networkLogs": False, "idleTimeout": 300}
         caps = {"platformName": "Android", "appium:deviceName": "Google Pixel 8 Pro",
@@ -177,7 +181,8 @@ def main():
             raise ValueError("Credentials are missing")
         execute(json.loads(os.environ["CLOUD_DEVICE_COMMAND"]), args.apk, args.output, authorization, receipt)
     except ProviderError as error:
-        receipt.update(state="provider_error", httpStatus=error.status, category=error.category)
+        receipt.update(state="provider_error", httpStatus=error.status, category=error.category,
+                       providerCode=error.code)
     except Exception:
         receipt.update(state="command_failed")
     (args.output / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
