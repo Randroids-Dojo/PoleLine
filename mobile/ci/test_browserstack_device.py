@@ -57,7 +57,7 @@ class DeviceControllerTests(unittest.TestCase):
                             device.execute({"action": "start"}, Path("unused.apk"), Path(directory),
                                            "private-fixture", receipt)
         self.assertEqual(receipt["sessionId"], session)
-        self.assertEqual(receipt["appUrl"], "bs://fixture")
+        self.assertEqual(receipt["appUrl"], device.RETAINED_APP_AUTOMATE)
 
     def test_unknown_commands_cannot_make_provider_requests(self):
         with patch.object(device, "request") as request:

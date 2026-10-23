@@ -32,23 +32,22 @@ only PoleLine app identifiers and plan capacity, with no credential values.
 This mode starts no devices and does not establish gameplay acceptance.
 
 `cloud_device_command` accepts a native device command JSON object. `start`
-downloads the retained signed APK from draft QA asset 670645308, verifies its
-exact hash and all 71 web files, uploads it to App Automate, and opens a Pixel
-8 Pro session with video and audio requested. Later commands use the returned
-session ID for touch input, screenshots, lifecycle checks and documented adb
-diagnostics. `stop` releases the device. Screenshots remain original PNG files.
-For the previously verified App Live APK, `start` can instead provide its fixed
-`appUrl`. This mode reuses the existing upload and records that server bytes
-were not downloaded or revalidated. Other app identifiers are rejected.
+reuses the fixed App Automate upload of the retained signed APK, verified in
+bootstrap run 40038034714 against its exact hash and all 71 web files. It opens
+a Pixel 8 Pro session with video and audio requested. Later commands use the
+returned session ID for touch input, screenshots, lifecycle checks and
+provider-supported adb diagnostics. `stop` releases the device. Screenshots
+remain original PNG files. The receipt records that server bytes were not
+downloaded or revalidated for each session. Other app identifiers are rejected.
 The controller never injects a lap or changes game data. A command receipt is
 not a completed acceptance checklist. All secrets remain in runner memory.
 
-The optional `bootstrap_draft_asset` job performs a one-time upload of the
-unpublished signed APK to App Automate. GitHub rejected the draft-asset read
-with the normal read-only job token. This separate bootstrap job therefore
-uses temporary `contents: write` permission within the authorized release
-integration setup. It starts no device. Remove its write grant after the
-verified App Automate upload; later device commands retain read-only access.
+App Live and App Automate require separate uploads. The one-time upload used a
+short-lived job token with `contents: write` because GitHub rejected access to
+the private draft QA asset with its normal read-only token. That bootstrap job
+and its write grant were removed immediately after the verified upload. The
+remaining workflow has only `contents: read` permission. No release was
+published and no device was started by the bootstrap job.
 
 The iPhone job can upload its verified device IPA to BrowserStack App Live.
 Configure `BROWSERSTACK_USERNAME` and `BROWSERSTACK_ACCESS_KEY` as private

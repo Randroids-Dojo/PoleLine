@@ -22,7 +22,7 @@ spec.loader.exec_module(upload)
 API = "https://api-cloud.browserstack.com"
 HUB = "https://hub-cloud.browserstack.com/wd/hub"
 PACKAGE = "app.toyboxes.poleline"
-RETAINED_APP_LIVE = "bs://c731851b5456ebaa66a7f0f49e774aaca7950822"
+RETAINED_APP_AUTOMATE = "bs://20da9a9ba3cb51710a9f4ad8a99a3adebdcb018a"
 DIAGNOSTICS = {
     "package": "dumpsys package app.toyboxes.poleline",
     "frames": "dumpsys gfxinfo app.toyboxes.poleline",
@@ -102,15 +102,12 @@ def execute(command, apk, output, authorization, receipt):
     receipt.update(action=action, checkedAtUtc=datetime.now(timezone.utc).isoformat(),
                    toolingCommit=os.environ.get("GITHUB_SHA"), fullDeviceAcceptance=False)
     if action == "start":
-        if command.get("appUrl"):
-            if command["appUrl"] != RETAINED_APP_LIVE:
-                raise ValueError("Only the retained verified App Live upload can be reused")
-            app_url = command["appUrl"]
-            receipt["artifact"] = {"sha256": upload.ANDROID_HASHES[".apk"],
-                "source": "Previously verified signed APK uploaded to App Live",
-                "serverBytesRevalidated": False}
-        else:
-            app_url, receipt["artifact"] = upload_app(apk, authorization)
+        app_url = command.get("appUrl", RETAINED_APP_AUTOMATE)
+        if app_url != RETAINED_APP_AUTOMATE:
+            raise ValueError("Only the retained verified App Automate upload can be reused")
+        receipt["artifact"] = {"sha256": upload.ANDROID_HASHES[".apk"],
+            "source": "Verified signed APK uploaded by bootstrap run 40038034714",
+            "serverBytesRevalidated": False}
         receipt["appUrl"] = app_url
         options = {"projectName": "PoleLine build 3", "buildName": "PoleLine native acceptance",
                    "userName": os.environ.get("BROWSERSTACK_USERNAME", "").strip(),
