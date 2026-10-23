@@ -31,6 +31,15 @@ the App Automate plan through the documented provider APIs. Its receipt keeps
 only PoleLine app identifiers and plan capacity, with no credential values.
 This mode starts no devices and does not establish gameplay acceptance.
 
+`cloud_device_command` accepts a native device command JSON object. `start`
+downloads the retained signed APK from draft QA asset 670645308, verifies its
+exact hash and all 71 web files, uploads it to App Automate, and opens a Pixel
+8 Pro session with video and audio requested. Later commands use the returned
+session ID for touch input, screenshots, lifecycle checks and documented adb
+diagnostics. `stop` releases the device. Screenshots remain original PNG files.
+The controller never injects a lap or changes game data. A command receipt is
+not a completed acceptance checklist. All secrets remain in runner memory.
+
 The iPhone job can upload its verified device IPA to BrowserStack App Live.
 Configure `BROWSERSTACK_USERNAME` and `BROWSERSTACK_ACCESS_KEY` as private
 repository Actions secrets. Enter them directly in GitHub. No credential is

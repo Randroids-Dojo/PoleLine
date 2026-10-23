@@ -9,16 +9,21 @@ on:
         description: Check BrowserStack credentials and API access without rebuilding
         type: boolean
         default: false
+      cloud_device_command:
+        description: Native device command JSON (start, observe, tap, stroke, back, home, resume, diagnostics, stop)
+        type: string
+        default: ''
 
 permissions:
   contents: read
 
 concurrency:
-  group: mobile-release-evidence-${{ github.ref }}-${{ inputs.cloud_access_only && 'access' || 'full' }}
+  group: mobile-release-evidence-${{ github.ref }}-${{ inputs.cloud_device_command != '' && 'device' || (inputs.cloud_access_only && 'access' || 'full') }}
   cancel-in-progress: true
 
 jobs:
   cloud-access:
+    if: inputs.cloud_device_command == ''
     name: BrowserStack API access
     runs-on: ubuntu-latest
     timeout-minutes: 3
@@ -27,7 +32,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Check credential redaction and redirect handling
-        run: python3 -m unittest discover -s mobile/ci -p 'test_browserstack_access.py'
+        run: python3 -m unittest discover -s mobile/ci -p 'test_browserstack_*.py'
       - name: Check App Live and App Automate access
         env:
           BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
@@ -41,8 +46,43 @@ jobs:
           path: ${{ runner.temp }}/browserstack-access.json
           retention-days: 7
           if-no-files-found: warn
+  cloud-device:
+    if: github.event_name == 'workflow_dispatch' && inputs.cloud_device_command != ''
+    name: BrowserStack native device command
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Check safe device command handling
+        run: python3 -m unittest discover -s mobile/ci -p 'test_browserstack_*.py'
+      - name: Fetch retained signed build 3 for a new session
+        if: fromJSON(inputs.cloud_device_command).action == 'start'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh api repos/Randroids-Dojo/PoleLine/releases/assets/670645308
+          -H 'Accept: application/octet-stream' > '${{ runner.temp }}/poleline-build3.apk'
+      - name: Operate the cloud device and save original evidence
+        env:
+          BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
+          BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
+          CLOUD_DEVICE_COMMAND: ${{ inputs.cloud_device_command }}
+        run: >-
+          python3 mobile/ci/browserstack-device.py
+          --apk '${{ runner.temp }}/poleline-build3.apk'
+          --output '${{ runner.temp }}/native-device'
+      - name: Save native device evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-device-${{ github.run_id }}
+          path: ${{ runner.temp }}/native-device
+          retention-days: 7
+          if-no-files-found: warn
   ios:
-    if: github.event_name != 'workflow_dispatch' || !inputs.cloud_access_only
+    if: (github.event_name != 'workflow_dispatch' || !inputs.cloud_access_only) && inputs.cloud_device_command == ''
     name: iOS ${{ matrix.device }} release checks
     runs-on: macos-15
     timeout-minutes: 25
