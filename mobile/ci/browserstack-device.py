@@ -286,7 +286,11 @@ def execute_sequence(command, apk, output, authorization, receipt):
             shutil.copyfile(folder / name, output / name)
         receipt["completedSteps"] = index
         receipt["lastStepDirectory"] = folder.name
-        if 'text="Track limits"' in (folder / "ui.xml").read_text(encoding="utf-8"):
+        source = (folder / "ui.xml").read_text(encoding="utf-8")
+        if 'package="app.toyboxes.poleline"' not in source:
+            receipt.update(state="operator_input_needed", reason="unexpected_foreground")
+            return
+        if 'text="Track limits"' in source:
             receipt.update(state="operator_input_needed", reason="track_limits")
             return
     receipt["state"] = "sequence_completed"
