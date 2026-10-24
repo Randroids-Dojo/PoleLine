@@ -151,4 +151,10 @@ if ((await status()) === 'done') {
   await page.screenshot({ path: join(out, '4-results.png') });
   console.log((await page.locator('.res-sheet').innerText()).replace(/\n+/g, ' | ').slice(0, 220));
 }
+const finished = (await page.evaluate(() => document.querySelector('.res-sheet') !== null)) || (await status().catch(() => '')) === 'done';
 await browser.close();
+// A lap that never closed is a failure, whatever stopped it (see x-stuck.png).
+if (!finished) {
+  console.log('FAIL the lap did not finish');
+  process.exit(1);
+}

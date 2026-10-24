@@ -56,6 +56,19 @@ const api = (page: Page) => ({
   }),
 });
 
+/** Wait for the map to stop gliding, failing (rather than hanging) if it never does. */
+async function settle(a: ReturnType<typeof api>): Promise<void> {
+  const t0 = Date.now();
+  while (await a.get('isGliding')) {
+    if (Date.now() - t0 > 5000) {
+      check('the map stops gliding', false, 'still gliding after 5 s');
+      await browser.close();
+      process.exit(1);
+    }
+    await new Promise((r) => setTimeout(r, 30));
+  }
+}
+
 /** Mean absolute change of heading between 3 m steps (degrees): wobble reads high, a clean line low. */
 function roughness(line: number[]): number {
   const pts: V[] = [{ x: line[0], y: line[1] }];
@@ -136,7 +149,7 @@ function roughness(line: number[]): number {
   const lift = wob(lastS);
   const moved = tip ? Math.hypot(tip.x - lift.x, tip.y - lift.y) : Infinity;
   check('the tip stays where the finger lifted', moved < 0.8, `${moved.toFixed(2)} m`);
-  while (await a.get('isGliding')) await page.waitForTimeout(30);
+  await settle(a);
   // The map has glided on to the tip: drag the grass to bring the stroke back into view.
   const vp = page.viewportSize()!;
   await page.mouse.move(40, vp.height - 200);
@@ -165,7 +178,7 @@ function roughness(line: number[]): number {
   await page.mouse.click(target.x, target.y);
   await page.waitForTimeout(120);
   // The map may move on to show road past the curve's end.
-  while (await a.get('isGliding')) await page.waitForTimeout(30);
+  await settle(a);
   let c = await a.get('curveState');
   check('a tap ahead lays a curve', !!c && c.kind === 'ok', c?.kind);
   check('the set button shows', await page.getByRole('button', { name: 'Set curve' }).isVisible());
@@ -187,14 +200,41 @@ function roughness(line: number[]): number {
   await page.screenshot({ path: join(out, '3b-bent.png') });
   // Far over the other side, onto the grass: the handle stops where the curve meets the white line.
   const far = await a.toScreen({ x: side.x - side.nx * (track.limit + 25), y: side.y - side.ny * (track.limit + 25) });
+  const was = c!.bend;
   await drag(c!.bend, far);
   c = await a.get('curveState');
-  check('bending stops at the white line', !!c && c.kind === 'ok', c?.kind);
+  // The handle must have followed the finger towards the grass, stopped short of it, and left a legal curve.
+  const towards = !!c && Math.hypot(far.x - c.bend.x, far.y - c.bend.y) < Math.hypot(far.x - was.x, far.y - was.y) - 10;
+  const short = !!c && Math.hypot(far.x - c.bend.x, far.y - c.bend.y) > 20;
+  check('bending stops at the white line', !!c && c.kind === 'ok' && towards && short, c ? `${c.kind}, moved ${Math.hypot(c.bend.x - was.x, c.bend.y - was.y).toFixed(0)} px, ${Math.hypot(far.x - c.bend.x, far.y - c.bend.y).toFixed(0)} px short of the finger` : 'none');
   check('the set button stays ready', !(await page.getByRole('button', { name: 'Set curve' }).isDisabled()));
   await page.screenshot({ path: join(out, '3c-pushed.png') });
   await page.getByRole('button', { name: 'Undo last stroke' }).click();
   await page.waitForTimeout(120);
   check('undo takes the waiting curve away', (await a.get('curveState')) === null);
+  await page.context().close();
+}
+
+// 4. A track-limits card from a freehand stroke goes once the player switches to tap and bend and carries on.
+{
+  const page = await open('freehand');
+  const a = api(page);
+  await page.getByRole('button', { name: 'Draw a lap' }).click();
+  await page.waitForTimeout(1300);
+  const start = await a.toScreen({ x: track.x[0], y: track.y[0] });
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  // Straight off to the side, over the white line.
+  for (let k = 1; k <= 20; k++) await page.mouse.move(start.x + k * 12, start.y - k * 6);
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  check('a freehand stroke over the white line shows the limits card', await page.locator('.limits-card').isVisible());
+  await page.locator('.limits-card').getByRole('button', { name: /Settings/ }).click();
+  await page.waitForTimeout(300);
+  await page.getByText('Tap and bend').click();
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(400);
+  check('switching to tap and bend clears the card', (await page.locator('.limits-card').count()) === 0);
   await page.context().close();
 }
 

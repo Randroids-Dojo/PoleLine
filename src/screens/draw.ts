@@ -360,6 +360,8 @@ export class DrawScreen implements Screen {
       this.drawMode = s.drawMode;
       this.dropPending();
       this.endMorph();
+      // The card spoke about a freehand stroke; in another mode the player carries on from the tip.
+      this.closeLimits();
       this.updateHud();
       if (this.coachText) this.coachText.el.textContent = this.coachText.text();
       // A coach card on screen already says what to do next.
@@ -744,6 +746,8 @@ export class DrawScreen implements Screen {
     if (this.builder.status !== 'drawing') return;
     this.endMorph();
     if (this.drawMode === 'curves') {
+      // A track-limits card left from a freehand stroke goes once the player carries on with curves.
+      this.closeLimits();
       this.curveDown(e, p, w);
       return;
     }
