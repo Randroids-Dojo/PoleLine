@@ -15,10 +15,12 @@ const mem = new Map<string, string>();
 
 const { controls, endDir, fitEnd, midpoint, sampleCurve, startBend } = await import('../src/app/curve');
 const { blend, tidyStroke } = await import('../src/app/tidy');
-const { drawModeText } = await import('../src/app/draw-mode');
+const { DRAW_MODES, drawModeText } = await import('../src/app/draw-mode');
+const { TUTORIAL_COPY } = await import('../src/app/tutorial-copy');
 const { currentSetup, getSettings, sameSetup, saveSettings } = await import('../src/app/store');
 const { CATALOG } = await import('../src/data/catalog');
 const spielberg = (await import('../src/data/geometry/spielberg')).default;
+const rookie = (await import('../src/data/geometry/rookie-ring')).default;
 const { LineBuilder } = await import('../src/sim/builder');
 const { UNITS_PER_METRE, decodePath, encodePath, validatePath } = await import('../src/sim/path');
 const { buildTrack, frameAt, projectNear } = await import('../src/sim/track');
@@ -129,6 +131,74 @@ describe('tidy strokes', () => {
     expect(deg(into, out)).toBeLessThan(6);
   });
 
+  it('turns a corner drawn down the middle into a racing line', () => {
+    // The tightest corner in the first kilometre, drawn on the centreline from 120 m before it to 120 m after.
+    let apex = 200;
+    let tight = 0;
+    for (let s = 200; s < 1000; s += 2) {
+      const a = frameAt(track, s - 10);
+      const b = frameAt(track, s + 10);
+      const turn = Math.abs(a.tx * b.ty - a.ty * b.tx);
+      if (turn > tight) {
+        tight = turn;
+        apex = s;
+      }
+    }
+    const pts: number[] = [];
+    for (let s = apex - 120; s <= apex + 120; s += 0.8) {
+      const f = frameAt(track, s);
+      pts.push(f.x, f.y);
+    }
+    const before = frameAt(track, apex - 120);
+    const c = tidyStroke(track, pts, 0, { x: before.tx, y: before.ty }, before.seg)!;
+    const bend = (q: { x: number; y: number }[]) => {
+      let e = 0;
+      for (let i = 1; i < q.length - 1; i++) {
+        const ax = q[i].x - q[i - 1].x, ay = q[i].y - q[i - 1].y, bx = q[i + 1].x - q[i].x, by = q[i + 1].y - q[i].y;
+        const ang = Math.atan2(ax * by - ay * bx, ax * bx + ay * by);
+        e += (ang * ang) / Math.hypot(ax, ay);
+      }
+      return e;
+    };
+    expect(bend(c.tidy)).toBeLessThan(bend(c.raw) * 0.6);
+    // At the apex the corrected line has moved well over to the inside of the turn.
+    const a = frameAt(track, apex - 2);
+    const b = frameAt(track, apex + 2);
+    const inside = a.tx * b.ty - a.ty * b.tx > 0 ? 1 : -1;
+    let hint = before.seg;
+    let atApex = 0;
+    let best = Infinity;
+    for (const q of c.tidy) {
+      const p = projectNear(track, q.x, q.y, hint, 12);
+      hint = p.seg;
+      if (Math.abs(p.s - (apex % track.length)) < best) {
+        best = Math.abs(p.s - (apex % track.length));
+        atApex = p.d;
+      }
+    }
+    expect(atApex * inside).toBeGreaterThan(1.5);
+  });
+
+  it('closes the lap where it began when the finishing stroke ran wide', () => {
+    // The last 58 m to the line on the tutorial circuit, drawn against the left wall.
+    const ring = buildTrack(CATALOG.find((m) => m.tutorial)!, rookie);
+    const lat = -(ring.limit - 0.6);
+    const pts: number[] = [];
+    for (let s = 1500; s <= ring.length; s += 0.8) {
+      const f = frameAt(ring, s);
+      pts.push(f.x + f.nx * lat, f.y + f.ny * lat);
+    }
+    const anchor = Math.round((1572 - 1500) / 0.8);
+    const f0 = frameAt(ring, 0);
+    const endAt = { x: f0.x + f0.tx * 1.5, y: f0.y + f0.ty * 1.5 };
+    const c = tidyStroke(ring, pts, anchor, { x: f0.tx, y: f0.ty }, projectNear(ring, pts[anchor * 2], pts[anchor * 2 + 1], ring.n - 30, 40).seg, undefined, endAt)!;
+    expect(c.tidy[c.tidy.length - 1]).toEqual(endAt);
+    // The stroke swings across to meet it instead of hugging the wall and jumping at the end.
+    const beforeEnd = c.tidy[c.tidy.length - 2];
+    expect(Math.abs(projectNear(ring, beforeEnd.x, beforeEnd.y, 0, 20).d)).toBeLessThan(1);
+    for (const q of c.tidy) expect(projectNear(ring, q.x, q.y, 0, ring.n).dist).toBeLessThan(ring.limit);
+  });
+
   it('blends point for point between drawn and tidied', () => {
     const half = blend(t, 0.5);
     expect(half).toHaveLength(t.raw.length);
@@ -136,7 +206,7 @@ describe('tidy strokes', () => {
   });
 });
 
-describe('line builder for the easy modes', () => {
+describe('line builder for tidy strokes and tap and bend', () => {
   const alpha = minCurvatureOffsets(track);
   const ideal = (s: number) => {
     const f = frameAt(track, s);
@@ -201,11 +271,11 @@ describe('line builder for the easy modes', () => {
 describe('draw mode setting', () => {
   beforeEach(() => mem.clear());
 
-  it('defaults to freehand and ignores junk', () => {
-    expect(getSettings().drawMode).toBe('freehand');
+  it('defaults to tap and bend (easy) and ignores junk', () => {
+    expect(getSettings().drawMode).toBe('curves');
     localStorage.setItem('poleline:v1:settings', JSON.stringify({ v: 2, drawMode: 'sideways' }));
-    expect(getSettings().drawMode).toBe('freehand');
-    expect(saveSettings({ drawMode: 'curves' }).drawMode).toBe('curves');
+    expect(getSettings().drawMode).toBe('curves');
+    expect(saveSettings({ drawMode: 'freehand' }).drawMode).toBe('freehand');
   });
 
   it('travels with the setup, and an old setup without it reads as freehand', () => {
@@ -215,7 +285,26 @@ describe('draw mode setting', () => {
     const old = { scrollMode: setup.scrollMode, scrollSpeed: setup.scrollSpeed, cornerDamping: setup.cornerDamping, autoRotate: setup.autoRotate };
     expect(sameSetup(old, { ...setup, drawMode: 'freehand' })).toBe(true);
     expect(sameSetup(old, setup)).toBe(false);
-    expect(drawModeText(undefined)).toBe('Freehand');
+    expect(drawModeText(undefined)).toBe('Freehand (hard)');
+    expect(drawModeText('smooth')).toBe('Tidy my strokes (medium)');
     expect(drawModeText('curves')).toBe('Tap and bend (easy)');
+  });
+});
+
+describe('tutorial copy', () => {
+  it('has every line for every mode, in that mode\'s words', () => {
+    for (const m of DRAW_MODES) {
+      const c = TUTORIAL_COPY[m.id];
+      expect(c.tips).toHaveLength(4);
+      for (const line of [c.turn, c.start, c.going, c.yourCorner, c.wholeGame, ...c.tips]) {
+        expect(line.length).toBeGreaterThan(8);
+        expect(line).not.toMatch(/[\u2013\u2014]/);
+      }
+    }
+    const all = (id: 'curves' | 'smooth' | 'freehand') => Object.values(TUTORIAL_COPY[id]).flat().join(' ');
+    expect(TUTORIAL_COPY.curves.turn).toMatch(/Tap/);
+    expect(all('curves')).not.toMatch(/finger|draw through/i);
+    expect(TUTORIAL_COPY.smooth.turn).toMatch(/corrected/);
+    expect(all('freehand')).not.toMatch(/\btap\b|corrected|bend/i);
   });
 });

@@ -214,7 +214,7 @@ describe('leaderboard api', () => {
     const entries = board.json.entries as { name: string; setup: unknown; compound: string }[];
     expect(entries.find((e) => e.name === 'Copyme')).toMatchObject({ compound: 'medium', setup });
     expect(entries.find((e) => e.name === 'Odd')?.setup).toBeNull();
-    // Setups from before the easy modes have no draw mode and still count.
+    // Setups from before the drawing modes have no draw mode and still count.
     const older = { scrollMode: 'pause', scrollSpeed: 1, cornerDamping: 'off', autoRotate: true };
     await call('POST', {}, { track: 'monaco', compound: 'soft', line: ideal, playerId: 'cccccccc-dddd-eeee-ffff-000000000000', name: 'Older', setup: older });
     const board2 = await call('GET', { track: 'monaco' });

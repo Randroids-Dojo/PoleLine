@@ -7,7 +7,7 @@ import { SCROLL_SPEED_MAX, SCROLL_SPEED_MIN, getSettings, saveSettings, type Scr
 import { setKeepAwake } from '../app/wake';
 import { alertsBlocked, alertsSupported, canPromptInstall, disableAlerts, enableAlerts, isInstalled, isIos, onInstallChange, promptInstall } from '../app/pwa';
 import { CORNER_DAMPING_OPTIONS } from '../app/damping';
-import { DRAW_MODES, type DrawMode } from '../app/draw-mode';
+import { DRAW_MODES, LEVEL_LABELS, type DrawMode } from '../app/draw-mode';
 import { ICONS, h } from '../ui/dom';
 import { openGarage } from './garage';
 import { APP_RELEASE, LOCAL_ONLY } from '../app/edition';
@@ -111,7 +111,7 @@ export function openSettings(app: App, onChange?: (s: Settings) => void): void {
       changed({ drawMode: m.id });
       syncScroll(m.id);
     });
-    const tag = h('span', { class: `set-level${m.easy ? ' is-easy' : ''}` }, m.easy ? 'Easy' : 'Hard');
+    const tag = h('span', { class: `set-level is-${m.level}` }, LEVEL_LABELS[m.level]);
     drawGroup.append(h('label', { class: 'set-mode' }, input, h('span', { class: 'set-text' }, h('b', null, m.label, tag), h('small', null, m.detail))));
   }
   syncScroll(s.drawMode);

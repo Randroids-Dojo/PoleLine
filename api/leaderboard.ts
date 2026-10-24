@@ -10,8 +10,8 @@
 // a claimed time. The server re-validates track limits and re-runs the same
 // deterministic simulation the browser ran, so the time on the board is the
 // server's. Each player keeps only their best lap per circuit, along with the
-// drawing setup it was drawn with (freehand or an easy mode, scroll mode and
-// speed, corner damping, auto-rotate) so others can copy it.
+// drawing setup it was drawn with (tap and bend, tidy strokes or freehand,
+// scroll mode and speed, corner damping, auto-rotate) so others can copy it.
 //
 // Keys (shared store, so everything is prefixed `poleline:v<SIM_VERSION>:`):
 //   lb:<slug>    sorted set, member = playerId, score = lap ms

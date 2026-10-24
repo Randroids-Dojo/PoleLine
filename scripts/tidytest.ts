@@ -1,8 +1,8 @@
-// Easy drawing check, headless: draws hand-like laps stroke by stroke through
-// a LineBuilder, once as drawn (hard mode) and once with every stroke tidied
-// on lift (easy mode, tidy strokes), and compares them. A tidied lap should
-// stay legal, keep close to what was drawn, lose its kinks and wobble, and so
-// run quicker.
+// Tidy strokes check, headless: draws hand-like laps stroke by stroke through
+// a LineBuilder, once as drawn (freehand, the hard mode) and once with every
+// stroke corrected on lift (tidy strokes, the medium mode), and compares them.
+// A corrected lap should stay legal, lose its kinks and wobble, and run much
+// closer to the ideal line's time.
 //
 //   npx tsx scripts/tidytest.ts [slug,slug,...] [stroke metres]
 
@@ -16,7 +16,7 @@ import { minCurvatureOffsets, offsetsToLine, wobble } from './optimal.js';
 
 const slugs = (process.argv[2] ?? 'spielberg,monaco,suzuka,silverstone,hungaroring,zandvoort').split(',');
 const STROKE = Number(process.argv[3] ?? 140);
-// TUNE='cutPerRadius=0.4,reach=12' tries a variation of the fit.
+// TUNE='keepWave=60,ahead=120' tries a variation of the fit.
 const tuning: TidyTuning = { ...TIDY_DEFAULTS };
 for (const kv of (process.env.TUNE ?? '').split(',').filter(Boolean)) {
   const [k, v] = kv.split('=');
@@ -76,7 +76,7 @@ function handStrokes(track: Track, seed: number, amp: number, slip: number): { x
   return strokes;
 }
 
-/** Keep a finger sample inside the white lines, as easy mode does while drawing. */
+/** Keep a finger sample inside the white lines, as tidy strokes does while drawing. */
 function clampInside(track: Track, b: LineBuilder, p: { x: number; y: number }): { x: number; y: number } {
   const q = projectNear(track, p.x, p.y, b.hint, 12);
   const lim = track.limit - 0.3;

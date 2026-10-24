@@ -1,28 +1,36 @@
-// How the racing line goes down. Freehand is the hard mode: the ink is exactly
-// where the finger is. The easy modes help the line come out smooth: tidy
-// strokes refits each freehand stroke when the finger lifts (src/app/tidy.ts),
-// tap and bend lays the line as a chain of curves (src/app/curve.ts). Every
-// mode produces an ordinary line that is validated and simulated the same way.
+// How the racing line goes down, from easy to hard. Tap and bend (easy, the
+// default) lays the line as a chain of curves (src/app/curve.ts). Tidy my
+// strokes (medium) is freehand drawing that is corrected into a racing line
+// each time the finger lifts (src/app/tidy.ts). Freehand (hard) puts the ink
+// exactly where the finger is. Every mode produces an ordinary line that is
+// validated and simulated the same way.
 
 export type DrawMode = 'freehand' | 'smooth' | 'curves';
 
-export const DRAW_MODES: { id: DrawMode; easy: boolean; label: string; detail: string }[] = [
-  { id: 'freehand', easy: false, label: 'Freehand', detail: 'Your line goes exactly where your finger goes. Touch the white line and the stroke stops there.' },
+export type DrawLevel = 'easy' | 'medium' | 'hard';
+
+export const DEFAULT_DRAW_MODE: DrawMode = 'curves';
+
+export const DRAW_MODES: { id: DrawMode; level: DrawLevel; label: string; short: string; detail: string }[] = [
+  { id: 'curves', level: 'easy', label: 'Tap and bend', short: 'Tap the track and bend the curves.', detail: 'Tap the track ahead to lay the line in smooth curves. Drag the dot in the middle of a curve to bend it.' },
   {
     id: 'smooth',
-    easy: true,
+    level: 'medium',
     label: 'Tidy my strokes',
-    detail: 'Draw freely. When you lift, wobbles straighten out and corners round off. The line slides along the white line instead of stopping.',
+    short: 'Draw it, and each stroke is corrected.',
+    detail: 'Draw freely. When you lift, your stroke is corrected into a clean racing line that uses the width of the track. It still ends where you lifted, and the white line never stops you.',
   },
-  { id: 'curves', easy: true, label: 'Tap and bend', detail: 'Tap the track ahead to lay the line in smooth curves. Drag the dot in the middle of a curve to bend it.' },
+  { id: 'freehand', level: 'hard', label: 'Freehand', short: 'Draw it exactly, with no help.', detail: 'Your line goes exactly where your finger goes. Touch the white line and the stroke stops there.' },
 ];
+
+export const LEVEL_LABELS: Record<DrawLevel, string> = { easy: 'Easy', medium: 'Medium', hard: 'Hard' };
 
 export function isDrawMode(v: unknown): v is DrawMode {
   return v === 'freehand' || v === 'smooth' || v === 'curves';
 }
 
-/** The mode's name as setup text shows it: "Tap and bend (easy)". */
+/** The mode's name as setup text shows it: "Tap and bend (easy)". Laps from before the modes were freehand. */
 export function drawModeText(mode: DrawMode | undefined): string {
-  const m = DRAW_MODES.find((o) => o.id === (mode ?? 'freehand')) ?? DRAW_MODES[0];
-  return m.easy ? `${m.label} (easy)` : m.label;
+  const m = DRAW_MODES.find((o) => o.id === (mode ?? 'freehand')) ?? DRAW_MODES[DRAW_MODES.length - 1];
+  return `${m.label} (${m.level})`;
 }

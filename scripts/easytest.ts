@@ -1,7 +1,7 @@
-// Easy modes check: the settings choice, a wobbly stroke tidied on lift
-// (before and after screenshots, and the tidied stroke must be smoother), and
-// tap and bend's handles (lay, bend, push off the track, undo). Prints PASS or
-// FAIL per check and exits non-zero on any failure.
+// Drawing modes check: the settings choice and default, a wobbly stroke
+// corrected on lift (before and after screenshots, and the corrected stroke
+// must be smoother), and tap and bend's handles (lay, bend, push off the
+// track, undo). Prints PASS or FAIL per check and exits non-zero on any failure.
 //
 //   npx tsx scripts/easytest.ts [slug] [outDir] [url]
 
@@ -35,7 +35,7 @@ type Draw = {
 };
 const browser = await chromium.launch();
 
-async function open(drawMode: string): Promise<Page> {
+async function open(drawMode: string | undefined): Promise<Page> {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   const page = await ctx.newPage();
   page.on('pageerror', (e) => check('no page errors', false, e.message));
@@ -90,6 +90,15 @@ function roughness(line: number[]): number {
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('poleline:v1:settings') ?? '{}').drawMode);
   check('the choice is saved', saved === 'curves', saved);
   await page.context().close();
+  // A player who never chose starts on tap and bend, the easy mode.
+  const fresh = await open(undefined);
+  await fresh.getByRole('button', { name: 'Settings' }).click();
+  await fresh.waitForTimeout(300);
+  const chosen = await fresh.locator('input[name="draw-mode"]:checked').getAttribute('value');
+  check('tap and bend is the default', chosen === 'curves', chosen ?? 'none');
+  const levels = await fresh.locator('.set-level').allTextContents();
+  check('the modes read easy, medium, hard', levels.join(',') === 'Easy,Medium,Hard', levels.join(','));
+  await fresh.context().close();
 }
 
 // 2. Tidy strokes: a wobbly first stroke comes out smoother once the finger lifts.
