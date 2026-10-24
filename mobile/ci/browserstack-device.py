@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import struct
 import time
 import urllib.error
@@ -249,6 +250,48 @@ def execute(command, apk, output, authorization, receipt):
     return receipt
 
 
+def validate_sequence(command):
+    session = command.get("sessionId", "")
+    if not isinstance(session, str) or not re.fullmatch(r"[A-Za-z0-9_-]{16,100}", session):
+        raise ValueError("Invalid sequence session")
+    steps = command.get("steps")
+    if not isinstance(steps, list) or not 1 <= len(steps) <= 32:
+        raise ValueError("Expected between 1 and 32 touch steps")
+    duration = 0
+    for step in steps:
+        if not isinstance(step, dict) or set(step) - {"action", "points", "durationMs"}:
+            raise ValueError("Unexpected sequence input")
+        if step.get("action") not in ("tap", "stroke", "observe"):
+            raise ValueError("Sequences accept only touch and observation")
+        if step["action"] != "observe":
+            touch(step.get("points"), step.get("durationMs", 350))
+            duration += max(1, len(step["points"]) - 1) * step.get("durationMs", 350) + 80
+    if duration > 45000:
+        raise ValueError("Sequence touch duration exceeds 45 seconds")
+    return steps
+
+
+def execute_sequence(command, apk, output, authorization, receipt):
+    steps = validate_sequence(command)
+    receipt.update(action="sequence", sessionId=command["sessionId"], fullDeviceAcceptance=False,
+                   toolingCommit=os.environ.get("GITHUB_SHA"), checkedAtUtc=datetime.now(timezone.utc).isoformat(),
+                   completedSteps=0)
+    for index, step in enumerate(steps, 1):
+        folder = output / f"step-{index:02d}"
+        folder.mkdir()
+        current = {}
+        execute(dict(step, sessionId=command["sessionId"]), apk, folder, authorization, current)
+        (folder / "receipt.json").write_text(json.dumps(current, indent=2) + "\n", encoding="utf-8")
+        for name in ("screen.png", "ui.xml"):
+            shutil.copyfile(folder / name, output / name)
+        receipt["completedSteps"] = index
+        receipt["lastStepDirectory"] = folder.name
+        if 'text="Track limits"' in (folder / "ui.xml").read_text(encoding="utf-8"):
+            receipt.update(state="operator_input_needed", reason="track_limits")
+            return
+    receipt["state"] = "sequence_completed"
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apk", type=Path, required=True)
@@ -267,7 +310,11 @@ def main():
             app_url, artifact = upload_app(args.apk, authorization)
             receipt.update(state="uploaded_for_automation", appUrl=app_url, artifact=artifact, devicesStarted=0)
         else:
-            execute(json.loads(os.environ["CLOUD_DEVICE_COMMAND"]), args.apk, args.output, authorization, receipt)
+            command = json.loads(os.environ["CLOUD_DEVICE_COMMAND"])
+            if command.get("action") == "sequence":
+                execute_sequence(command, args.apk, args.output, authorization, receipt)
+            else:
+                execute(command, args.apk, args.output, authorization, receipt)
     except ProviderError as error:
         receipt.update(state="provider_error", httpStatus=error.status, category=error.category,
                        providerCode=error.code)
@@ -275,7 +322,7 @@ def main():
         receipt.update(state="command_failed", errorType=type(error).__name__)
     (args.output / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(receipt))
-    return 0 if receipt.get("state") in ("started", "command_completed", "stopped", "uploaded_for_automation", "recording_saved") else 1
+    return 0 if receipt.get("state") in ("started", "command_completed", "stopped", "uploaded_for_automation", "recording_saved", "sequence_completed") else 1
 
 
 if __name__ == "__main__":

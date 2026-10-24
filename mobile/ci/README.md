@@ -43,6 +43,11 @@ remain original PNG files. The receipt records that server bytes were not
 downloaded or revalidated for each session. Other app identifiers are rejected.
 The controller never injects a lap or changes game data. A command receipt is
 not a completed acceptance checklist. All secrets remain in runner memory.
+`sequence` replays at most 32 touch/observation steps on the same session, with
+at most 45 seconds of touch movement. It validates every step before input,
+saves an original screenshot and UI source after each step, and stops when the
+game displays Track limits. This is used for an additional saved lap comparison
+after the two required circuits have been traced individually on screen.
 
 App Live and App Automate require separate uploads. The one-time upload used a
 short-lived job token with `contents: write` because GitHub rejected access to

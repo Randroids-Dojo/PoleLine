@@ -16,6 +16,20 @@ spec.loader.exec_module(device)
 
 
 class DeviceControllerTests(unittest.TestCase):
+    def test_sequence_rejects_non_touch_commands_before_any_device_input(self):
+        command = {"sessionId": "a" * 40, "steps": [
+            {"action": "tap", "points": [[1, 1]]}, {"action": "start"}]}
+        with patch.object(device, "execute") as execute:
+            with self.assertRaises(ValueError):
+                device.execute_sequence(command, Path("unused.apk"), Path("."), "fixture", {})
+        execute.assert_not_called()
+
+    def test_sequence_cannot_change_session_or_exceed_its_touch_budget(self):
+        for steps in ([{"action": "observe", "sessionId": "b" * 40}],
+                      [{"action": "stroke", "points": [[1, 1], [2, 2]], "durationMs": 2000}] * 32):
+            with self.assertRaises(ValueError):
+                device.validate_sequence({"sessionId": "a" * 40, "steps": steps})
+
     def test_recording_download_rejects_other_hosts_and_embedded_credentials(self):
         for url in ("http://app-automate.browserstack.com/video", "https://example.com/video",
                     "https://app-automate.browserstack.com.example.com/video",
