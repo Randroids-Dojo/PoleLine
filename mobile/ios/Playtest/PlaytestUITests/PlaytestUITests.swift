@@ -11,6 +11,9 @@ final class PlaytestUITests: XCTestCase {
 
     private func save(_ name: String) {
         let png = XCUIScreen.main.screenshot().pngRepresentation
+        let receipt = XCTAttachment(uniformTypeIdentifier: "public.png", name: "\(name).png", payload: png, userInfo: nil)
+        receipt.lifetime = .keepAlways
+        add(receipt)
         let path = "\(outDir)/\(name).png"
         do {
             try png.write(to: URL(fileURLWithPath: path))
