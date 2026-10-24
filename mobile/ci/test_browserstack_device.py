@@ -16,6 +16,22 @@ spec.loader.exec_module(device)
 
 
 class DeviceControllerTests(unittest.TestCase):
+    def test_cold_start_restores_the_app_when_timing_is_unsupported(self):
+        calls = []
+        def provider(host, path, authorization, method="GET", body=None):
+            calls.append(path)
+            if path.endswith("/execute/sync"):
+                raise device.ProviderError(500, "BROWSERSTACK_UNSUPPORTED_ADB_SHELL_COMMAND")
+            if path.endswith("/screenshot"):
+                raise device.ProviderError(500, "capture fixture failure")
+            return {"value": None}
+        with patch.object(device, "request", side_effect=provider), patch.object(device.time, "sleep"):
+            with self.assertRaises(device.ProviderError):
+                device.execute({"action": "cold-start", "sessionId": "a" * 40},
+                               Path("unused.apk"), Path("."), "fixture", {})
+        self.assertTrue(calls[0].endswith("/terminate_app"))
+        self.assertTrue(calls[2].endswith("/activate_app"))
+
     def test_invalid_orientation_cannot_make_provider_requests(self):
         with patch.object(device, "request") as request:
             with self.assertRaises(ValueError):

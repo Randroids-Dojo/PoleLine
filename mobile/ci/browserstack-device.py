@@ -163,7 +163,7 @@ def touch(points, duration):
 
 def execute(command, apk, output, authorization, receipt):
     action = command.get("action")
-    if action not in ("start", "observe", "tap", "stroke", "back", "home", "resume", "orientation", "diagnostics", "stop", "recording"):
+    if action not in ("start", "observe", "tap", "stroke", "back", "home", "resume", "cold-start", "orientation", "diagnostics", "stop", "recording"):
         raise ValueError("Unknown device action")
     receipt.update(action=action, checkedAtUtc=datetime.now(timezone.utc).isoformat(),
                    toolingCommit=os.environ.get("GITHUB_SHA"), fullDeviceAcceptance=False)
@@ -207,6 +207,21 @@ def execute(command, apk, output, authorization, receipt):
         request(HUB, prefix + "/appium/device/press_keycode", authorization, "POST", {"keycode": 3})
     elif action == "resume":
         request(HUB, prefix + "/appium/device/activate_app", authorization, "POST", {"appId": PACKAGE})
+    elif action == "cold-start":
+        request(HUB, prefix + "/appium/device/terminate_app", authorization, "POST", {"appId": PACKAGE})
+        try:
+            value = request(HUB, prefix + "/execute/sync", authorization, "POST", {
+                "script": "browserstack_executor: " + json.dumps({"action": "adbShell", "arguments": {
+                    "command": "am start -W -n " + PACKAGE + "/.MainActivity"}}), "args": []}).get("value")
+            (output / "cold-start.txt").write_text(str(value), encoding="utf-8")
+            total = re.search(r"(?m)^TotalTime:\s*(\d+)\s*$", str(value))
+            if total:
+                receipt["totalTimeMs"] = int(total[1])
+        except ProviderError as error:
+            receipt["coldStartTiming"] = {"state": "provider_error", "httpStatus": error.status,
+                "category": error.category, "providerCode": error.code}
+        finally:
+            request(HUB, prefix + "/appium/device/activate_app", authorization, "POST", {"appId": PACKAGE})
     elif action == "orientation":
         orientation = command.get("orientation")
         if orientation not in ("PORTRAIT", "LANDSCAPE"):
