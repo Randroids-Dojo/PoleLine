@@ -163,7 +163,7 @@ def touch(points, duration):
 
 def execute(command, apk, output, authorization, receipt):
     action = command.get("action")
-    if action not in ("start", "observe", "tap", "stroke", "back", "home", "resume", "diagnostics", "stop", "recording"):
+    if action not in ("start", "observe", "tap", "stroke", "back", "home", "resume", "orientation", "diagnostics", "stop", "recording"):
         raise ValueError("Unknown device action")
     receipt.update(action=action, checkedAtUtc=datetime.now(timezone.utc).isoformat(),
                    toolingCommit=os.environ.get("GITHUB_SHA"), fullDeviceAcceptance=False)
@@ -207,6 +207,15 @@ def execute(command, apk, output, authorization, receipt):
         request(HUB, prefix + "/appium/device/press_keycode", authorization, "POST", {"keycode": 3})
     elif action == "resume":
         request(HUB, prefix + "/appium/device/activate_app", authorization, "POST", {"appId": PACKAGE})
+    elif action == "orientation":
+        orientation = command.get("orientation")
+        if orientation not in ("PORTRAIT", "LANDSCAPE"):
+            raise ValueError("Expected a portrait or landscape orientation")
+        receipt["requestedOrientation"] = orientation
+        request(HUB, prefix + "/orientation", authorization, "POST", {"orientation": orientation})
+        current = request(HUB, prefix + "/orientation", authorization).get("value")
+        if current in ("PORTRAIT", "LANDSCAPE"):
+            receipt["reportedOrientation"] = current
     elif action == "diagnostics":
         commands = dict(DIAGNOSTICS)
         if command.get("systemChecks") is True:

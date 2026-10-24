@@ -16,6 +16,13 @@ spec.loader.exec_module(device)
 
 
 class DeviceControllerTests(unittest.TestCase):
+    def test_invalid_orientation_cannot_make_provider_requests(self):
+        with patch.object(device, "request") as request:
+            with self.assertRaises(ValueError):
+                device.execute({"action": "orientation", "orientation": "arbitrary", "sessionId": "a" * 40},
+                               Path("unused.apk"), Path("."), "fixture", {})
+        request.assert_not_called()
+
     def test_sequence_rejects_non_touch_commands_before_any_device_input(self):
         command = {"sessionId": "a" * 40, "steps": [
             {"action": "tap", "points": [[1, 1]]}, {"action": "start"}]}
