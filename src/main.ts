@@ -6,6 +6,7 @@ import { setKeepAwake } from './app/wake';
 import { bumpAttempts, currentSetup, getBest, getBestSectors, getSettings, getTyre, saveSettings, setBest, updateBestSectors } from './app/store';
 import { HomeScreen } from './screens/home';
 import { DrawScreen } from './screens/draw';
+import { TUTORIAL_COPY } from './app/tutorial-copy';
 import { RaceScreen, timeAtProgress, type CamSnapshot, type RaceCaption } from './screens/race';
 import { ResultsScreen } from './screens/results';
 import { openLeaderboard } from './screens/leaderboard';
@@ -159,10 +160,10 @@ async function draw(slug: string, compound: Compound, walkthrough = false): Prom
   const track = await app.track(slug);
   const art = app.art(track);
   const best = getBest(slug);
-  // The walkthrough shows a fast way through the last corner; otherwise your best lap is the guide
-  // (on the tutorial, just your part of it).
+  // On the tutorial circuit the guide is always the suggested way through the last corner, which
+  // crosses the finish where the drawn lap began; elsewhere your best lap is the guide.
   const bestLine = best ? decodePath(best.code) : null;
-  const guide = walkthrough ? idealFinish() : bestLine && meta.tutorial ? bestLine.slice((TUTORIAL.prefixPoints - 1) * 2) : bestLine;
+  const guide = meta.tutorial ? idealFinish() : bestLine;
   const leave = () => {
     if (walkthrough) endTutorial('skipped');
     home(walkthrough ? championshipSlug() : slug);
@@ -225,7 +226,7 @@ function race(track: Track, compound: Compound, pts: number[], walkthrough = fal
         { at: -2.4, dur: 3.2, text: 'Here it comes on a flying lap, driving the line exactly.' },
         { at: 2.5, dur: 4.5, text: 'Speed, gear, battery and tyres live in the bar below.' },
         { at: 9, dur: 4.5, text: REAL_CIRCUITS ? 'Sectors turn purple when they beat real pole pace.' : 'Sectors turn purple when they beat pole pace.' },
-        { at: yours - 0.8, dur: 4.5, text: 'Now the corner you drew.' },
+        { at: yours - 0.8, dur: 4.5, text: TUTORIAL_COPY[setup.drawMode ?? 'freehand'].yourCorner },
       ]
     : [];
   app.show(new RaceScreen(app, track, art, lap, ghost, bestSectorsBefore, { finished: showResults, exit: () => home(slug) }, null, captions));

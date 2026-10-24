@@ -7,6 +7,7 @@ import { sfx } from '../app/audio';
 import { engineerNotes } from '../app/engineer';
 import { formatDelta, formatLap, formatSector, gridSlot, kmh } from '../app/format';
 import { getPlayer, type DrawSetup, type PersonalBest } from '../app/store';
+import { TUTORIAL_COPY } from '../app/tutorial-copy';
 import { promptAfterLap } from './prompts';
 import { worldBoard } from './world-board';
 import { LOCAL_ONLY, REAL_CIRCUITS } from '../app/edition';
@@ -126,7 +127,7 @@ export class ResultsScreen implements Screen {
         ? h(
             'div',
             { class: 'res-actions' },
-            input.walkthrough ? h('p', { class: 'res-tutorial' }, `That is the whole game: draw a line, watch it run, find time. ${rounds()} ${REAL_CIRCUITS ? 'real circuits' : 'circuits'} are waiting.`) : null,
+            input.walkthrough ? h('p', { class: 'res-tutorial' }, `${TUTORIAL_COPY[input.setup.drawMode ?? 'freehand'].wholeGame} ${rounds()} ${REAL_CIRCUITS ? 'real circuits' : 'circuits'} are waiting.`) : null,
             h('button', { class: 'btn-primary', onclick: () => this.actions.continueGame!() }, 'Continue to the circuits'),
             h(
               'div',
