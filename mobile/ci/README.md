@@ -43,6 +43,11 @@ remain original PNG files. The receipt records that server bytes were not
 downloaded or revalidated for each session. Other app identifiers are rejected.
 The controller never injects a lap or changes game data. A command receipt is
 not a completed acceptance checklist. All secrets remain in runner memory.
+`orientation` accepts only PORTRAIT or LANDSCAPE and captures the resulting
+display. Restore PORTRAIT after an attempt and verify the device's original
+auto-rotate setting. `cold-start` terminates and reopens only PoleLine; it tries
+the fixed `am start -W` command for TotalTime and restores the app even when the
+provider rejects that command. An unsupported timing receipt is not a pass.
 `sequence` replays at most 32 touch/observation steps on the same session, with
 at most 45 seconds of touch movement. It validates every step before input,
 saves an original screenshot and UI source after each step, and stops when the
