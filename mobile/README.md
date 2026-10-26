@@ -2,7 +2,7 @@
 
 The mobile apps are the web game in a native shell. Capacitor wraps the Vite build (`npm run build:toybox`, output in `dist-toybox`) in an Android project at `mobile/android` and an iOS project at `mobile/ios`. The game draws, simulates and stores everything on the device; the shell adds the app icon, splash screen, haptics, keep awake, the share sheet and the system bars, and nothing else. There is no network access at all: the only permission in the Android manifest is `VIBRATE`, which the haptics plugin adds for the drawing cues.
 
-Identity: app id `app.toyboxes.poleline`, name PoleLine, publisher Toyboxes (Randroid LLC), version 1.0.0, Android `versionCode` 4, iOS `CFBundleVersion` 4 (build 3, without the drawing modes, went to Play review on Oct 24, 2026; build 4 adds them).
+Identity: app id `app.toyboxes.poleline`, name PoleLine, publisher Toyboxes (Randroid LLC), version 1.0.0, Android `versionCode` 5, iOS `CFBundleVersion` 5 (build 3, without the drawing modes, went to Play review on Oct 24, 2026; build 4 adds them; build 5 closes the lap when the last dot or stroke lands on the start point instead of stopping at 99%).
 
 ## Prerequisites
 
