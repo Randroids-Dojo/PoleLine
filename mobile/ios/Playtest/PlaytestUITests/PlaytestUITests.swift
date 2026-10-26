@@ -57,6 +57,13 @@ final class PlaytestUITests: XCTestCase {
         let to = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
         from.press(forDuration: 0.05, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.1)
         sleep(1)
+        // Tap and bend, the default, leaves the curve waiting until it is set.
+        let set = app.buttons["Set curve"]
+        if set.waitForExistence(timeout: 3) {
+            save("4-curve")
+            set.tap()
+            sleep(1)
+        }
         save("4-stroke")
         let progressed = app.staticTexts.matching(NSPredicate(format: "label MATCHES %@", "^[1-9][0-9]?%$")).firstMatch
         XCTAssertTrue(progressed.waitForExistence(timeout: 5), "a stroke moved the lap progress off zero")

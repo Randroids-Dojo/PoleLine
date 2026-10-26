@@ -30,6 +30,8 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - name: Check mobile cloud tooling
+        run: python3 -m unittest discover -s mobile/ci -p 'test_browserstack_*.py'
       - run: npm run build:toybox
       - run: npm run toybox:check
       - uses: actions/upload-artifact@v4

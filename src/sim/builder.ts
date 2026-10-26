@@ -147,6 +147,124 @@ export class LineBuilder {
     return true;
   }
 
+  /** Index of the point the latest stroke began from (its anchor, the tip it was drawn from). */
+  get strokeAnchor(): number {
+    const last = this.strokes[this.strokes.length - 1];
+    return last ? last.count - 1 : 0;
+  }
+
+  /** Track segment at the latest stroke's anchor (a projection hint). */
+  get strokeHint(): number {
+    const last = this.strokes[this.strokes.length - 1];
+    return last ? last.state.hint : 0;
+  }
+
+  /**
+   * Walk points (metres) on from the tip without changing the line: how far
+   * they would get. `at` is the index of the point that stopped them (or the
+   * length when they all pass); an offtrack result carries where it went over.
+   */
+  probe(pts: readonly { x: number; y: number }[]): { kind: 'ok' | 'finish' | 'offtrack' | 'backward' | 'skip'; at: number; x?: number; y?: number } {
+    if (this.status !== 'drawing' || !this.state) return { kind: 'skip', at: 0 };
+    const state = cloneState(this.state);
+    let last = this.lastPoint!;
+    for (let i = 0; i < pts.length; i++) {
+      const ddx = pts[i].x - last.x;
+      const ddy = pts[i].y - last.y;
+      if (ddx * ddx + ddy * ddy < MIN_POINT_SPACING * MIN_POINT_SPACING) continue;
+      const bx = quantize(pts[i].x) / UNITS_PER_METRE;
+      const by = quantize(pts[i].y) / UNITS_PER_METRE;
+      const r = walkSegment(this.track, last.x, last.y, bx, by, state);
+      if (r.kind === 'offtrack') return { kind: 'offtrack', at: i, x: r.x, y: r.y };
+      if (r.kind === 'backward') return { kind: 'backward', at: i };
+      if (r.kind === 'finish') return { kind: 'finish', at: i };
+      last = { x: bx, y: by };
+    }
+    return { kind: 'ok', at: pts.length };
+  }
+
+  /**
+   * Add points (metres) as a stroke of their own, all or nothing: if any of
+   * them would leave the track or run backwards the line is left as it was.
+   */
+  addStroke(pts: readonly { x: number; y: number }[]): ExtendResult {
+    if (this.status !== 'drawing' || !this.state) return 'skip';
+    const count = this.count;
+    const state = cloneState(this.state);
+    const strokes = this.strokes.length;
+    this.beginStroke();
+    const r = this.feedAll(pts);
+    if (r === 'offtrack' || r === 'backward') {
+      this.pts.length = count * 2;
+      this.state = state;
+      this.strokes.length = strokes;
+      this.offTrack = null;
+    }
+    return r;
+  }
+
+  /**
+   * Swap the points of the latest stroke for others (metres), all or
+   * nothing. The new points must pass the same walk, and a stroke that
+   * finished the lap must still finish it. Undo still removes the stroke whole.
+   */
+  replaceStroke(pts: readonly { x: number; y: number }[]): boolean {
+    const top = this.strokes[this.strokes.length - 1];
+    if (!top || this.status === 'idle' || !this.state) return false;
+    const saved = { pts: this.pts.slice(), state: cloneState(this.state), status: this.status, offTrack: this.offTrack };
+    this.pts.length = top.count * 2;
+    this.state = cloneState(top.state);
+    this.status = 'drawing';
+    let r = this.feedAll(pts);
+    if (saved.status === 'done' && !this.finished && r !== 'offtrack' && r !== 'backward' && this.count >= 2) {
+      // The new last point can round to just short of the line: carry on a
+      // little in the same direction so the line is crossed and trimmed there.
+      const n = this.pts.length;
+      const dx = this.pts[n - 2] - this.pts[n - 4];
+      const dy = this.pts[n - 1] - this.pts[n - 3];
+      const len = Math.sqrt(dx * dx + dy * dy);
+      if (len > 0) r = this.extend(this.pts[n - 2] / UNITS_PER_METRE + (dx / len) * 1.5, this.pts[n - 1] / UNITS_PER_METRE + (dy / len) * 1.5);
+    }
+    if (r === 'offtrack' || r === 'backward' || this.finished !== (saved.status === 'done')) {
+      this.pts = saved.pts;
+      this.state = saved.state;
+      this.status = saved.status;
+      this.offTrack = saved.offTrack;
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Run the line on through points (metres) as part of the latest stroke, to
+   * close the lap. All or nothing: unless they cross the finish, the line is
+   * left as it was.
+   */
+  closeThrough(pts: readonly { x: number; y: number }[]): boolean {
+    if (this.status !== 'drawing' || !this.state) return false;
+    const saved = { count: this.count, state: cloneState(this.state), offTrack: this.offTrack };
+    if (this.feedAll(pts) === 'finish') return true;
+    this.pts.length = saved.count * 2;
+    this.state = saved.state;
+    this.offTrack = saved.offTrack;
+    return false;
+  }
+
+  /** The lap has been closed (read through a getter so TypeScript does not narrow it away). */
+  private get finished(): boolean {
+    return this.status === 'done';
+  }
+
+  private feedAll(pts: readonly { x: number; y: number }[]): ExtendResult {
+    let out: ExtendResult = 'skip';
+    for (const p of pts) {
+      const r = this.extend(p.x, p.y);
+      if (r === 'offtrack' || r === 'backward' || r === 'finish') return r;
+      if (r === 'ok') out = 'ok';
+    }
+    return out;
+  }
+
   extend(x: number, y: number): ExtendResult {
     if (this.status !== 'drawing' || !this.state) return 'skip';
     const last = this.lastPoint!;

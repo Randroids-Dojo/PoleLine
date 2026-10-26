@@ -43,6 +43,7 @@ PY
 if [[ "$poleline_kind" == "iphone" ]]; then
     xcodebuild -project "$poleline_app_project" -scheme App -configuration Release \
         -destination 'generic/platform=iOS' -derivedDataPath "$poleline_out/device-build" \
+        CURRENT_PROJECT_VERSION=3 MARKETING_VERSION=1.0.0 \
         CODE_SIGNING_ALLOWED=NO build > "$poleline_out/device-build.log" 2>&1
     poleline_device_app="$poleline_out/device-build/Build/Products/Release-iphoneos/App.app"
     python3 mobile/ci/verify-web.py "$poleline_device_app/public" "$poleline_manifest" --native-shell
@@ -64,6 +65,7 @@ fi
 
 xcodebuild -project "$poleline_app_project" -scheme App -configuration Release \
     -destination "platform=iOS Simulator,id=$poleline_udid" -derivedDataPath "$poleline_out/simulator-build" \
+    CURRENT_PROJECT_VERSION=3 MARKETING_VERSION=1.0.0 \
     CODE_SIGNING_ALLOWED=NO build > "$poleline_out/simulator-build.log" 2>&1
 poleline_simulator_app="$poleline_out/simulator-build/Build/Products/Release-iphonesimulator/App.app"
 python3 mobile/ci/verify-web.py "$poleline_simulator_app/public" "$poleline_manifest" --native-shell

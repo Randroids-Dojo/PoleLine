@@ -1,5 +1,5 @@
-// Settings as a bottom sheet: sound, screen wake, and how the map scrolls
-// while drawing.
+// Settings as a bottom sheet: how the line goes down (freehand or an easy
+// mode), how the map scrolls while drawing, the car, sound and screen wake.
 
 import type { App } from '../app/app';
 import { setSoundEnabled, sfx, unlockAudio } from '../app/audio';
@@ -7,6 +7,7 @@ import { SCROLL_SPEED_MAX, SCROLL_SPEED_MIN, getSettings, saveSettings, type Scr
 import { setKeepAwake } from '../app/wake';
 import { alertsBlocked, alertsSupported, canPromptInstall, disableAlerts, enableAlerts, isInstalled, isIos, onInstallChange, promptInstall } from '../app/pwa';
 import { CORNER_DAMPING_OPTIONS } from '../app/damping';
+import { DRAW_MODES, LEVEL_LABELS, type DrawMode } from '../app/draw-mode';
 import { ICONS, h } from '../ui/dom';
 import { openGarage } from './garage';
 import { APP_RELEASE, LOCAL_ONLY } from '../app/edition';
@@ -96,6 +97,25 @@ export function openSettings(app: App, onChange?: (s: Settings) => void): void {
   modeGroup.append(keepOptions);
   syncSpeed(s.scrollMode);
 
+  // Tap and bend never scrolls under the finger, so its scroll settings are hidden.
+  const scrollHead = h('h3', null, 'When the map scrolls while you draw');
+  const syncScroll = (mode: DrawMode) => {
+    scrollHead.hidden = modeGroup.hidden = mode === 'curves';
+  };
+  const drawGroup = h('div', { class: 'set-group', role: 'radiogroup', 'aria-label': 'How you draw' });
+  for (const m of DRAW_MODES) {
+    const input = h('input', { type: 'radio', name: 'draw-mode', value: m.id }) as HTMLInputElement;
+    input.checked = s.drawMode === m.id;
+    input.addEventListener('change', () => {
+      if (!input.checked) return;
+      changed({ drawMode: m.id });
+      syncScroll(m.id);
+    });
+    const tag = h('span', { class: `set-level is-${m.level}` }, LEVEL_LABELS[m.level]);
+    drawGroup.append(h('label', { class: 'set-mode' }, input, h('span', { class: 'set-text' }, h('b', null, m.label, tag), h('small', null, m.detail))));
+  }
+  syncScroll(s.drawMode);
+
   const closeBtn = h('button', { class: 'icon-btn', 'aria-label': 'Close settings', html: ICONS.close, onclick: close });
   const sheet = h(
     'section',
@@ -104,7 +124,9 @@ export function openSettings(app: App, onChange?: (s: Settings) => void): void {
     h(
       'div',
       { class: 'settings-body' },
-      h('h3', null, 'When the map scrolls while you draw'),
+      h('h3', null, 'How you draw'),
+      drawGroup,
+      scrollHead,
       modeGroup,
       h('h3', null, 'Car'),
       h('div', { class: 'set-group' }, carRow(app)),

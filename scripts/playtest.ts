@@ -3,6 +3,7 @@
 //
 //   npx tsx scripts/playtest.ts [slug] [ideal|good|wobbly|centre|offtrack] [outDir] [url]
 // offtrack: goes over the white line once, taps Undo stroke, then finishes cleanly.
+// DRAW=smooth plays tidy strokes (medium): the same strokes, each corrected as it lifts. Without DRAW it draws freehand.
 
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -55,10 +56,11 @@ page.on('console', (m) => {
   if (m.type() === 'error' || m.type() === 'warning') console.log('[page]', m.text());
 });
 page.on('pageerror', (e) => console.log('[pageerror]', e.message));
-const seed = ([s, mode, speed, rotate, damp]: readonly [string, string, string, string, string]) => {
-  localStorage.setItem('poleline:v1:settings', JSON.stringify({ v: 2, tutorial: 'done', lastTrack: s, sound: false, scrollMode: mode, scrollSpeed: Number(speed), autoRotate: rotate !== 'off', cornerDamping: damp, panCoachSeen: true }));
+const seed = ([s, mode, speed, rotate, damp, draw]: readonly [string, string, string, string, string, string]) => {
+  localStorage.setItem('poleline:v1:settings', JSON.stringify({ v: 2, tutorial: 'done', lastTrack: s, sound: false, drawMode: draw, scrollMode: mode, scrollSpeed: Number(speed), autoRotate: rotate !== 'off', cornerDamping: damp, panCoachSeen: true }));
 };
-const seedArgs = [slug, process.env.MODE ?? 'pause', process.env.SPEED ?? '1', process.env.ROTATE ?? 'on', process.env.DAMP ?? 'off'] as const;
+// DRAW=smooth draws the same strokes in tidy strokes (scripts/curvetest.ts drives tap and bend). Freehand unless set.
+const seedArgs = [slug, process.env.MODE ?? 'pause', process.env.SPEED ?? '1', process.env.ROTATE ?? 'on', process.env.DAMP ?? 'off', process.env.DRAW ?? 'freehand'] as const;
 if (cdp) {
   // The app is already open: seed its storage, then reload with the debug handle on.
   await page.evaluate(seed, seedArgs);

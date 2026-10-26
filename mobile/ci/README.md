@@ -1,5 +1,12 @@
 # Build 3 cloud evidence
 
+This is a manually dispatched check of the retained build 3 release, not the
+current game. Current gameplay and native build numbers come from `main` and
+are checked by the Toybox edition workflow. The historical iOS check overrides
+the package version to 1.0.0 (3), so a newer native project cannot label the
+retained build 3 web assets as a newer release. The cloud tooling unit tests
+run in the regular pull request and main branch checks without credentials.
+
 `mobile-release-check.yml` runs the existing installed-app iOS touch checks on
 an iPhone and an iPad simulator using GitHub's Mac runners. It also creates an
 unsigned ARM64 device IPA for a provider that can re-sign it. No signing key or

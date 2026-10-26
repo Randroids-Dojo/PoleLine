@@ -10,7 +10,7 @@
 import type { Redis } from '@upstash/redis';
 import webpush from 'web-push';
 import { z } from 'zod';
-import { formatLap } from '../src/app/format.js';
+import { formatLap } from '../src/shared/time.js';
 
 export const PUSH_PREFIX = 'poleline:push:';
 /** Subscriptions expire unless the app refreshes them, which it does on every open. */

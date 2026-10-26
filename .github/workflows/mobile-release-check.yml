@@ -1,8 +1,6 @@
-name: Mobile release evidence
+name: Build 3 release evidence
 
 on:
-  push:
-    branches: [release/cloud-validation-20261022]
   workflow_dispatch:
     inputs:
       cloud_access_only:
