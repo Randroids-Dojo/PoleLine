@@ -266,6 +266,35 @@ describe('line builder for tidy strokes and tap and bend', () => {
     expect(b.status).toBe('done');
     expect(validatePath(track, decodePath(encodePath(b.points.slice()))).ok).toBe(true);
   });
+
+  it('closes a lap left on the start point as part of its last stroke, and the server accepts it', () => {
+    const b = new LineBuilder(track);
+    b.start(ideal(0).x, ideal(0).y);
+    for (let s = 1; s < track.length - 100; s += 0.8) b.extend(ideal(s).x, ideal(s).y);
+    b.beginStroke();
+    for (let s = track.length - 100; s < track.length - 1.5; s += 0.8) b.extend(ideal(s).x, ideal(s).y);
+    expect(b.status).toBe('drawing');
+    const first = b.firstPoint!;
+    expect(b.closeThrough([first, { x: first.x + track.tx[0] * 1.5, y: first.y + track.ty[0] * 1.5 }])).toBe(true);
+    expect(b.status).toBe('done');
+    expect(validatePath(track, decodePath(encodePath(b.points.slice()))).ok).toBe(true);
+  });
+
+  it('leaves the line as it was when it cannot close the lap', () => {
+    const b = new LineBuilder(track);
+    b.start(ideal(0).x, ideal(0).y);
+    for (let s = 1; s < track.length - 3; s += 0.8) b.extend(ideal(s).x, ideal(s).y);
+    const kept = b.points.slice();
+    const progress = b.progress;
+    // Short of the line, then across the grass.
+    expect(b.closeThrough([ideal(track.length - 2)])).toBe(false);
+    const f = frameAt(track, 0);
+    expect(b.closeThrough([{ x: f.x + f.nx * 40, y: f.y + f.ny * 40 }])).toBe(false);
+    expect(b.points).toEqual(kept);
+    expect(b.progress).toBe(progress);
+    expect(b.offTrack).toBeNull();
+    expect(b.status).toBe('drawing');
+  });
 });
 
 describe('draw mode setting', () => {

@@ -235,6 +235,21 @@ export class LineBuilder {
     return true;
   }
 
+  /**
+   * Run the line on through points (metres) as part of the latest stroke, to
+   * close the lap. All or nothing: unless they cross the finish, the line is
+   * left as it was.
+   */
+  closeThrough(pts: readonly { x: number; y: number }[]): boolean {
+    if (this.status !== 'drawing' || !this.state) return false;
+    const saved = { count: this.count, state: cloneState(this.state), offTrack: this.offTrack };
+    if (this.feedAll(pts) === 'finish') return true;
+    this.pts.length = saved.count * 2;
+    this.state = saved.state;
+    this.offTrack = saved.offTrack;
+    return false;
+  }
+
   /** The lap has been closed (read through a getter so TypeScript does not narrow it away). */
   private get finished(): boolean {
     return this.status === 'done';

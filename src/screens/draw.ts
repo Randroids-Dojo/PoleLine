@@ -105,6 +105,8 @@ const MORPH_MS = 260;
 /** Tap and bend: touch radius of a curve's handles (px), and the shortest curve (metres). */
 const KNOB_GRAB = 34;
 const MIN_CURVE = 3;
+/** A curve's end, or a stroke's lift, this close (px) before the finish line closes the lap where it began: a finger on the start dot lands about this far out. */
+const FINISH_SNAP = 40;
 /** Tap and bend: when less road than this share of the screen shows past a curve's end, the map moves on. */
 const CURVE_ROOM = 0.36;
 const HINTS = {
@@ -871,6 +873,7 @@ export class DrawScreen implements Screen {
     }
     if (!this.drawing) return;
     this.drawing = false;
+    if (this.closeShort()) return;
     if (this.builder.status === 'drawing') {
       const told = this.tidy();
       sfx.lift();
@@ -1018,6 +1021,7 @@ export class DrawScreen implements Screen {
   private advance(): void {
     this.drawing = false;
     this.pickup = null;
+    if (this.closeShort()) return;
     this.awaitLift = true;
     this.tidy();
     sfx.lift();
@@ -1148,13 +1152,14 @@ export class DrawScreen implements Screen {
 
   /**
    * Where a curve ends for a finger at `w`: on the asphalt under it, arriving
-   * along the track. Past the finish it closes the loop instead: it ends just
-   * beyond where the lap began, heading the way the lap set off, so the line
-   * crosses the finish exactly where it started.
+   * along the track. On the start dot, or anywhere past or just short of the
+   * finish, it closes the loop instead: it ends just beyond where the lap
+   * began, heading the way the lap set off, so the line crosses the finish
+   * exactly where it started.
    */
   private endFor(w: Vec): { to: Vec; toDir: Vec } {
     const to = this.clampFar(w);
-    if (this.builder.progress + this.ahead(to).by >= this.track.length - 0.5) {
+    if (this.builder.progress + this.ahead(to).by >= this.track.length - this.finishReach()) {
       const close = this.closingPoint();
       if (close) return { to: close.to, toDir: close.dir };
     }
@@ -1178,6 +1183,28 @@ export class DrawScreen implements Screen {
     if (l < 1e-6) return null;
     const dir = { x: dx / l, y: dy / l };
     return { to: { x: x0 + dir.x * 1.5, y: y0 + dir.y * 1.5 }, dir };
+  }
+
+  /** How far short of the finish line (metres) a curve's end or a stroke's lift still closes the lap. */
+  private finishReach(): number {
+    return Math.max(0.5, FINISH_SNAP / this.cam.zoom);
+  }
+
+  /**
+   * A line left just short of the finish (within a finger of the start dot)
+   * runs on through the start point and closes the lap there, so a last stroke
+   * or curve that ends on the dot finishes the lap instead of stopping at 99%.
+   */
+  private closeShort(): boolean {
+    const b = this.builder;
+    if (b.status !== 'drawing' || this.track.length - b.progress > this.finishReach()) return false;
+    const first = b.firstPoint;
+    const close = this.closingPoint();
+    if (!first || !close || !b.closeThrough([first, close.to])) return false;
+    this.appendInk();
+    this.updateHud();
+    this.finish();
+    return true;
   }
 
   /** Would a curve leaving `from` along `dir` still be on the asphalt a few metres on? */
@@ -1428,6 +1455,7 @@ export class DrawScreen implements Screen {
     buzz(8);
     this.updateHud();
     if (r === 'finish') this.finish();
+    else this.closeShort();
     return true;
   }
 
