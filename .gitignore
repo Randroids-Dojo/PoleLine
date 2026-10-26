@@ -8,6 +8,7 @@ test-results
 artifacts
 *.log
 .claude/worktrees
+__pycache__/
 
 # Mobile shell outputs (Capacitor). The platform projects are committed; builds and copied bundles are not.
 dist-toybox
