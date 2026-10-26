@@ -10,7 +10,7 @@ import { TUTORIAL_COPY } from './app/tutorial-copy';
 import { RaceScreen, timeAtProgress, type CamSnapshot, type RaceCaption } from './screens/race';
 import { ResultsScreen } from './screens/results';
 import { openLeaderboard } from './screens/leaderboard';
-import { openTimes } from './screens/times';
+import { openLinePicker, openTimes } from './screens/times';
 import { flushUnsubmitted } from './app/sync';
 import { fetchLap, type ReplayLap } from './app/api';
 import { addLap, getLaps, whenText, type SavedLap } from './app/laps';
@@ -39,7 +39,7 @@ let currentSlug = getSettings().lastTrack;
 
 function home(slug = currentSlug): void {
   currentSlug = slug;
-  app.show(new HomeScreen(app, { draw: (s, c, walkthrough) => void draw(s, c, walkthrough), leaderboard: (s) => board(s) }, slug));
+  app.show(new HomeScreen(app, { draw: (s, c, walkthrough) => void draw(s, c, walkthrough), leaderboard: (s) => board(s), edit: (s) => pickLine(s) }, slug));
 }
 
 // Tutorial -----------------------------------------------------------------
@@ -152,6 +152,38 @@ async function watch(slug: string, rank: number): Promise<void> {
   app.show(new RaceScreen(app, track, app.art(track), result, ghost, ghost ? ghost.sectorsMs : null, { finished: back, exit: back }, { driver: lap.name, rank, ghostName }));
 }
 
+/** A saved line to edit: its points (delta code), the tyre it ran on and its time. */
+interface EditSource {
+  code: number[];
+  compound: Compound;
+  timeMs: number;
+}
+
+/** Choose one of your saved lines on a circuit to edit. */
+function pickLine(slug: string): void {
+  openLinePicker(app, slug, {
+    edit: (index) => {
+      const lap = getLaps(slug)[index];
+      return lap ? editLine(slug, lap) : Promise.reject(new Error('no such lap'));
+    },
+  });
+}
+
+/**
+ * Open a saved line whole in the draw screen, ready to redraw any part of it.
+ * Rejects when the line no longer passes the circuit's checks.
+ */
+async function editLine(slug: string, from: EditSource): Promise<void> {
+  const track = await app.track(slug);
+  if (!validatePath(track, decodePath(from.code)).ok) throw new Error('saved line is not a legal lap');
+  currentSlug = slug;
+  if (!track.meta.tutorial) saveSettings({ lastTrack: slug });
+  if (history.state?.screen !== 'session') history.pushState({ screen: 'session' }, '');
+  app.show(
+    new DrawScreen(app, track, app.art(track), from.compound, { complete: (pts, tyre) => race(track, tyre, pts, false, from), exit: () => home(slug) }, null, null, absolute(from.code)),
+  );
+}
+
 async function draw(slug: string, compound: Compound, walkthrough = false): Promise<void> {
   currentSlug = slug;
   const meta = app.meta(slug);
@@ -181,7 +213,8 @@ async function draw(slug: string, compound: Compound, walkthrough = false): Prom
   );
 }
 
-function race(track: Track, compound: Compound, pts: number[], walkthrough = false): void {
+/** Race a drawn line. `edited` is the saved line it was edited from, if it was. */
+function race(track: Track, compound: Compound, pts: number[], walkthrough = false, edited: EditSource | null = null): void {
   const slug = track.meta.slug;
   const art = app.art(track);
   const code = encodePath(pts);
@@ -199,19 +232,26 @@ function race(track: Track, compound: Compound, pts: number[], walkthrough = fal
   const attempt = bumpAttempts(slug);
   const isPb = !previous || lap.timeMs < previous.timeMs;
   const setup = currentSetup();
+  const date = new Date().toISOString();
+  // Your quickest laps stay on the device with their lines, to edit later. The
+  // Toybox edition shows them where the web edition shows the leaderboard.
+  // Recorded before a new best replaces the old one, so a best kept from
+  // before laps were (the web edition) joins the list instead of being lost.
+  const added = addLap(slug, { timeMs: lap.timeMs, compound, sectorsMs: lap.sectorsMs, code, date, setup });
+  const kept = LOCAL_ONLY ? added : null;
   if (isPb) {
-    setBest(slug, { timeMs: lap.timeMs, compound, sectorsMs: lap.sectorsMs, code, date: new Date().toISOString(), submitted: false, setup });
+    setBest(slug, { timeMs: lap.timeMs, compound, sectorsMs: lap.sectorsMs, code, date, submitted: false, setup });
   }
   updateBestSectors(slug, lap.sectorsMs);
-  // The Toybox edition keeps your quickest laps on the device instead of a leaderboard.
-  const kept = LOCAL_ONLY ? addLap(slug, { timeMs: lap.timeMs, compound, sectorsMs: lap.sectorsMs, code, date: new Date().toISOString(), setup }) : null;
   const showResults = (from: CamSnapshot) => {
     // Finishing the walkthrough lap completes the tutorial.
     if (walkthrough) endTutorial('done');
     app.show(
-      new ResultsScreen(app, track, art, { lap, points, code, previous, bestSectorsBefore, isPb, attempt, setup, walkthrough, kept }, {
+      new ResultsScreen(app, track, art, { lap, points, code, previous, bestSectorsBefore, isPb, attempt, setup, walkthrough, kept, editedFrom: edited?.timeMs ?? null }, {
         // The tyre chosen for this circuit, which copying a setup from the leaderboard can change.
         again: () => void draw(slug, getTyre(slug)),
+        // The line just raced, opened whole to change another part. Not on the tutorial, whose lap is mostly drawn for you.
+        edit: track.meta.tutorial ? undefined : () => void editLine(slug, { code, compound, timeMs: lap.timeMs }),
         leaderboard: () => board(slug),
         home: () => home(slug),
         // The tutorial circuit always leads on to the championship.
@@ -233,9 +273,9 @@ function race(track: Track, compound: Compound, pts: number[], walkthrough = fal
 }
 
 window.addEventListener('popstate', () => {
-  // A stray back swipe must not throw away a half-drawn lap.
+  // A stray back swipe must not throw away a half-drawn lap or an edited one.
   const cur = app.current;
-  if (cur instanceof DrawScreen && cur.status === 'drawing') {
+  if (cur instanceof DrawScreen && cur.holdsWork) {
     history.pushState({ screen: 'session' }, '');
     return;
   }
@@ -243,7 +283,7 @@ window.addEventListener('popstate', () => {
 });
 
 if (import.meta.env.DEV || new URLSearchParams(location.search).has('debug')) {
-  (window as unknown as { __pl: unknown }).__pl = { app, race, draw };
+  (window as unknown as { __pl: unknown }).__pl = { app, race, draw, editLine };
 }
 
 /** Links from lap alerts: `?track=<slug>&board=1` opens that circuit's leaderboard. */
@@ -253,7 +293,7 @@ function openLink(search: string): boolean {
   if (!slug || !CATALOG.some((m) => m.slug === slug)) return false;
   // Never throw away a lap being drawn or raced.
   const cur = app.current;
-  if ((cur instanceof DrawScreen && cur.status === 'drawing') || cur instanceof RaceScreen) return true;
+  if ((cur instanceof DrawScreen && cur.holdsWork) || cur instanceof RaceScreen) return true;
   home(slug);
   if (q.has('board')) board(slug);
   return true;

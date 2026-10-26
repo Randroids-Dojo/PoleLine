@@ -50,6 +50,7 @@ export const ICONS = {
   chevron: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M7 10l5 5 5-5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   chevronRight: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M10 7l5 5-5 5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   play: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/></svg>',
+  edit: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4.5 19.5l1-4.6L15.6 4.8a2.1 2.1 0 013 3L8.5 17.9z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M13.6 6.8l3.6 3.6" stroke="currentColor" stroke-width="2.2"/></svg>',
   board: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 20V11h4v9M10 20V5h4v15M16 20v-6h4v6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/></svg>',
 };
 

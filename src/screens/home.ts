@@ -8,6 +8,7 @@ import { openConditions } from './conditions';
 import { outlinePath, outlineViewBox } from '../app/describe';
 import { averageGrid, formatLap, gridSlot, type GridSlot } from '../app/format';
 import { DEFAULT_TRACK, getAttempts, getBest, getSettings, getTyre, saveSettings } from '../app/store';
+import { getLaps } from '../app/laps';
 import { LOCAL_ONLY } from '../app/edition';
 import { CATALOG } from '../data/catalog';
 import type { Compound, TrackMeta } from '../sim/types';
@@ -17,6 +18,8 @@ export interface HomeActions {
   /** `walkthrough` replays the guided tutorial on the tutorial circuit. */
   draw(slug: string, compound: Compound, walkthrough?: boolean): void;
   leaderboard(slug: string): void;
+  /** Pick one of your saved lines on the circuit to edit. */
+  edit(slug: string): void;
 }
 
 export class HomeScreen implements Screen {
@@ -138,6 +141,13 @@ export class HomeScreen implements Screen {
     };
     const go = h('button', { class: 'btn-primary', onclick: () => start(false) }, m.tutorial ? 'Draw the last corner' : 'Draw a lap');
     const replay = m.tutorial ? h('button', { class: 'btn-quiet launch-replay', onclick: () => start(true) }, 'Replay the walkthrough') : null;
+    // Any lap you have drawn here can be opened again and changed in part.
+    const edit = !m.tutorial && getLaps(m.slug).length
+      ? h('button', { class: 'btn-quiet launch-replay', onclick: () => {
+          sfx.tap();
+          this.actions.edit(m.slug);
+        } }, 'Edit a saved line')
+      : null;
 
     this.event.append(
       h(
@@ -163,7 +173,7 @@ export class HomeScreen implements Screen {
       ),
       map,
       times,
-      h('div', { class: 'launch' }, go, replay),
+      h('div', { class: 'launch' }, go, replay, edit),
     );
   }
 

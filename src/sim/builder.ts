@@ -7,12 +7,22 @@
 // of the line, whatever the scroll mode. The player undoes the stroke or
 // carries on from there.
 
-import { MAX_POINTS, MIN_POINT_SPACING, UNITS_PER_METRE, cloneState, quantize, startState, walkSegment, type WalkState } from './path.js';
+import { FINISH_TOLERANCE, MAX_POINTS, MIN_POINT_SPACING, UNITS_PER_METRE, cloneState, quantize, startState, walkSegment, type WalkState } from './path.js';
 import { projectNear, type Track } from './track.js';
 
 export type BuilderStatus = 'idle' | 'drawing' | 'done';
 
 export type ExtendResult = 'skip' | 'ok' | 'backward' | 'offtrack' | 'finish';
+
+/** Everything a LineBuilder holds, to put back when a change does not work out. */
+export interface BuilderSnapshot {
+  status: BuilderStatus;
+  pts: number[];
+  state: WalkState | null;
+  strokes: { count: number; state: WalkState }[];
+  base: number;
+  offTrack: { x: number; y: number } | null;
+}
 
 /** How far from the start line (metres) a first touch may land and still snap onto it. */
 export const START_TOUCH_RANGE = 16;
@@ -147,6 +157,49 @@ export class LineBuilder {
     return true;
   }
 
+  /**
+   * Hold a whole saved lap (decimetre points, flat [x, y, ...]) as a finished
+   * line, walked exactly as the server's validator walks it. Returns false if
+   * it is not a legal lap.
+   */
+  load(points: readonly number[]): boolean {
+    this.reset();
+    if (points.length < 4 || points.length % 2) return false;
+    const st = startState(this.track, points[0] / UNITS_PER_METRE, points[1] / UNITS_PER_METRE);
+    if (!st) return false;
+    const state = st.state;
+    const n = points.length / 2;
+    for (let i = 1; i < n; i++) {
+      const r = walkSegment(this.track, points[i * 2 - 2] / UNITS_PER_METRE, points[i * 2 - 1] / UNITS_PER_METRE, points[i * 2] / UNITS_PER_METRE, points[i * 2 + 1] / UNITS_PER_METRE, state);
+      if (r.kind === 'offtrack' || r.kind === 'backward' || (r.kind === 'finish' && i !== n - 1)) return false;
+    }
+    if (state.sUn < this.track.length - FINISH_TOLERANCE) return false;
+    this.pts = points.slice();
+    this.state = state;
+    this.status = 'done';
+    return true;
+  }
+
+  snapshot(): BuilderSnapshot {
+    return {
+      status: this.status,
+      pts: this.pts.slice(),
+      state: this.state ? cloneState(this.state) : null,
+      strokes: this.strokes.map((s) => ({ count: s.count, state: cloneState(s.state) })),
+      base: this.base,
+      offTrack: this.offTrack,
+    };
+  }
+
+  restore(s: BuilderSnapshot): void {
+    this.status = s.status;
+    this.pts = s.pts.slice();
+    this.state = s.state ? cloneState(s.state) : null;
+    this.strokes = s.strokes.map((k) => ({ count: k.count, state: cloneState(k.state) }));
+    this.base = s.base;
+    this.offTrack = s.offTrack;
+  }
+
   /** Index of the point the latest stroke began from (its anchor, the tip it was drawn from). */
   get strokeAnchor(): number {
     const last = this.strokes[this.strokes.length - 1];
@@ -216,15 +269,7 @@ export class LineBuilder {
     this.state = cloneState(top.state);
     this.status = 'drawing';
     let r = this.feedAll(pts);
-    if (saved.status === 'done' && !this.finished && r !== 'offtrack' && r !== 'backward' && this.count >= 2) {
-      // The new last point can round to just short of the line: carry on a
-      // little in the same direction so the line is crossed and trimmed there.
-      const n = this.pts.length;
-      const dx = this.pts[n - 2] - this.pts[n - 4];
-      const dy = this.pts[n - 1] - this.pts[n - 3];
-      const len = Math.sqrt(dx * dx + dy * dy);
-      if (len > 0) r = this.extend(this.pts[n - 2] / UNITS_PER_METRE + (dx / len) * 1.5, this.pts[n - 1] / UNITS_PER_METRE + (dy / len) * 1.5);
-    }
+    if (saved.status === 'done' && !this.finished && r !== 'offtrack' && r !== 'backward') r = this.crossLine();
     if (r === 'offtrack' || r === 'backward' || this.finished !== (saved.status === 'done')) {
       this.pts = saved.pts;
       this.state = saved.state;
@@ -248,6 +293,37 @@ export class LineBuilder {
     this.state = saved.state;
     this.offTrack = saved.offTrack;
     return false;
+  }
+
+  /**
+   * Run the line on through points (metres) to the finish, all or nothing:
+   * true when it crosses the line with every point passing the walk,
+   * otherwise the line is left as it was. Editing a saved lap rejoins the rest
+   * of the old line this way.
+   */
+  finishThrough(pts: readonly { x: number; y: number }[]): boolean {
+    if (this.status !== 'drawing' || !this.state) return false;
+    const saved = this.snapshot();
+    let r = this.feedAll(pts);
+    if (r !== 'finish' && r !== 'offtrack' && r !== 'backward') r = this.crossLine();
+    if (r === 'finish') return true;
+    this.restore(saved);
+    return false;
+  }
+
+  /**
+   * A line that ends a hair short of the finish (a stored last point rounds
+   * to just short of it): carry on a little in the same direction so the line
+   * is crossed and trimmed there.
+   */
+  private crossLine(): ExtendResult {
+    if (this.count < 2) return 'skip';
+    const n = this.pts.length;
+    const dx = this.pts[n - 2] - this.pts[n - 4];
+    const dy = this.pts[n - 1] - this.pts[n - 3];
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len <= 0) return 'skip';
+    return this.extend(this.pts[n - 2] / UNITS_PER_METRE + (dx / len) * 1.5, this.pts[n - 1] / UNITS_PER_METRE + (dy / len) * 1.5);
   }
 
   /** The lap has been closed (read through a getter so TypeScript does not narrow it away). */
