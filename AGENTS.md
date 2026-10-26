@@ -37,6 +37,7 @@ npx tsx scripts/calibrate.ts --report                  # lap times, tyre gaps, s
 npx tsx scripts/tidytest.ts                            # tidy strokes (medium) against freehand (hard) on hand-like laps, headless
 npx tsx scripts/easytest.ts                            # drawing modes in the browser: settings and default, a corrected stroke, a curve's handles (dev server running)
 npx tsx scripts/curvetest.ts spielberg /tmp/curves     # tap and bend: a whole lap of taps and bends, then the race (dev server running)
+npx tsx scripts/closetest.ts                           # closing the loop: a last dot or lift on the start point finishes the lap in every mode, never 99% (dev server running)
 npx tsx scripts/tutorialtest.ts                        # the guided first lap: difficulty on the welcome card, the pause menu, copy that follows the mode (dev server running)
 DRAW=smooth npx tsx scripts/playtest.ts spielberg wobbly /tmp/play   # the scripted playtest with every stroke corrected (playtest draws freehand unless DRAW is set)
 
