@@ -152,7 +152,6 @@ const api = (page: Page) => ({
   edit: () => page.evaluate(() => (window as unknown as { __pl: { app: { current: { editState: EditState } } } }).__pl.app.current.editState),
   toScreen: (p: V) => page.evaluate(([x, y]) => (window as unknown as { __pl: { app: { current: { worldToScreen(x: number, y: number): V } } } }).__pl.app.current.worldToScreen(x, y), [p.x, p.y]),
   line: () => page.evaluate(() => Array.from((window as unknown as { __pl: { app: { current: { builder: { points: number[] } } } } }).__pl.app.current.builder.points)),
-  screen: () => page.evaluate(() => (window as unknown as { __pl: { app: { current: object } } }).__pl.app.current.constructor.name),
   /** Is there ink at this screen point (purple, within a few pixels)? */
   inkAt: (p: V) =>
     page.evaluate(([x, y]) => {
@@ -375,7 +374,8 @@ for (const mode of modes) {
   // A stray back swipe keeps the edit.
   await page.evaluate(() => history.back());
   await page.waitForTimeout(400);
-  check(`${name}: a back swipe keeps the edited line`, (await a.screen()) === 'DrawScreen' && (await a.edit())?.edited === true);
+  // Only the editor has an edit state (class names are minified in a production build).
+  check(`${name}: a back swipe keeps the edited line`, (await a.edit())?.edited === true);
 
   // Race it.
   const before = await a.line();
