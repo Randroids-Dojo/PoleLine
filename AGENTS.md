@@ -39,6 +39,7 @@ npx tsx scripts/easytest.ts                            # drawing modes in the br
 npx tsx scripts/curvetest.ts spielberg /tmp/curves     # tap and bend: a whole lap of taps and bends, then the race (dev server running)
 npx tsx scripts/closetest.ts                           # closing the loop: a last dot or lift on the start point finishes the lap in every mode, never 99% (dev server running)
 npx tsx scripts/tutorialtest.ts                        # the guided first lap: difficulty on the welcome card, the pause menu, copy that follows the mode (dev server running)
+npx tsx scripts/edittest.ts                            # editing a saved line in every mode: picker, whole-lap view, a redraw that strays then rejoins, the splice point for point, undo, race (dev server running; EDITION=toybox with harbour-loop for the app)
 DRAW=smooth npx tsx scripts/playtest.ts spielberg wobbly /tmp/play   # the scripted playtest with every stroke corrected (playtest draws freehand unless DRAW is set)
 
 npm run toybox:tracks        # solve the made-up circuits (contact sheet: add --sheet /tmp/sheet.png to make-circuits.ts) and build src/data/toybox

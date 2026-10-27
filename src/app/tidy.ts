@@ -82,9 +82,10 @@ function solveBanded(d0: Float64Array, d1: Float64Array, d2: Float64Array, b: Fl
  * from. `hint` is a track segment near the anchor. `endAt` moves the end from
  * where the finger lifted to a point of the caller's choosing (the stroke that
  * finishes the lap ends where the lap began). Null when the stroke is too short
- * to correct.
+ * to correct. `after` pins points past the end (a stroke rejoining the old line
+of a lap being edited arrives along it) in place of looking ahead.
  */
-export function tidyStroke(track: Track, line: ArrayLike<number>, anchor: number, startDir: Vec, hint: number, tuning: TidyTuning = TIDY_DEFAULTS, endAt?: Vec): Tidied | null {
+export function tidyStroke(track: Track, line: ArrayLike<number>, anchor: number, startDir: Vec, hint: number, tuning: TidyTuning = TIDY_DEFAULTS, endAt?: Vec, after?: Vec[]): Tidied | null {
   const t = track;
   const count = line.length / 2;
   if (count - anchor < 4) return null;
@@ -141,7 +142,8 @@ export function tidyStroke(track: Track, line: ArrayLike<number>, anchor: number
   let sv = t.s[seg0];
   let j = 0;
   let ghostFrom = -1;
-  for (let k = 1; sv < sStop + tuning.ahead; k++) {
+  const ahead = after?.length ? 0 : tuning.ahead;
+  for (let k = 1; sv < sStop + ahead; k++) {
     sv += t.segLen[(seg0 + k - 1) % t.n];
     if (sv <= sA + 0.6) continue;
     if (sv >= sStop - 0.6 && sv < sStop + 2) continue;
@@ -178,9 +180,11 @@ export function tidyStroke(track: Track, line: ArrayLike<number>, anchor: number
     ex = end.x;
     ey = end.y;
   }
-  // Node layout: behind2, behind1, anchor, drawn vertices, end, vertices ahead.
-  // fi maps a node to its free offset (or -1 for a fixed node).
-  const N = 4 + m;
+  // Node layout: behind2, behind1, anchor, drawn vertices, end, then the
+  // vertices ahead (or the pinned points after the end). fi maps a node to its
+  // free offset (or -1 for a fixed node).
+  const pinnedAfter = after ?? [];
+  const N = 4 + m + pinnedAfter.length;
   const fi = new Int32Array(N).fill(-1);
   for (let i = 0; i < m; i++) fi[3 + i + (i >= drawnCount ? 1 : 0)] = i;
   const endNode = 3 + drawnCount;
@@ -194,6 +198,10 @@ export function tidyStroke(track: Track, line: ArrayLike<number>, anchor: number
   py[2] = ay;
   px[endNode] = ex;
   py[endNode] = ey;
+  pinnedAfter.forEach((p, k) => {
+    px[endNode + 1 + k] = p.x;
+    py[endNode + 1 + k] = p.y;
+  });
   const nodeOf = new Int32Array(m);
   for (let q = 0; q < N; q++) if (fi[q] >= 0) nodeOf[fi[q]] = q;
 

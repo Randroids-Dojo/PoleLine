@@ -120,6 +120,26 @@ button:disabled {
   color: var(--ink);
 }
 
+.btn-outline {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 58px;
+  padding: 0 20px;
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 2px var(--ink);
+  color: var(--ink);
+  font-stretch: 125%;
+  font-weight: 800;
+  font-size: 17px;
+  white-space: nowrap;
+  transition: transform 0.08s ease;
+}
+
+.btn-outline:active {
+  transform: scale(0.98);
+}
+
 .btn-ink {
   min-height: 48px;
   padding: 0 18px;
@@ -925,8 +945,34 @@ button:disabled {
 }
 
 .draw-set[hidden],
-.draw-pct[hidden] {
+.draw-pct[hidden],
+.draw-edit-tyres[hidden] {
   display: none;
+}
+
+/* Editing a saved lap, with the line whole: the tyre for the race, beside Race. */
+.draw-edit-tyres {
+  display: flex;
+  gap: 2px;
+}
+
+.draw-edit-tyre {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  opacity: 0.55;
+}
+
+.draw-edit-tyre.is-on {
+  border-color: var(--ink);
+  opacity: 1;
+}
+
+.minimap.is-hidden {
+  visibility: hidden;
 }
 
 .draw-hud.is-offtrack::after {
@@ -1814,6 +1860,14 @@ button:disabled {
   font-weight: 800;
 }
 
+.res-delta.has-edit {
+  margin-bottom: 0;
+}
+
+.res-edit {
+  margin-top: 0;
+}
+
 .res-sectors {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -1966,6 +2020,11 @@ button:disabled {
 .res-actions {
   display: grid;
   gap: 4px;
+}
+
+.res-main {
+  display: flex;
+  gap: 8px;
 }
 
 .res-secondary {
@@ -2162,6 +2221,20 @@ button:disabled {
 
 .board-play.is-loading {
   opacity: 0.4;
+}
+
+/* The pencil only shows what the row does; the row itself takes the tap. */
+.board-play.is-edit {
+  pointer-events: none;
+}
+
+.board-play.is-edit svg {
+  margin-left: 0;
+}
+
+.board-row.is-openable:active .board-play.is-edit {
+  background: var(--ink);
+  color: #fff;
 }
 
 .board-setup {

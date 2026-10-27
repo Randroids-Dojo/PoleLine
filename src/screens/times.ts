@@ -1,6 +1,8 @@
 // Your times: the player's quickest laps on a circuit as a bottom sheet, each
 // one watchable again and its drawing setup one tap from being reused. The
 // Toybox edition shows this where the web edition shows the world leaderboard.
+// The same laps make the list a saved line is picked from to edit, in both
+// editions.
 
 import type { App } from '../app/app';
 import { sfx } from '../app/audio';
@@ -20,10 +22,13 @@ export interface TimesOptions {
   watch?: (index: number) => Promise<void>;
 }
 
-export function openTimes(app: App, slug: string, opts: TimesOptions = {}): void {
-  const meta = app.meta(slug);
-  const laps = getLaps(slug);
+/** A bottom sheet of laps that closes on its button, a tap outside it or Escape. `remove` takes it away at once. */
+function lapSheet(app: App, title: string, sub: string, closeLabel: string, foot: string): { list: HTMLElement; remove(): void } {
   const list = h('ol', { class: 'board' });
+  const remove = () => {
+    overlay.remove();
+    document.removeEventListener('keydown', onKey);
+  };
   const close = () => {
     overlay.classList.add('is-closing');
     setTimeout(() => overlay.remove(), 200);
@@ -32,35 +37,77 @@ export function openTimes(app: App, slug: string, opts: TimesOptions = {}): void
   const onKey = (e: KeyboardEvent) => {
     if (e.key === 'Escape') close();
   };
-  const closeBtn = h('button', { class: 'icon-btn', 'aria-label': 'Close your times', html: ICONS.close, onclick: close });
-  const pole = `Pole pace ${formatLap(meta.poleRef * 1000)}`;
-  const sub = laps.length ? `${pole} · ${laps.length} ${laps.length === 1 ? 'lap' : 'laps'}` : pole;
-  const head = h('header', { class: 'board-head' }, h('div', null, h('h2', { id: 'board-title' }, `${meta.short}, your times`), h('p', null, sub)), closeBtn);
-  const sheet = h(
-    'section',
-    { class: 'sheet board-sheet', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'board-title' },
-    head,
-    list,
-    h('p', { class: 'board-keep' }, `Your ${LAPS_KEPT} quickest laps here stay on this device.`),
-  );
+  const closeBtn = h('button', { class: 'icon-btn', 'aria-label': closeLabel, html: ICONS.close, onclick: close });
+  const head = h('header', { class: 'board-head' }, h('div', null, h('h2', { id: 'board-title' }, title), h('p', null, sub)), closeBtn);
+  const sheet = h('section', { class: 'sheet board-sheet', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'board-title' }, head, list, h('p', { class: 'board-keep' }, foot));
   const overlay = h('div', { class: 'overlay', onclick: (e: Event) => e.target === overlay && close() }, sheet);
   app.root.append(overlay);
   document.addEventListener('keydown', onKey);
   closeBtn.focus({ focusVisible: false } as FocusOptions);
+  return { list, remove };
+}
+
+export function openTimes(app: App, slug: string, opts: TimesOptions = {}): void {
+  const meta = app.meta(slug);
+  const laps = getLaps(slug);
+  const pole = `Pole pace ${formatLap(meta.poleRef * 1000)}`;
+  const sub = laps.length ? `${pole} · ${laps.length} ${laps.length === 1 ? 'lap' : 'laps'}` : pole;
+  const { list, remove } = lapSheet(app, `${meta.short}, your times`, sub, 'Close your times', `Your ${LAPS_KEPT} quickest laps here stay on this device.`);
 
   if (!laps.length) {
     list.append(h('li', { class: 'board-status' }, 'No lap yet. Draw one and it lands here.'));
     return;
   }
-  const watch = opts.watch
-    ? (index: number) =>
-        opts.watch!(index).then(() => {
-          // The replay is on screen: get the sheet out of its way.
-          overlay.remove();
-          document.removeEventListener('keydown', onKey);
-        })
-    : undefined;
+  // Once the replay is on screen the sheet gets out of its way.
+  const watch = opts.watch ? (index: number) => opts.watch!(index).then(remove) : undefined;
   laps.forEach((lap, i) => list.append(lapRow(lap, i, laps[0].timeMs, meta.poleRef, slug, { copied: opts.copied, watch })));
+}
+
+export interface LinePickerOptions {
+  /** Open the saved line at this index (0 is the quickest) to edit; rejects when it cannot be. */
+  edit(index: number): Promise<void>;
+}
+
+/** Pick one of your saved lines on a circuit to edit. Each row is one tap from the editor. */
+export function openLinePicker(app: App, slug: string, opts: LinePickerOptions): void {
+  const meta = app.meta(slug);
+  const laps = getLaps(slug);
+  const sub = `${meta.short} · ${laps.length} saved ${laps.length === 1 ? 'line' : 'lines'}`;
+  const { list, remove } = lapSheet(app, 'Edit a line', sub, 'Close', 'It opens whole. Touch it where a change starts, redraw that part, then rejoin the rest.');
+  if (!laps.length) {
+    list.append(h('li', { class: 'board-status' }, 'No saved line yet. Draw a lap and it lands here.'));
+    return;
+  }
+  laps.forEach((lap, i) => {
+    const li = h('li', { class: `board-entry${i === 0 ? ' is-you' : ''}` });
+    const status = h('p', { class: 'board-note is-error', role: 'status', hidden: true });
+    const slot = gridSlot(lap.timeMs, meta.poleRef);
+    const icon = h('span', { class: 'board-play is-edit', 'aria-hidden': 'true', html: ICONS.edit });
+    const open = h('button', { class: 'board-open', 'aria-label': `Edit lap ${i + 1}, ${formatLap(lap.timeMs)}` }) as HTMLButtonElement;
+    open.onclick = () => {
+      sfx.tap();
+      open.disabled = true;
+      icon.classList.add('is-loading');
+      opts.edit(i).then(remove, () => {
+        open.disabled = false;
+        icon.classList.remove('is-loading');
+        status.textContent = 'That line can’t be edited.';
+        status.hidden = false;
+      });
+    };
+    const row = h(
+      'div',
+      { class: 'board-row is-openable' },
+      open,
+      h('span', { class: 'board-rank' }, String(i + 1)),
+      h('span', { class: 'board-name' }, h('span', { class: 'board-name-text' }, whenText(lap.date)), h('span', { class: `board-slot slot tier-${slot.tier}` }, slot.stamp)),
+      h('span', { class: 'board-tyre', html: tyreBadge(lap.compound, 18) }),
+      h('span', { class: 'board-time' }, h('b', null, formatLap(lap.timeMs)), h('small', null, i === 0 ? '' : formatDelta(lap.timeMs - laps[0].timeMs))),
+      icon,
+    );
+    li.append(row, status);
+    list.append(li);
+  });
 }
 
 /** How a lap was drawn, in the settings' own words. */

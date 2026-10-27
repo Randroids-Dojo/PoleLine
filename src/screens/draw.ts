@@ -23,6 +23,13 @@
 //   tidy strokes (medium): drawing is freehand, but the line slides along the
 //     white line instead of stopping at it, and each stroke is corrected into
 //     a racing line when the finger lifts (src/app/tidy.ts).
+//
+// The same screen edits a saved lap (src/app/splice.ts). It opens on the whole
+// circuit; a tap zooms in. Touching the line there starts a redraw from that
+// point, in whichever mode is set, with the old line past it shown faint. A
+// stroke that ends on the old line ahead (or a curve set with Rejoin) joins
+// it, and the rest of the lap is the old line again. Every change can be
+// undone, and Race runs the edited line.
 
 import type { App, Screen } from '../app/app';
 import { REAL_CIRCUITS } from '../app/edition';
@@ -46,6 +53,7 @@ import { TUTORIAL_COPY } from '../app/tutorial-copy';
 import { difficultyPicker, openPauseMenu } from './pause';
 import { blend, tidyStroke, type Tidied } from '../app/tidy';
 import { endDir, headingAtEnd, midpoint, sampleCurve, startBend, type Curve, type Vec } from '../app/curve';
+import { blendTail, findJoin, headingAt, indexAt, lineProgress, nearestPoint, pointAt, sameLine, tailFrom, type Join } from '../app/splice';
 
 export interface DrawActions {
   complete(points: number[], compound: Compound): void;
@@ -82,6 +90,21 @@ interface Rect {
   h: number;
 }
 
+/** Editing a saved lap. */
+interface EditState {
+  /** The lap as it was saved (decimetres, flat [x, y, ...]). */
+  saved: number[];
+  /** The whole line as edited so far, and lap progress at each of its points. */
+  line: number[];
+  progress: Float64Array;
+  /** The line before each change, for undo. */
+  history: number[][];
+  /** Index in `line` the redraw starts from, while there is one. */
+  cut: number | null;
+  /** The old line past the cut, drawn faint until it is rejoined. */
+  rest: Path2D | null;
+}
+
 const TIP_GRAB_RADIUS = 58;
 
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -109,6 +132,17 @@ const MIN_CURVE = 3;
 const FINISH_SNAP = 40;
 /** Tap and bend: when less road than this share of the screen shows past a curve's end, the map moves on. */
 const CURVE_ROOM = 0.36;
+/** Editing: a touch this close (px) to the line starts a redraw there. */
+const LINE_GRAB = 30;
+/** Editing: a redraw must run this far (metres) before a stroke can rejoin the old line. */
+const JOIN_MIN = 8;
+/** Editing: a stroke rejoins the old line when it ends this close to it (metres, or px when that is wider). */
+const JOIN_RANGE = 1.6;
+const JOIN_PX = 9;
+/** Editing: a curve's end this close (px) to the old line snaps onto it. */
+const CURVE_SNAP = 12;
+/** Editing, tidy strokes: a stroke rejoining the old line is corrected onto it this far (metres) past the lift. */
+const TIDY_JOIN_AHEAD = 6;
 const HINTS = {
   start: 'Put your finger on the chequered line and drag along the track.',
   drawing: 'Stay inside the white lines.',
@@ -131,6 +165,17 @@ const HINTS = {
   curveFinish: 'Tap Finish lap, or bend the last curve first.',
   curveInside: 'Back inside. Tap further on, or Set curve.',
   curveFixed: 'Bent to stay on the track. Drag the middle dot to change it.',
+  editPick: 'Tap the part of your line you want to change.',
+  editTouch: 'Touch your line where the change starts.',
+  editDraw: 'Draw the new line. End a stroke on your old line to rejoin it.',
+  editCurves: 'Tap the track ahead to lay curves. End one on your old line, then tap Rejoin.',
+  editLift: 'Lift here to rejoin your old line.',
+  editRejoin: 'On your old line. Tap Rejoin to keep the rest of it.',
+  editJoined: 'Rejoined. Race it, or touch your line to change another part.',
+  editFinished: 'Lap drawn. Race it, or touch your line to change another part.',
+  editNoJoin: 'Your line cannot rejoin there. Carry on, or undo.',
+  editUndone: 'That change is undone.',
+  editReset: 'Back to your saved line. Undo brings your changes back.',
 };
 
 /** Coaching while the walkthrough player draws the final corner, in the words of their mode: [lap metres, tip]. */
@@ -241,6 +286,22 @@ export class DrawScreen implements Screen {
   /** Tidy strokes: how many times the correction has been pointed out. */
   private corrections = 0;
   private setBtn!: HTMLButtonElement;
+  private restartBtn!: HTMLButtonElement;
+  /** Editing a saved lap (null when drawing a new one). */
+  private edit: EditState | null = null;
+  private raceBtn!: HTMLButtonElement;
+  private editTyres!: HTMLElement;
+  /** Editing, freehand and tidy strokes: where the stroke would rejoin the old line if it ended now. */
+  private joinAt: Join | null = null;
+  private joinsShown = 0;
+  /** Editing, tap and bend: the waiting curve ends on the old line at this index, and Rejoin keeps the rest. */
+  private pendingJoin: number | null = null;
+  /** Editing: a ring where the line last rejoined. */
+  private joinPulse: { x: number; y: number; t0: number } | null = null;
+  /** Editing, tidy strokes: the old line past a rejoin, shown while the stroke eases into place. */
+  private morphTail: Path2D | null = null;
+  private miniHidden = false;
+  private recenterText = '';
 
   constructor(
     private app: App,
@@ -250,6 +311,8 @@ export class DrawScreen implements Screen {
     private actions: DrawActions,
     guide: Float64Array | null = null,
     private tutorial: DrawTutorial | null = null,
+    /** A saved lap to edit, absolute decimetre points [x, y, ...]. */
+    edit: number[] | null = null,
   ) {
     this.builder = new LineBuilder(track);
     if (guide) this.guidePath = polyPath(guide);
@@ -257,6 +320,11 @@ export class DrawScreen implements Screen {
       if (!this.builder.preload(tutorial.prefix)) throw new Error('tutorial line is not a legal opening');
       this.given = this.builder.progress;
       this.givenInk = polyPath(Array.from(tutorial.prefix, (v) => v / UNITS_PER_METRE));
+      this.rebuildInk();
+    }
+    if (edit) {
+      if (!this.builder.load(edit)) throw new Error('saved line is not a legal lap');
+      this.edit = { saved: edit.slice(), line: edit.slice(), progress: lineProgress(track, edit), history: [], cut: null, rest: null };
       this.rebuildInk();
     }
     const settings = getSettings();
@@ -276,7 +344,7 @@ export class DrawScreen implements Screen {
     this.zoom = this.drawZoom();
 
     // The walkthrough introduces itself; no start hint underneath it.
-    this.hint = h('p', { class: `draw-hint${tutorial?.walkthrough ? ' is-hidden' : ''}`, role: 'status' }, tutorial ? '' : this.startHint);
+    this.hint = h('p', { class: `draw-hint${tutorial?.walkthrough ? ' is-hidden' : ''}`, role: 'status' }, tutorial ? '' : this.edit ? HINTS.editPick : this.startHint);
     this.bar = h('i');
     this.pct = h('span', { class: 'draw-pct' }, '0%');
     this.undoBtn = h('button', { class: 'icon-btn', 'aria-label': 'Undo last stroke', html: ICONS.undo, onclick: () => this.undo() }) as HTMLButtonElement;
@@ -288,7 +356,7 @@ export class DrawScreen implements Screen {
       'div',
       { class: 'strip strip-top' },
       h('button', { class: 'icon-btn', 'aria-label': 'Back to circuits', html: ICONS.close, onclick: () => this.actions.exit() }),
-      h('div', { class: 'draw-title' }, h('strong', null, track.meta.short), (this.subtitle = h('span', null, tutorial ? 'Draw the last corner' : 'Draw your lap'))),
+      h('div', { class: 'draw-title' }, h('strong', null, track.meta.short), (this.subtitle = h('span', null, this.subtitleText))),
       tutorial
         ? h('button', { class: 'icon-btn', 'aria-label': 'Pause', html: ICONS.pause, onclick: () => this.openPause() })
         : h('button', { class: 'icon-btn', 'aria-label': 'Settings', html: ICONS.gear, onclick: () => openSettings(this.app, (s) => this.applySettings(s)) }),
@@ -306,14 +374,19 @@ export class DrawScreen implements Screen {
       this.tyreStrip.append(b);
     }
     this.setBtn = h('button', { class: 'btn-ink draw-set', hidden: true, onclick: () => this.setFromButton() }, 'Set curve') as HTMLButtonElement;
-    this.bottomStrip = h(
-      'div',
-      { class: 'strip strip-bottom' },
-      this.undoBtn,
-      this.pct,
-      this.setBtn,
-      h('button', { class: 'icon-btn', 'aria-label': 'Start the lap again', html: ICONS.restart, onclick: () => this.restart() }),
-    );
+    // Editing: with the line whole, the bar picks the tyre and races it.
+    this.raceBtn = h('button', { class: 'btn-ink draw-set', hidden: true, onclick: () => this.raceEdited() }, 'Race') as HTMLButtonElement;
+    this.editTyres = h('div', { class: 'draw-edit-tyres', role: 'radiogroup', 'aria-label': 'Tyre for this lap', hidden: true });
+    for (const c of COMPOUNDS) {
+      this.editTyres.append(h('button', { class: 'draw-edit-tyre', role: 'radio', 'data-c': c, 'aria-label': COMPOUND_SPECS[c].label, html: tyreBadge(c, 28), onclick: () => this.pickTyre(c) }));
+    }
+    this.restartBtn = h('button', {
+      class: 'icon-btn',
+      'aria-label': this.edit ? 'Back to the saved line' : 'Start the lap again',
+      html: ICONS.restart,
+      onclick: () => this.restart(),
+    }) as HTMLButtonElement;
+    this.bottomStrip = h('div', { class: 'strip strip-bottom' }, this.undoBtn, this.pct, this.setBtn, this.editTyres, this.raceBtn, this.restartBtn);
     this.recenterLabel = h('span', null, 'Back to the start');
     this.recenterBtn = h('button', { class: 'recenter is-hidden', onclick: () => this.recenter() }, h('span', { class: 'recenter-dot', 'aria-hidden': 'true' }), this.recenterLabel) as HTMLButtonElement;
     this.el = h(
@@ -336,6 +409,8 @@ export class DrawScreen implements Screen {
     if (tutorial?.walkthrough) {
       this.setCam(this.startFrame());
       void this.walkthrough();
+    } else if (this.edit) {
+      this.setCam(this.overviewFrame());
     } else if (tutorial) {
       this.setCam(this.frameFor(this.builder.progress, this.builder.lastPoint!));
       this.showHint(this.tutorialHint);
@@ -366,9 +441,11 @@ export class DrawScreen implements Screen {
       this.closeLimits();
       this.updateHud();
       if (this.coachText) this.coachText.el.textContent = this.coachText.text();
+      this.joinAt = null;
       // A coach card on screen already says what to do next.
       if (!this.coachCard) {
-        if (this.builder.status === 'idle') this.showHint(this.startHint);
+        if (this.reviewing) this.showHint(this.overview ? HINTS.editPick : HINTS.editTouch);
+        else if (this.builder.status === 'idle') this.showHint(this.startHint);
         else if (this.tutorial && this.fresh) this.showHint(this.tutorialHint);
         else if (s.drawMode === 'curves') this.showHint(HINTS.curveFirst);
       }
@@ -383,6 +460,10 @@ export class DrawScreen implements Screen {
 
   private get startHint(): string {
     return this.drawMode === 'curves' ? HINTS.curvesStart : HINTS.start;
+  }
+
+  private get subtitleText(): string {
+    return this.tutorial ? 'Draw the last corner' : this.edit ? 'Edit your line' : 'Draw your lap';
   }
 
   private get tutorialHint(): string {
@@ -637,6 +718,41 @@ export class DrawScreen implements Screen {
     return { cx: this.cam.cx, cy: this.cam.cy, zoom: this.cam.zoom, angle: this.cam.angle, ax: this.cam.ax, ay: this.cam.ay };
   }
 
+  /** Editing: the whole circuit in the space between the bars, north up or turned a quarter, whichever shows it bigger. */
+  private overviewFrame(): CamState {
+    const t = this.track;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (let i = 0; i < t.n; i++) {
+      minX = Math.min(minX, t.x[i]); maxX = Math.max(maxX, t.x[i]);
+      minY = Math.min(minY, t.y[i]); maxY = Math.max(maxY, t.y[i]);
+    }
+    const { top, left, right } = this.safe;
+    const bottom = this.safe.bottom + 40;
+    const pad = 24;
+    const w = right - left - pad * 2;
+    const hgt = bottom - top - pad * 2;
+    const upright = Math.min(w / (maxX - minX), hgt / (maxY - minY));
+    const turned = Math.min(w / (maxY - minY), hgt / (maxX - minX));
+    return {
+      cx: (minX + maxX) / 2,
+      cy: (minY + maxY) / 2,
+      zoom: Math.max(upright, turned),
+      angle: turned > upright * 1.05 ? Math.PI / 2 : 0,
+      ax: (left + right) / 2 / this.app.w,
+      ay: (top + bottom) / 2 / this.app.h,
+    };
+  }
+
+  /** Editing, zoomed out to the whole circuit: a tap picks where to zoom in. */
+  private get overview(): boolean {
+    return !!this.edit && this.cam.zoom < this.zoom * 0.45;
+  }
+
+  /** Editing with the line whole: nothing is being redrawn. */
+  private get reviewing(): boolean {
+    return !!this.edit && this.edit.cut === null;
+  }
+
   private glideTo(to: CamState, dur = 460): void {
     this.shiftX = this.shiftY = 0;
     this.spin = null;
@@ -644,6 +760,8 @@ export class DrawScreen implements Screen {
   }
 
   private glideToTip(): void {
+    // Editing with the line whole there is no tip to go to: the map stays where the player put it.
+    if (this.reviewing) return;
     const tip = this.builder.lastPoint ?? this.startPoint();
     this.glideTo(this.frameFor(this.builder.progress, tip));
   }
@@ -655,6 +773,18 @@ export class DrawScreen implements Screen {
 
   get status(): string {
     return this.builder.status;
+  }
+
+  /** A lap part drawn, or a saved lap edited and not raced: a stray back swipe must not throw it away. */
+  get holdsWork(): boolean {
+    return this.builder.status === 'drawing' || (!!this.edit && !sameLine(this.edit.line, this.edit.saved));
+  }
+
+  /** Editing a saved lap (test hook). */
+  get editState(): { cut: number | null; joinable: boolean; pendingJoin: number | null; overview: boolean; changes: number; edited: boolean; points: number } | null {
+    const ed = this.edit;
+    if (!ed) return null;
+    return { cut: ed.cut, joinable: !!this.joinAt, pendingJoin: this.pendingJoin, overview: this.overview, changes: ed.history.length, edited: !sameLine(ed.line, ed.saved), points: ed.line.length / 2 };
   }
 
   /** Current corner damping multiplier at the tip (test hook). */
@@ -711,7 +841,7 @@ export class DrawScreen implements Screen {
   }
 
   private onDown(e: PointerEvent): void {
-    if (this.pointerId !== null || this.builder.status === 'done') return;
+    if (this.pointerId !== null || (this.builder.status === 'done' && !this.reviewing)) return;
     unlockAudio();
     this.momentum = null;
     this.spin = null;
@@ -719,6 +849,10 @@ export class DrawScreen implements Screen {
     const p = this.local(e);
     const w = this.cam.toWorld(p.x, p.y);
     if (this.locked) return;
+    if (this.reviewing) {
+      this.reviewDown(e, p, w);
+      return;
+    }
     if (this.builder.status === 'idle') {
       if (this.builder.canStartAt(w.x, w.y)) {
         this.glide = null;
@@ -747,6 +881,7 @@ export class DrawScreen implements Screen {
     }
     if (this.builder.status !== 'drawing') return;
     this.endMorph();
+    if (this.edit && this.builder.count === this.builder.preloaded && !this.pending && this.moveCut(e, p, w)) return;
     if (this.drawMode === 'curves') {
       // A track-limits card left from a freehand stroke goes once the player carries on with curves.
       this.closeLimits();
@@ -849,6 +984,11 @@ export class DrawScreen implements Screen {
     if (this.panning) {
       this.panning = false;
       if (this.panDistance < 8 && performance.now() - this.panStart.t < 400) {
+        // Editing, on the whole circuit: a tap zooms in there.
+        if (this.overview) {
+          this.zoomIn(this.panStart);
+          return;
+        }
         // A tap on the grass: remind them it drags.
         this.flashHint(HINTS.panTap);
         return;
@@ -873,7 +1013,7 @@ export class DrawScreen implements Screen {
     }
     if (!this.drawing) return;
     this.drawing = false;
-    if (this.closeShort()) return;
+    if (this.rejoinStroke() || this.closeShort()) return;
     if (this.builder.status === 'drawing') {
       const told = this.tidy();
       sfx.lift();
@@ -955,27 +1095,41 @@ export class DrawScreen implements Screen {
     return best ? { x: best.x, y: best.y } : null;
   }
 
-  /** Glide back to the tip (or the start line before the lap begins). */
+  /** Glide back to the tip (or the start line before the lap begins, or the whole circuit while editing with the line whole). */
   private recenter(): void {
     sfx.tap();
     this.momentum = null;
-    if (this.builder.status === 'idle') this.glideTo(this.startFrame());
+    if (this.reviewing) {
+      this.glideTo(this.overviewFrame(), 650);
+      this.showHint(HINTS.editPick);
+    } else if (this.builder.status === 'idle') this.glideTo(this.startFrame());
     else this.glideToTip();
   }
 
-  /** Show the recenter button whenever the tip has been panned out of view. */
+  /** Show the recenter button whenever the tip has been panned out of view (editing with the line whole: whenever zoomed in). */
   private updateRecenter(): void {
-    if (this.builder.status === 'done') return;
-    // Tap and bend: while a curve waits, its end is where the player works, and the map moves past the tip on purpose.
-    const anchor = this.pending?.to ?? this.builder.lastPoint ?? this.startPoint();
-    const s = this.cam.toScreen(anchor.x, anchor.y);
-    const { top, bottom, left, right } = this.safe;
-    const off = s.x < left || s.x > right || s.y < top - 20 || s.y > bottom + 40;
-    const show = off && !this.glide && !this.locked;
+    let show: boolean;
+    let text: string;
+    if (this.reviewing) {
+      show = !this.overview && !this.glide;
+      text = 'Whole lap';
+    } else {
+      if (this.builder.status === 'done') return;
+      // Tap and bend: while a curve waits, its end is where the player works, and the map moves past the tip on purpose.
+      const anchor = this.pending?.to ?? this.builder.lastPoint ?? this.startPoint();
+      const s = this.cam.toScreen(anchor.x, anchor.y);
+      const { top, bottom, left, right } = this.safe;
+      const off = s.x < left || s.x > right || s.y < top - 20 || s.y > bottom + 40;
+      show = off && !this.glide && !this.locked;
+      text = this.builder.status === 'idle' ? 'Back to the start' : 'Back to the tip';
+    }
+    if (show && text !== this.recenterText) {
+      this.recenterText = text;
+      setText(this.recenterLabel, text);
+    }
     if (show !== this.recenterShown) {
       this.recenterShown = show;
       this.recenterBtn.classList.toggle('is-hidden', !show);
-      if (show) setText(this.recenterLabel, this.builder.status === 'idle' ? 'Back to the start' : 'Back to the tip');
     }
   }
 
@@ -997,6 +1151,7 @@ export class DrawScreen implements Screen {
     if (r === 'ok' || r === 'finish') {
       this.appendInk();
       this.cornerCoaching();
+      if (r === 'ok') this.updateJoin();
       const ds = this.builder.progress - before;
       if (r === 'ok' && ds > 0) {
         if (this.mode === 'continuous') this.conveyor(ds);
@@ -1023,6 +1178,7 @@ export class DrawScreen implements Screen {
     this.pickup = null;
     if (this.closeShort()) return;
     this.awaitLift = true;
+    if (this.rejoinStroke()) return;
     this.tidy();
     sfx.lift();
     buzz(15);
@@ -1046,7 +1202,7 @@ export class DrawScreen implements Screen {
     const rate = live ? Math.round(this.scrollSpeed * factor * 100) / 100 : -1;
     if (rate === this.scrollShown) return;
     this.scrollShown = rate;
-    setText(this.subtitle, live ? `Scroll ${rate.toFixed(2)}× near here` : this.tutorial ? 'Draw the last corner' : 'Draw your lap');
+    setText(this.subtitle, live ? `Scroll ${rate.toFixed(2)}× near here` : this.subtitleText);
   }
 
   /** Continuous mode: feed the map forward while the tip is running out of room ahead. */
@@ -1111,6 +1267,7 @@ export class DrawScreen implements Screen {
   private endMorph(): void {
     if (!this.morph) return;
     this.morph = null;
+    this.morphTail = null;
     this.rebuildInk();
   }
 
@@ -1158,6 +1315,10 @@ export class DrawScreen implements Screen {
    * exactly where it started.
    */
   private endFor(w: Vec): { to: Vec; toDir: Vec } {
+    // Editing: near the old line ahead, the end snaps onto it, ready to rejoin it.
+    const snap = this.snapToOld(w);
+    this.pendingJoin = snap ? snap.index : null;
+    if (snap) return { to: snap.at, toDir: snap.dir };
     const to = this.clampFar(w);
     if (this.builder.progress + this.ahead(to).by >= this.track.length - this.finishReach()) {
       const close = this.closingPoint();
@@ -1271,7 +1432,9 @@ export class DrawScreen implements Screen {
         return;
       }
       // Further on: the waiting curve now knows where the line goes next, so
-      // it settles into it, is set, and the next one starts from its end.
+      // it settles into it, is set, and the next one starts from its end. One
+      // that ended on the old line carries on past it instead of rejoining.
+      this.pendingJoin = null;
       this.settle(this.clampFar(w));
       if (!this.setCurve() || this.builder.status !== 'drawing') return;
     }
@@ -1371,6 +1534,7 @@ export class DrawScreen implements Screen {
     const kind = this.pendingProbe?.kind;
     if (fixed) this.showHint(HINTS.curveFixed);
     else if (kind === 'offtrack' || kind === 'backward') this.showHint(HINTS.curveOff);
+    else if (this.pendingJoin !== null) this.showHint(HINTS.editRejoin);
     else if (kind === 'finish') this.showHint(HINTS.curveFinish);
     else if (this.curvesLaid <= 2) this.showHint(HINTS.curveBend);
     else if (this.hint.textContent === HINTS.curveOff) this.showHint(HINTS.curveInside);
@@ -1422,6 +1586,7 @@ export class DrawScreen implements Screen {
   }
 
   private dropPending(): void {
+    this.pendingJoin = null;
     if (!this.pending) return;
     this.pending = null;
     this.pendingPts = [];
@@ -1446,6 +1611,20 @@ export class DrawScreen implements Screen {
       this.flashHint(HINTS.curveOff);
       return false;
     }
+    // Editing: a curve that ends on the old line (Rejoin) keeps the rest of it.
+    const join = this.pendingJoin;
+    if (join !== null && r !== 'finish') {
+      if (!this.builder.finishThrough(tailFrom(this.edit!.line, join + 1))) {
+        this.builder.undoStroke();
+        this.flashHint(HINTS.editNoJoin);
+        buzz([30, 60, 90]);
+        return false;
+      }
+      this.dropPending();
+      this.strokes++;
+      this.joined(c.to, HINTS.editJoined);
+      return true;
+    }
     this.curveExit = { count: this.builder.count, dir: endDir(c) };
     this.dropPending();
     this.strokes++;
@@ -1465,13 +1644,281 @@ export class DrawScreen implements Screen {
     if (this.builder.progress > this.track.length * 0.82) this.showHint(HINTS.closing);
   }
 
+  // Editing a saved lap ----------------------------------------------------
+
+  /** Editing with the line whole: zoom in from the circuit, start a redraw on the line, or pan on the grass. */
+  private reviewDown(e: PointerEvent, p: Vec, w: Vec): void {
+    this.endMorph();
+    // On the whole circuit a drag pans and a tap zooms in (see onUp).
+    if (this.overview) {
+      this.beginPan(e, p);
+      return;
+    }
+    const k = this.lineAt(w);
+    if (k === null) {
+      if (this.isGrass(w.x, w.y)) this.beginPan(e, p);
+      else this.flashHint(HINTS.editTouch);
+      return;
+    }
+    if (!this.cutAt(k)) return;
+    this.beginRedraw(e, p, w);
+  }
+
+  /** The point of the edited line under a touch, or null when the touch is not on it. */
+  private lineAt(w: Vec): number | null {
+    const ed = this.edit!;
+    const near = nearestPoint(ed.line, w.x, w.y);
+    if (near.index < 0 || near.dist * this.cam.zoom > LINE_GRAB) return null;
+    // The redraw keeps at least the first point and has the finish still to cross.
+    return Math.min(Math.max(1, near.index), ed.line.length / 2 - 3);
+  }
+
+  /** Start a redraw from point k: the line up to it stays, the rest waits faint to be rejoined. */
+  private cutAt(k: number): boolean {
+    const ed = this.edit!;
+    if (!this.builder.preload(ed.line.slice(0, (k + 1) * 2))) {
+      this.builder.load(ed.line);
+      return false;
+    }
+    ed.cut = k;
+    ed.rest = polyPath(Float64Array.from(ed.line.slice(k * 2), (v) => v / UNITS_PER_METRE));
+    this.strokes = 0;
+    this.curveExit = null;
+    this.joinAt = null;
+    this.glide = null;
+    this.rebuildInk();
+    this.updateHud();
+    sfx.penDown();
+    buzz(8);
+    return true;
+  }
+
+  /** The touch that cut the line goes on drawing: a stroke from the cut, or (tap and bend) the first curve. */
+  private beginRedraw(e: PointerEvent, p: Vec, w: Vec): void {
+    this.pointerId = e.pointerId;
+    this.app.canvas.setPointerCapture(e.pointerId);
+    if (this.drawMode === 'curves') {
+      this.knob = 'end';
+      this.showHint(HINTS.editCurves);
+      return;
+    }
+    const tip = this.builder.lastPoint!;
+    this.awaitLift = false;
+    this.closeLimits();
+    this.builder.beginStroke();
+    this.strokes++;
+    this.strokeFrom = this.builder.progress;
+    this.drawing = true;
+    this.pickup = { ox: w.x - tip.x, oy: w.y - tip.y, sx: p.x, sy: p.y };
+    this.showHint(HINTS.editDraw);
+  }
+
+  /**
+   * Before anything is redrawn, a touch elsewhere on the line moves where the
+   * redraw starts. In tap and bend a touch ahead of the tip lays a curve, so
+   * only the part kept behind it moves the start.
+   */
+  private moveCut(e: PointerEvent, p: Vec, w: Vec): boolean {
+    const tip = this.builder.lastPoint!;
+    const ts = this.cam.toScreen(tip.x, tip.y);
+    if (Math.hypot(ts.x - p.x, ts.y - p.y) <= (this.drawMode === 'curves' ? KNOB_GRAB : TIP_GRAB_RADIUS)) return false;
+    const k = this.lineAt(w);
+    if (k === null || (this.drawMode === 'curves' && this.ahead(w).by >= MIN_CURVE)) return false;
+    this.uncut();
+    if (!this.cutAt(k)) return false;
+    this.beginRedraw(e, p, w);
+    return true;
+  }
+
+  /** Give up the redraw: the line is whole again, as it was before the cut. */
+  private uncut(): void {
+    const ed = this.edit!;
+    this.dropPending();
+    this.endMorph();
+    this.closeLimits();
+    this.awaitLift = false;
+    this.builder.load(ed.line);
+    ed.cut = null;
+    ed.rest = null;
+    this.joinAt = null;
+    this.rebuildInk();
+    this.updateHud();
+  }
+
+  private setLine(line: number[]): void {
+    const ed = this.edit!;
+    ed.line = line;
+    ed.progress = lineProgress(this.track, line);
+    this.uncut();
+  }
+
+  /** From the whole circuit, glide in to the part of the line nearest a tap. */
+  private zoomIn(p: Vec): void {
+    const ed = this.edit!;
+    const w = this.cam.toWorld(p.x, p.y);
+    const k = Math.max(0, nearestPoint(ed.line, w.x, w.y).index);
+    sfx.tap();
+    this.glideTo(this.frameLow(ed.progress[k], pointAt(ed.line, k), 0.5), 650);
+    this.showHint(HINTS.editTouch);
+  }
+
+  /** Freehand and tidy strokes: is the tip beside the old line ahead, ready to rejoin it? */
+  private updateJoin(): void {
+    const ed = this.edit;
+    const b = this.builder;
+    if (!ed || ed.cut === null || this.drawMode === 'curves' || b.status !== 'drawing' || b.progress - ed.progress[ed.cut] < JOIN_MIN) {
+      this.joinAt = null;
+      return;
+    }
+    const pts = b.points;
+    const tail: number[] = [];
+    for (let i = Math.max(0, pts.length - 40); i < pts.length; i++) tail.push(pts[i] / UNITS_PER_METRE);
+    const range = Math.max(JOIN_RANGE, JOIN_PX / this.cam.zoom);
+    const join = findJoin(ed.line, ed.progress, ed.cut + 1, b.lastPoint!, b.progress, headingAtEnd(tail), range);
+    if (join && !this.joinAt) {
+      buzz(10);
+      if (this.joinsShown < 2) {
+        this.joinsShown++;
+        this.showHint(HINTS.editLift);
+      }
+    }
+    this.joinAt = join;
+  }
+
+  /**
+   * A freehand or tidy stroke that ends beside the old line ahead rejoins it:
+   * the rest of the lap is the old line again. True when it did.
+   */
+  private rejoinStroke(): boolean {
+    const ed = this.edit;
+    if (!ed || ed.cut === null || this.drawMode === 'curves') return false;
+    this.updateJoin();
+    const join = this.joinAt;
+    this.joinAt = null;
+    if (!join || this.builder.offTrack) return false;
+    if (this.drawMode === 'smooth' && this.tidyJoin()) return true;
+    const b = this.builder;
+    const tip = b.lastPoint!;
+    if (!b.finishThrough(blendTail(ed.line, ed.progress, tip, b.progress, join))) {
+      this.flashHint(HINTS.editNoJoin);
+      return false;
+    }
+    sfx.lift();
+    this.joined(tip, HINTS.editJoined);
+    return true;
+  }
+
+  /**
+   * Tidy strokes: correct the stroke so it runs onto the old line a few metres
+   * past the lift and arrives along it, then keep the rest of the old line.
+   */
+  private tidyJoin(): boolean {
+    const ed = this.edit!;
+    const b = this.builder;
+    const anchor = b.strokeAnchor;
+    const n = ed.line.length / 2;
+    const end = indexAt(ed.progress, b.progress + TIDY_JOIN_AHEAD);
+    const a1 = indexAt(ed.progress, ed.progress[end] + 2);
+    const a2 = indexAt(ed.progress, ed.progress[end] + 4);
+    if (b.count - anchor < 4 || a2 >= n - 1 || a1 <= end || a2 <= a1) return false;
+    const endAt = pointAt(ed.line, end);
+    const line = Float64Array.from(b.points, (v) => v / UNITS_PER_METRE);
+    const start = frameAt(this.track, 0);
+    const t = tidyStroke(this.track, line, anchor, { x: start.tx, y: start.ty }, b.strokeHint, undefined, endAt, [pointAt(ed.line, a1), pointAt(ed.line, a2)]);
+    if (!t) return false;
+    const before = b.snapshot();
+    for (const k of [1, 0.6, 0.3]) {
+      const pts = k === 1 ? t.tidy : blend(t, k);
+      if (!b.replaceStroke(pts)) continue;
+      if (!b.finishThrough(tailFrom(ed.line, end + 1))) {
+        b.restore(before);
+        continue;
+      }
+      // The stroke eases into place; the old line past it is drawn whole meanwhile.
+      this.morph = { tidied: t, to: pts, anchor: { x: line[anchor * 2], y: line[anchor * 2 + 1] }, t0: performance.now() };
+      this.morphTail = polyPath(Float64Array.from(ed.line.slice(end * 2), (v) => v / UNITS_PER_METRE));
+      sfx.lift();
+      this.joined(endAt, HINTS.editJoined, anchor + 1);
+      return true;
+    }
+    return false;
+  }
+
+  /** The redraw is in and the line is whole: it becomes the line to edit next, and undo can take it back. */
+  private joined(at: Vec, hint: string, inkUntil?: number): void {
+    const ed = this.edit!;
+    ed.history.push(ed.line);
+    ed.line = this.builder.points.slice();
+    ed.progress = lineProgress(this.track, ed.line);
+    ed.cut = null;
+    ed.rest = null;
+    this.joinAt = null;
+    this.drawing = false;
+    this.pickup = null;
+    this.closeLimits();
+    this.rebuildInk(inkUntil);
+    this.joinPulse = { x: at.x, y: at.y, t0: performance.now() };
+    sfx.lapDrawn();
+    buzz(20);
+    this.showHint(hint);
+    this.updateHud();
+  }
+
+  /** Editing: undo steps back through the redraw's strokes, then the redraw itself, then earlier changes. */
+  private undoEdit(): void {
+    const ed = this.edit!;
+    this.closeLimits();
+    if (ed.cut === null) {
+      const prev = ed.history.pop();
+      if (!prev) return;
+      sfx.tap();
+      this.setLine(prev);
+      this.showHint(HINTS.editUndone);
+      return;
+    }
+    sfx.tap();
+    if (this.builder.canUndo && this.builder.undoStroke()) {
+      this.joinAt = null;
+      this.rebuildInk();
+      this.glideToTip();
+      this.updateHud();
+      this.showHint(this.drawMode === 'curves' ? HINTS.curveFirst : HINTS.resume);
+      return;
+    }
+    this.uncut();
+    this.showHint(HINTS.editTouch);
+  }
+
+  /** Tap and bend: a curve's end near the old line ahead lands on it, arriving along it. */
+  private snapToOld(w: Vec): { index: number; at: Vec; dir: Vec } | null {
+    const ed = this.edit;
+    if (!ed || ed.cut === null) return null;
+    const b = this.builder;
+    const s = b.progress + this.ahead(w).by;
+    const lo = Math.max(ed.cut + 1, indexAt(ed.progress, Math.max(s - 15, b.progress + MIN_CURVE)));
+    const hi = indexAt(ed.progress, s + 15);
+    if (hi <= lo) return null;
+    const near = nearestPoint(ed.line, w.x, w.y, lo, hi);
+    if (near.index < 0 || near.index >= ed.line.length / 2 - 1 || near.dist * this.cam.zoom > CURVE_SNAP) return null;
+    return { index: near.index, at: pointAt(ed.line, near.index), dir: headingAt(ed.line, near.index) };
+  }
+
+  /** Race the edited line on the tyre picked. */
+  private raceEdited(): void {
+    if (!this.reviewing || this.drawing || this.knob || this.raceBtn.disabled) return;
+    this.raceBtn.disabled = true;
+    sfx.lapDrawn();
+    buzz(20);
+    this.actions.complete(this.builder.points.slice(), this.compound);
+  }
+
   // Line state -------------------------------------------------------------
 
   /** Ink for the line, up to point `until` (all of it by default). */
   private rebuildInk(until?: number): void {
     this.ink = new Path2D();
-    // The player's ink starts where the line drawn for them ends.
-    this.inkFrom = this.inkStart = Math.max(0, this.builder.preloaded - 1);
+    // The player's ink starts where the line drawn for them ends. An edited lap is all theirs.
+    this.inkFrom = this.inkStart = this.edit ? 0 : Math.max(0, this.builder.preloaded - 1);
     this.appendInk(until);
   }
 
@@ -1498,6 +1945,10 @@ export class DrawScreen implements Screen {
       return;
     }
     this.endMorph();
+    if (this.edit) {
+      this.undoEdit();
+      return;
+    }
     const hadCard = !!this.limitsCard;
     this.closeLimits();
     if (!this.builder.canUndo) {
@@ -1530,6 +1981,11 @@ export class DrawScreen implements Screen {
       b.classList.toggle('is-on', on);
       b.setAttribute('aria-checked', on ? 'true' : 'false');
     });
+    this.editTyres.querySelectorAll<HTMLElement>('.draw-edit-tyre').forEach((b) => {
+      const on = b.dataset.c === this.compound;
+      b.classList.toggle('is-on', on);
+      b.setAttribute('aria-checked', on ? 'true' : 'false');
+    });
     this.tyreMark.innerHTML = tyreBadge(this.compound, 26);
     this.tyreMark.title = COMPOUND_SPECS[this.compound].label;
   }
@@ -1542,6 +1998,19 @@ export class DrawScreen implements Screen {
     this.closeLimits();
     this.awaitLift = false;
     this.strokes = 0;
+    if (this.edit) {
+      const ed = this.edit;
+      if (ed.cut !== null) {
+        this.uncut();
+        this.showHint(HINTS.editTouch);
+        return;
+      }
+      if (sameLine(ed.line, ed.saved)) return;
+      ed.history.push(ed.line);
+      this.setLine(ed.saved.slice());
+      this.showHint(HINTS.editReset);
+      return;
+    }
     if (this.tutorial) {
       // Back to the end of the line drawn for the player.
       this.builder.preload(this.tutorial.prefix);
@@ -1614,6 +2083,11 @@ export class DrawScreen implements Screen {
     this.drawing = false;
     this.tidy();
     this.pointerId = null;
+    if (this.edit) {
+      // Editing: the redraw ran to the finish, so the line is whole again.
+      this.joined(this.builder.lastPoint!, HINTS.editFinished, this.morph ? this.builder.strokeAnchor + 1 : undefined);
+      return;
+    }
     this.finishedAt = performance.now();
     sfx.lapDrawn();
     buzz(20);
@@ -1783,7 +2257,7 @@ export class DrawScreen implements Screen {
 
   /** Before the first stroke (or, on the tutorial, before the player adds to the drawn line). */
   private get fresh(): boolean {
-    if (this.pending) return false;
+    if (this.pending || this.edit) return false;
     return this.builder.status === 'idle' || (this.builder.preloaded > 0 && this.builder.status === 'drawing' && this.builder.count === this.builder.preloaded);
   }
 
@@ -1794,18 +2268,24 @@ export class DrawScreen implements Screen {
     const pc = this.builder.status === 'done' ? 100 : Math.floor(f * 100);
     this.bar.style.transform = `scaleX(${f})`;
     setText(this.pct, `${pc}%`);
-    this.undoBtn.disabled = !this.builder.canUndo && !this.pending;
+    const ed = this.edit;
+    const review = this.reviewing;
+    // Editing: undo steps back through strokes, the redraw itself, then earlier changes.
+    this.undoBtn.disabled = ed ? review && !ed.history.length : !this.builder.canUndo && !this.pending;
+    this.restartBtn.disabled = !!ed && review && sameLine(ed.line, ed.saved);
     // Tap and bend: while a curve waits, its set button stands in for the percentage.
     const kind = this.pendingProbe?.kind;
     this.setBtn.hidden = !this.pending;
-    this.pct.hidden = !!this.pending;
-    setText(this.setBtn, kind === 'finish' ? 'Finish lap' : 'Set curve');
+    this.pct.hidden = !!this.pending || review;
+    setText(this.setBtn, this.pendingJoin !== null ? 'Rejoin' : kind === 'finish' ? 'Finish lap' : 'Set curve');
     this.setBtn.disabled = kind === 'offtrack' || kind === 'backward';
+    this.raceBtn.hidden = !review;
+    this.editTyres.hidden = !review;
     // The tyre choice belongs to the start; once ink is down the bar is for drawing.
     const idle = this.fresh;
     this.tyreStrip.hidden = !idle;
     this.bottomStrip.hidden = idle;
-    this.tyreMark.hidden = idle;
+    this.tyreMark.hidden = idle || review;
   }
 
   // Minimap ----------------------------------------------------------------
@@ -1919,7 +2399,8 @@ export class DrawScreen implements Screen {
       const e = easeInOutCubic(t);
       this.cam.cx = g.from.cx + (g.to.cx - g.from.cx) * e;
       this.cam.cy = g.from.cy + (g.to.cy - g.from.cy) * e;
-      this.cam.zoom = g.from.zoom + (g.to.zoom - g.from.zoom) * e;
+      // In log space, so zooming out to the whole circuit and back in feels even.
+      this.cam.zoom = Math.exp(Math.log(g.from.zoom) + (Math.log(g.to.zoom) - Math.log(g.from.zoom)) * e);
       this.cam.angle = lerpAngle(g.from.angle, g.to.angle, e);
       this.cam.ax = g.from.ax + (g.to.ax - g.from.ax) * e;
       this.cam.ay = g.from.ay + (g.to.ay - g.from.ay) * e;
@@ -1949,9 +2430,11 @@ export class DrawScreen implements Screen {
     if (status === 'idle') this.drawStartCue(ctx, now);
     if (status === 'drawing' && this.drawMode !== 'curves') this.drawEdgeWarning(ctx);
     if (this.givenInk) strokeInk(ctx, this.givenInk, this.cam.zoom, INK, 0.45);
+    if (this.edit?.rest) this.drawOld(ctx, this.edit.rest);
     if (status !== 'idle') {
       strokeInk(ctx, this.ink, this.cam.zoom, INK);
     }
+    if (this.morph && this.morphTail) strokeInk(ctx, this.morphTail, this.cam.zoom, INK);
     if (this.morph) this.drawMorph(ctx, now);
     if (this.pendingPath) this.drawPending(ctx);
     if (status === 'drawing' && this.builder.progress > this.track.length * 0.7) this.drawStartMarker(ctx, now);
@@ -1960,7 +2443,14 @@ export class DrawScreen implements Screen {
     if (status === 'drawing') this.drawTip(ctx, now);
     if (status === 'drawing' && this.builder.offTrack) this.drawOffTrack(ctx, now, this.builder.offTrack);
     if (this.pending) this.drawKnobs(ctx, now);
+    if (this.joinAt && this.drawing) this.drawJoin(ctx, now);
+    if (this.joinPulse) this.drawJoinPulse(ctx, now);
     if (status === 'done') this.drawDone(ctx, now);
+    const hideMini = this.overview;
+    if (hideMini !== this.miniHidden) {
+      this.miniHidden = hideMini;
+      this.mini.classList.toggle('is-hidden', hideMini);
+    }
     this.drawMini();
     this.updateRecenter();
     this.compass.setAngle(this.cam.angle);
@@ -2141,6 +2631,56 @@ export class DrawScreen implements Screen {
     ctx.restore();
   }
 
+  /** Editing: the old line past where the redraw starts, faint and dashed until it is rejoined. */
+  private drawOld(ctx: CanvasRenderingContext2D, path: Path2D): void {
+    const z = this.cam.zoom;
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = INK;
+    ctx.globalAlpha = 0.45;
+    ctx.lineWidth = Math.max(0.9, 4.2 / z);
+    ctx.stroke(path);
+    ctx.globalAlpha = 0.9;
+    ctx.setLineDash([5 / z, 5 / z]);
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = Math.max(0.3, 1.4 / z);
+    ctx.stroke(path);
+    ctx.restore();
+  }
+
+  /** Editing: where the stroke would rejoin the old line if it ended now. */
+  private drawJoin(ctx: CanvasRenderingContext2D, now: number): void {
+    const p = pointAt(this.edit!.line, this.joinAt!.index);
+    const s = this.cam.toScreen(p.x, p.y);
+    const ph = (now % 900) / 900;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, 13 + ph * 16, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(155,48,255,${(1 - ph) * 0.8})`;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, 11, 0, Math.PI * 2);
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+  }
+
+  private drawJoinPulse(ctx: CanvasRenderingContext2D, now: number): void {
+    const jp = this.joinPulse!;
+    const t = (now - jp.t0) / 700;
+    if (t >= 1) {
+      this.joinPulse = null;
+      return;
+    }
+    const s = this.cam.toScreen(jp.x, jp.y);
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, 10 + t * 40, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(155,48,255,${1 - t})`;
+    ctx.lineWidth = 5 * (1 - t) + 1;
+    ctx.stroke();
+  }
+
   /** Tap and bend: the waiting curve's handles. The end is a solid dot, the middle a ring to drag. */
   private drawKnobs(ctx: CanvasRenderingContext2D, now: number): void {
     const c = this.pending!;
@@ -2178,6 +2718,14 @@ export class DrawScreen implements Screen {
     ctx.lineWidth = 3;
     ctx.strokeStyle = '#ffffff';
     ctx.stroke();
+    // Editing: an end on the old line wears a ring, ready to rejoin it.
+    if (this.pendingJoin !== null && !bad) {
+      ctx.beginPath();
+      ctx.arc(es.x, es.y, (this.knob === 'end' ? 12 : 9) + 5, 0, Math.PI * 2);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+    }
   }
 
   private drawDone(ctx: CanvasRenderingContext2D, now: number): void {

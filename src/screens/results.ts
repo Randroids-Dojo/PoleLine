@@ -25,6 +25,8 @@ import { sectorColour, type CamSnapshot } from './race';
 
 export interface ResultsActions {
   again(): void;
+  /** Open the line just raced to change part of it. */
+  edit?(): void;
   leaderboard(): void;
   home(): void;
   /** Any lap on the tutorial circuit: on to the championship, the main way out. */
@@ -44,6 +46,8 @@ export interface ResultsInput {
   walkthrough?: boolean;
   /** Toybox edition: where the lap landed among your saved laps (null rank: too slow to keep). */
   kept?: { rank: number | null; total: number } | null;
+  /** The time of the saved line this lap was edited from. */
+  editedFrom?: number | null;
 }
 
 /** How many circuits make up the season (the tutorial circuit is not a round). */
@@ -83,6 +87,9 @@ export class ResultsScreen implements Screen {
     const slot = gridSlot(lap.timeMs, meta.poleRef);
     const prev = input.previous;
     const deltaText = !prev ? 'First timed lap here' : input.isPb ? `New personal best, ${formatDelta(lap.timeMs - prev.timeMs)}` : `${formatDelta(lap.timeMs - prev.timeMs)} to your best ${formatLap(prev.timeMs)}`;
+    // An edit of a line other than your best also says how the edit went.
+    const edited = input.editedFrom;
+    const editText = edited != null && edited !== prev?.timeMs ? `${formatDelta(lap.timeMs - edited)} to the line you edited` : null;
 
     const sectors = h('ol', { class: 'res-sectors' });
     lap.sectorsMs.forEach((ms, k) => {
@@ -117,7 +124,8 @@ export class ResultsScreen implements Screen {
         h('h2', { id: 'res-time', class: 'res-time' }, formatLap(lap.timeMs)),
         h('div', { class: 'res-slot', 'aria-label': `Grid slot ${slotText}` }, h('b', null, slotText), h('span', null, slot.label)),
       ),
-      h('p', { class: `res-delta${input.isPb ? ' is-pb' : ''}` }, deltaText),
+      h('p', { class: `res-delta${input.isPb ? ' is-pb' : ''}${editText ? ' has-edit' : ''}` }, deltaText),
+      editText ? h('p', { class: 'res-delta res-edit' }, editText) : null,
       sectors,
       // The engineer's most useful note leads; the numbers wait under Lap details.
       notes.length ? h('div', { class: 'res-notes' }, h('p', null, notes[0])) : null,
@@ -140,7 +148,13 @@ export class ResultsScreen implements Screen {
         : h(
             'div',
             { class: 'res-actions' },
-            h('button', { class: 'btn-primary', onclick: () => this.actions.again() }, 'Draw again'),
+            // Draw a fresh lap, or open this one to change the part that cost time.
+            h(
+              'div',
+              { class: 'res-main' },
+              h('button', { class: 'btn-primary', onclick: () => this.actions.again() }, 'Draw again'),
+              this.actions.edit ? h('button', { class: 'btn-outline', onclick: () => this.actions.edit!() }, 'Edit line') : null,
+            ),
             h(
               'div',
               { class: 'res-secondary' },
