@@ -71,4 +71,4 @@ On a software rendered emulator this takes several minutes per lap; a real phone
 
 ## Store listing
 
-`mobile/store/listing.json` holds the copy and identifiers for both stores. The Play listing (Toyboxes developer account, app id 4975227597757531667) already has a processed draft of an earlier build 2, which is why this shell starts at build 3.
+`mobile/store/listing.json` holds the copy and identifiers for both stores. `releaseNotes` is the first-release text; `playReleaseNotes` is the update text for Play, which already has an earlier build. The Play listing (Toyboxes developer account, app id 4975227597757531667) already has a processed draft of an earlier build 2, which is why this shell starts at build 3.
