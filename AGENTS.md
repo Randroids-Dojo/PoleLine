@@ -40,11 +40,12 @@ npx tsx scripts/curvetest.ts spielberg /tmp/curves     # tap and bend: a whole l
 npx tsx scripts/closetest.ts                           # closing the loop: a last dot or lift on the start point finishes the lap in every mode, never 99% (dev server running)
 npx tsx scripts/tutorialtest.ts                        # the guided first lap: difficulty on the welcome card, the pause menu, copy that follows the mode (dev server running)
 npx tsx scripts/edittest.ts                            # editing a saved line in every mode: picker, whole-lap view, a redraw that strays then rejoins, the splice point for point, undo, race (dev server running; EDITION=toybox with harbour-loop for the app)
-npx tsx scripts/sectionplan.ts [slug,...] [--search]       # section by section, headless: how each circuit is cut, every planned line legal, a careful plan against the ideal line
-npx tsx scripts/sectiontest.ts spielberg /tmp/sections     # section by section in the browser: a whole lap with real taps, lessons in order, undo, changing a section, a result equal to the headless sim, where it lost time (no stall while the worker runs, the top tip wins exactly its gain), speed at 4x CPU slowdown (dev server or vite preview running)
+npx tsx scripts/segmentplan.ts [slug,...] [--search]       # segment by segment, headless: how each circuit is cut, every planned line legal, a careful plan against the ideal line
+npx tsx scripts/segmenttest.ts spielberg /tmp/segments     # segment by segment in the browser: a whole lap with real taps, lessons in order, undo, changing a segment, a result equal to the headless sim, where it lost time (no stall while the worker runs, the top tip wins exactly its gain), speed at 4x CPU slowdown (dev server or vite preview running)
+npx tsx scripts/turnmap.ts spielberg /tmp/turns.png --data   # a circuit north up with 100 m ticks, the corners the game finds and the official turns (src/data/turns.ts) to check them; EDITION=toybox for the made-up ones
 DRAW=smooth npx tsx scripts/playtest.ts spielberg wobbly /tmp/play   # the scripted playtest with every stroke corrected (playtest draws freehand unless DRAW is set)
 
-npm run toybox:tracks        # solve the made-up circuits (contact sheet: add --sheet /tmp/sheet.png to make-circuits.ts) and build src/data/toybox
+npm run toybox:tracks        # solve the made-up circuits (contact sheet: add --sheet /tmp/sheet.png to make-circuits.ts) and build src/data/toybox, turn numbers included
 npm run toybox:calibrate     # pole pace, sectors and clipping speed per made-up circuit
 npm run build:toybox         # the mobile bundle in dist-toybox
 npm run toybox:check         # no real names, no server routes in that bundle

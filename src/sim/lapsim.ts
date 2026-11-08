@@ -333,8 +333,8 @@ function speedProfile(geo: Geo, env: Env, grip: Float64Array, vLat: Float64Array
 }
 
 /**
- * The speed profile when the player has called the pedals (section by
- * section): `brake[i]` is 1 where the plan has the driver on the brakes and 0
+ * The speed profile when the player has called the pedals (segment by
+ * segment): `brake[i]` is 1 where the plan has the driver on the brakes and 0
  * where it has them on the gas. On the gas the car accelerates as hard as it
  * can and, if a corner comes up too fast, can only lift (drag and rolling
  * resistance with the wings closed), never brake. On the brakes it brakes as
@@ -590,7 +590,7 @@ export interface SimOptions {
   /** Override the calibrated surface grip (used by the calibration script). */
   surfaceGrip?: number;
   /**
-   * Section by section: the stretches of the lap where the player called the
+   * Segment by segment: the stretches of the lap where the player called the
    * brakes, flat [from, to, ...] in metres of lap progress along the
    * centreline. Everywhere else they called the gas. Without it the car takes
    * the quickest speed for the line, as it always has.
@@ -636,7 +636,7 @@ export function simulateLap(track: Track, pts: Float64Array, compound: Compound,
     }
   }
 
-  // Section by section: which samples the player put on the brakes.
+  // Segment by segment: which samples the player put on the brakes.
   let plan: Uint8Array | undefined;
   if (opts.brakes) {
     const z = opts.brakes;
@@ -786,7 +786,7 @@ export function simulateLap(track: Track, pts: Float64Array, compound: Compound,
     if (aLon > 0.3) out.throttle[i] = 1;
     else if (aLon > -drag - 1.5) out.throttle[i] = aLon > -1 ? 0.55 : 0.1;
     else out.brake[i] = Math.min(1, (-aLon - drag) / 35);
-    // Section by section: off the throttle wherever the brakes were called, and never braking where the gas was.
+    // Segment by segment: off the throttle wherever the brakes were called, and never braking where the gas was.
     if (plan) {
       if (plan[i]) out.throttle[i] = 0;
       else out.brake[i] = 0;

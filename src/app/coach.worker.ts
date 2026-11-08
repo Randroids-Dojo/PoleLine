@@ -1,8 +1,8 @@
-// Runs the section by section analysis (src/app/coach.ts) off the main
+// Runs the segment by segment analysis (src/app/coach.ts) off the main
 // thread, so the race playing in the meantime never stutters.
 
 import { analysePlan, type CoachReport } from './coach';
-import type { Course, Pick } from './sections';
+import type { Course, Pick } from './segments';
 import type { Track } from '../sim/track';
 import type { Compound } from '../sim/types';
 

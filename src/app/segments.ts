@@ -1,8 +1,8 @@
-// Section by section: the lap is cut into sections at each corner's turn-in,
+// Segment by segment: the lap is cut into segments at each corner's turn-in,
 // apex and exit, at brake boards before the corners a car has to brake for,
-// and on long straights. For every section the player calls the pedal (gas
+// and on long straights. For every segment the player calls the pedal (gas
 // or brake) and, if they like, a move to another lane: the left edge, the
-// middle or the right edge of the road. Long sections let the line cross more
+// middle or the right edge of the road. Long segments let the line cross more
 // than one lane. The lanes become an ordinary racing line, so it is validated
 // like any other; the pedals become the brake zones the lap sim honours
 // (src/sim/lapsim.ts, SimOptions.brakes).
@@ -21,7 +21,7 @@ export type Lane = -1 | 0 | 1;
 
 export interface Pick {
   pedal: Pedal;
-  /** The lane the section ends in. */
+  /** The lane the segment ends in. */
   lane: Lane;
 }
 
@@ -39,10 +39,10 @@ export interface Corner {
   brakes: boolean;
 }
 
-export interface Section {
+export interface Segment {
   from: number;
   to: number;
-  /** What the section runs up to. */
+  /** What the segment runs up to. */
   end: MarkKind;
   /** The brake board at its end (metres to the turn-in), when it ends at one. */
   board?: number;
@@ -57,7 +57,7 @@ export interface Section {
 export interface Course {
   length: number;
   corners: Corner[];
-  sections: Section[];
+  segments: Segment[];
 }
 
 /** Corners turn at least this tightly (1/m) somewhere along them. */
@@ -66,10 +66,10 @@ const CORNER_CURVE = 1 / 230;
 const MIN_TURN = 14;
 /** Half the window curvature is averaged over (centreline vertices, about 2 m each). */
 const CURVE_WINDOW = 6;
-/** No section is shorter than this (metres). */
-const MIN_SECTION = 22;
+/** No segment is shorter than this (metres). */
+const MIN_SEGMENT = 22;
 /** Straights longer than this are split (metres). */
-const MAX_SECTION = 420;
+const MAX_SEGMENT = 420;
 /** Brake boards stand every this many metres before a turn-in. */
 const BOARD_STEP = 50;
 const MAX_BOARDS = 4;
@@ -77,7 +77,7 @@ const MAX_BOARDS = 4;
 const SLOW_FOR = 7;
 /** ...looking this far (metres) back before the turn-in. */
 const BRAKE_LOOK = 300;
-/** A section at least this long can cross the whole road. */
+/** A segment at least this long can cross the whole road. */
 const WIDE_REACH = 60;
 /** How far inside the limit the edge lanes run (metres). */
 const EDGE_MARGIN = 0.35;
@@ -180,7 +180,7 @@ function findCorners(t: Track): Corner[] {
   return corners;
 }
 
-/** Cut a circuit into sections. Deterministic for a given track. */
+/** Cut a circuit into segments. Deterministic for a given track. */
 export function buildCourse(t: Track): Course {
   const L = t.length;
   const corners = findCorners(t);
@@ -228,8 +228,8 @@ export function buildCourse(t: Track): Course {
     c.brakes = true;
     // A corner the car slows for gets a point halfway in and halfway out, so
     // the brakes can come off and the gas go on close to where they should.
-    if (entryBack > 2 * MIN_SECTION) marks.push({ s: wrap(apex - entryBack / 2), kind: 'in', corner: ci, rank: 2.5 });
-    if (exitAhead > 2 * MIN_SECTION) marks.push({ s: wrap(apex + exitAhead / 2), kind: 'out', corner: ci, rank: 2.5 });
+    if (entryBack > 2 * MIN_SEGMENT) marks.push({ s: wrap(apex - entryBack / 2), kind: 'in', corner: ci, rank: 2.5 });
+    if (exitAhead > 2 * MIN_SEGMENT) marks.push({ s: wrap(apex + exitAhead / 2), kind: 'out', corner: ci, rank: 2.5 });
     // Room back to the previous corner's exit.
     const prev = corners[(ci - 1 + corners.length) % corners.length];
     let room = c.entry - prev.exit;
@@ -238,7 +238,7 @@ export function buildCourse(t: Track): Course {
     const want = Math.min(MAX_BOARDS, Math.max(1, Math.ceil((brakeFrom + 60) / BOARD_STEP)));
     for (let b = 1; b <= want; b++) {
       const dist = b * BOARD_STEP;
-      if (dist > room - MIN_SECTION) break;
+      if (dist > room - MIN_SEGMENT) break;
       marks.push({ s: wrap(c.entry - dist), kind: 'board', corner: ci, board: dist, rank: 3 });
     }
   });
@@ -246,8 +246,8 @@ export function buildCourse(t: Track): Course {
   marks.sort((a, b) => a.rank - b.rank || a.s - b.s);
   const kept: M[] = [];
   for (const m of marks) {
-    if (m.s < MIN_SECTION || m.s > L - MIN_SECTION) continue;
-    if (kept.some((o) => Math.abs(o.s - m.s) < MIN_SECTION)) continue;
+    if (m.s < MIN_SEGMENT || m.s > L - MIN_SEGMENT) continue;
+    if (kept.some((o) => Math.abs(o.s - m.s) < MIN_SEGMENT)) continue;
     kept.push(m);
   }
   kept.sort((a, b) => a.s - b.s);
@@ -256,7 +256,7 @@ export function buildCourse(t: Track): Course {
   let prevS = 0;
   for (const m of [...kept, { s: L, kind: 'finish' as MarkKind, corner: null, rank: 0 }]) {
     const gap = m.s - prevS;
-    const pieces = Math.ceil(gap / MAX_SECTION);
+    const pieces = Math.ceil(gap / MAX_SEGMENT);
     for (let p = 1; p < pieces; p++) bounds.push({ s: prevS + (gap * p) / pieces, kind: 'straight', corner: null, rank: 4 });
     bounds.push(m);
     prevS = m.s;
@@ -271,24 +271,24 @@ export function buildCourse(t: Track): Course {
     }
     return lo + 1 < t.n && t.s[lo + 1] - s < s - t.s[lo] ? lo + 1 : lo;
   };
-  const sections: Section[] = [];
+  const segments: Segment[] = [];
   let from = 0;
   for (const m of bounds) {
     const v = m.kind === 'finish' ? t.n : nearest(m.s);
     m.s = m.kind === 'finish' ? L : t.s[v];
-    // Inside and outside follow the corner the section ends at, else the next one.
+    // Inside and outside follow the corner the segment ends at, else the next one.
     let corner = m.corner;
     if (corner === null) {
       const next = corners.findIndex((c) => c.apex > m.s);
       corner = corners.length ? (next >= 0 ? next : 0) : null;
     }
-    sections.push({ from, to: m.s, end: m.kind, board: m.board, corner, reach: m.s - from >= WIDE_REACH ? 2 : 1, v });
+    segments.push({ from, to: m.s, end: m.kind, board: m.board, corner, reach: m.s - from >= WIDE_REACH ? 2 : 1, v });
     from = m.s;
   }
-  return { length: L, corners, sections };
+  return { length: L, corners, segments };
 }
 
-/** Lanes at every section boundary, from the first boundary (the start line) to the last section planned. */
+/** Lanes at every segment boundary, from the first boundary (the start line) to the last segment planned. */
 export function boundaryLanes(picks: readonly Pick[], total: number): number[] {
   // The lap starts in the lane it finishes in; until then, in the middle.
   const first = picks.length === total ? picks[total - 1].lane : 0;
@@ -331,8 +331,8 @@ function hermite(xs: readonly number[], ys: readonly number[], ms: readonly numb
 const SOLVE_ITERATIONS = 80;
 /** The first solve uses every this many vertices. */
 const COARSE = 4;
-/** Laying a section re-solves only this many sections back. */
-const WINDOW_SECTIONS = 3;
+/** Laying a segment re-solves only this many segments back. */
+const WINDOW_SEGMENTS = 3;
 /** A sideways change bigger than this (metres) between neighbouring vertices is a fold, not a line. */
 const FOLD = 2.5;
 /** An unfinished line is solved this far (metres) past its last gate. */
@@ -349,30 +349,30 @@ export function gate(t: Track, lane: Lane): [number, number] {
 
 /**
  * Sideways offset (metres, positive right) at every centreline vertex from the
- * start line to the end of the last section planned: the line that bends as
+ * start line to the end of the last segment planned: the line that bends as
  * little as it can (bending is what costs a car speed) while passing through
- * the gate picked at every section boundary and staying inside the white
+ * the gate picked at every segment boundary and staying inside the white
  * lines. Index n is the start line again once the whole lap is planned.
  * Solved on every fourth vertex first, then on all of them. With `prev` (the
- * offsets before the latest section was laid) only the last few sections are
+ * offsets before the latest segment was laid) only the last few segments are
  * re-solved; a whole lap is always solved whole, so its line depends only on
  * the picks.
  */
 export function solveOffsets(t: Track, course: Course, picks: readonly Pick[], prev?: Float64Array | null): Float64Array {
   const n = t.n;
   const w = laneOffset(t);
-  const total = course.sections.length;
+  const total = course.segments.length;
   const whole = picks.length === total;
   const lanes = boundaryLanes(picks, total);
-  const M = picks.length ? course.sections[picks.length - 1].v : 0;
+  const M = picks.length ? course.segments[picks.length - 1].v : 0;
   const N = M + 1;
   // An unfinished line is solved a little past its last gate, so its end
   // already leads on the way the road does instead of swinging straight at
   // the gate (only up to the gate is returned).
   const NX = whole ? N : Math.min(n, M + Math.round(AHEAD / (t.length / n))) + 1;
-  // Knots: the start line and the end of every planned section. Each holds the
+  // Knots: the start line and the end of every planned segment. Each holds the
   // line inside the third of the road its lane names (a gate).
-  const knotAt = [0, ...course.sections.slice(0, picks.length).map((s) => s.v)];
+  const knotAt = [0, ...course.segments.slice(0, picks.length).map((s) => s.v)];
   const lo = new Float64Array(NX).fill(-w);
   const hi = new Float64Array(NX).fill(w);
   const alpha = new Float64Array(NX);
@@ -391,11 +391,11 @@ export function solveOffsets(t: Track, course: Course, picks: readonly Pick[], p
   });
   for (let q = N; q < NX; q++) alpha[q] = alpha[N - 1];
   if (NX < 3) return alpha.slice(0, N);
-  // Laying one more section of an unfinished lap: only the last few sections
+  // Laying one more segment of an unfinished lap: only the last few segments
   // move, so the line before them is kept as it was and holds the join smooth.
   let from = 0;
-  if (prev && !whole && picks.length > WINDOW_SECTIONS) {
-    const ws = knotAt[picks.length - WINDOW_SECTIONS];
+  if (prev && !whole && picks.length > WINDOW_SEGMENTS) {
+    const ws = knotAt[picks.length - WINDOW_SEGMENTS];
     if (ws >= 2 && prev.length > ws) {
       from = ws - 2;
       for (let q = 0; q < N; q++) {
@@ -403,7 +403,7 @@ export function solveOffsets(t: Track, course: Course, picks: readonly Pick[], p
       }
       for (let q = N; q < NX; q++) alpha[q] = alpha[N - 1];
       for (let q = 0; q < ws; q++) lo[q] = hi[q] = alpha[q];
-      // The new section starts from where the old line ends and eases across
+      // The new segment starts from where the old line ends and eases across
       // to its gate, so the first guess has no step at the join.
       const j = prev.length - 1;
       if (j < N - 1) {
@@ -588,13 +588,13 @@ function refine(t: Track, verts: readonly number[], lo: Float64Array, hi: Float6
 
 /**
  * The planned line as points (metres), one per centreline vertex, from the
- * start line to the end of the last section planned. A whole lap runs a few
+ * start line to the end of the last segment planned. A whole lap runs a few
  * metres past the line so it crosses it.
  */
 export function planPoints(t: Track, course: Course, picks: readonly Pick[], offsets = solveOffsets(t, course, picks)): { x: number; y: number }[] {
   const out: { x: number; y: number }[] = [];
   const n = t.n;
-  const whole = picks.length === course.sections.length;
+  const whole = picks.length === course.segments.length;
   const count = offsets.length + (whole ? 3 : 0);
   for (let q = 0; q < count; q++) {
     const v = q % n;
@@ -604,10 +604,10 @@ export function planPoints(t: Track, course: Course, picks: readonly Pick[], off
   return out;
 }
 
-/** The lanes a section can end in, from the lane it starts in. */
-export function reachableLanes(section: Section, startLane: number): Lane[] {
+/** The lanes a segment can end in, from the lane it starts in. */
+export function reachableLanes(segment: Segment, startLane: number): Lane[] {
   const out: Lane[] = [];
-  for (const l of [-1, 0, 1] as Lane[]) if (Math.abs(l - startLane) <= section.reach) out.push(l);
+  for (const l of [-1, 0, 1] as Lane[]) if (Math.abs(l - startLane) <= segment.reach) out.push(l);
   return out;
 }
 
@@ -615,7 +615,7 @@ export function reachableLanes(section: Section, startLane: number): Lane[] {
 export function brakeZones(course: Course, picks: readonly Pick[]): number[] {
   const out: number[] = [];
   const L = course.length;
-  course.sections.forEach((sec, k) => {
+  course.segments.forEach((sec, k) => {
     if (picks[k]?.pedal !== 'brake') return;
     // A little past each end of the lap, where the line runs a hair either side of the start line.
     const from = sec.from <= 0 ? -10 : sec.from;
@@ -626,14 +626,14 @@ export function brakeZones(course: Course, picks: readonly Pick[]): number[] {
   return out;
 }
 
-/** Does a lane sit on the inside of the corner a section belongs to? -1 outside, 0 neither, 1 inside. */
-export function laneSide(course: Course, section: Section, lane: Lane): -1 | 0 | 1 {
-  if (section.corner === null || lane === 0) return 0;
-  const c = course.corners[section.corner];
+/** Does a lane sit on the inside of the corner a segment belongs to? -1 outside, 0 neither, 1 inside. */
+export function laneSide(course: Course, segment: Segment, lane: Lane): -1 | 0 | 1 {
+  if (segment.corner === null || lane === 0) return 0;
+  const c = course.corners[segment.corner];
   return lane === c.dir ? 1 : -1;
 }
 
-/** Compact text for a plan, for saving: one letter per section, g or b, then l, m or r. */
+/** Compact text for a plan, for saving: one letter per segment, g or b, then l, m or r. */
 export function encodePicks(picks: readonly Pick[]): string {
   return picks.map((p) => (p.pedal === 'gas' ? 'g' : 'b') + (p.lane < 0 ? 'l' : p.lane > 0 ? 'r' : 'm')).join('');
 }
@@ -647,7 +647,7 @@ export function decodePicks(text: string): Pick[] | null {
 
 const courses = new WeakMap<Track, Course>();
 
-/** A circuit's sections, worked out once per track. */
+/** A circuit's segments, worked out once per track. */
 export function courseFor(t: Track): Course {
   let c = courses.get(t);
   if (!c) {
@@ -658,17 +658,17 @@ export function courseFor(t: Track): Course {
 }
 
 /**
- * The lanes section k can end in. A section reaches one lane, or any on a
- * long one. The last section also sets the lane the lap starts in, so it may
- * only end where the first section can still reach its own gate from.
+ * The lanes segment k can end in. A segment reaches one lane, or any on a
+ * long one. The last segment also sets the lane the lap starts in, so it may
+ * only end where the first segment can still reach its own gate from.
  */
 export function laneOptions(course: Course, picks: readonly Pick[], k: number): Lane[] {
-  const sec = course.sections[k];
+  const sec = course.segments[k];
   if (!sec) return [];
   const out = reachableLanes(sec, startLane(course, picks, k));
-  const total = course.sections.length;
+  const total = course.segments.length;
   if (k === total - 1 && total > 1 && picks[0]) {
-    const first = course.sections[0];
+    const first = course.segments[0];
     const ok = out.filter((l) => Math.abs(l - picks[0].lane) <= first.reach);
     if (ok.length) return ok;
   }
@@ -676,13 +676,13 @@ export function laneOptions(course: Course, picks: readonly Pick[], k: number): 
 }
 
 /**
- * After the pick for section k changes, carry the later lanes along: a lane a
- * later section can no longer reach from where the one before it now ends
- * moves to the nearest one it can. Round a whole lap, the first section
+ * After the pick for segment k changes, carry the later lanes along: a lane a
+ * later segment can no longer reach from where the one before it now ends
+ * moves to the nearest one it can. Round a whole lap, the first segment
  * starts where the last ends, so the carrying goes on from there.
  */
 export function settleLanes(course: Course, picks: Pick[], k: number): void {
-  const total = course.sections.length;
+  const total = course.segments.length;
   const whole = picks.length === total;
   const steps = whole ? total - 1 : picks.length - 1 - k;
   for (let n = 1; n <= steps; n++) {
@@ -694,29 +694,61 @@ export function settleLanes(course: Course, picks: Pick[], k: number): void {
   }
 }
 
-/** The lane a section starts in: where the one before it ends, and the first in the lane the lap finishes in. */
+/** The lane a segment starts in: where the one before it ends, and the first in the lane the lap finishes in. */
 export function startLane(course: Course, picks: readonly Pick[], k: number): Lane {
   if (k > 0) return picks[k - 1]?.lane ?? 0;
-  return picks.length === course.sections.length ? picks[picks.length - 1].lane : 0;
+  return picks.length === course.segments.length ? picks[picks.length - 1].lane : 0;
 }
 
-/** Words for where a section runs to, for the screen's subtitle. */
-export function sectionText(s: Section): string {
+/**
+ * The official turn a segment belongs to (1 up): the turn at the corner it
+ * runs into or out of, or on a straight the next turn ahead. Null without
+ * turn data, or for the run to the line.
+ */
+export function turnOfSegment(course: Course, k: number, turns: readonly number[]): number | null {
+  const seg = course.segments[k];
+  if (!seg || !turns.length || seg.end === 'finish') return null;
+  const L = course.length;
+  const apart = (a: number, b: number) => {
+    const d = Math.abs(a - b) % L;
+    return Math.min(d, L - d);
+  };
+  if (seg.end !== 'straight' && seg.corner !== null) {
+    const apex = course.corners[seg.corner].apex;
+    let best = 0;
+    for (let i = 1; i < turns.length; i++) if (apart(turns[i], apex) < apart(turns[best], apex)) best = i;
+    if (apart(turns[best], apex) < 150) return best + 1;
+  }
+  let best = 0;
+  let ahead = Infinity;
+  turns.forEach((t, i) => {
+    const d = (((t - seg.to) % L) + L) % L;
+    if (d < ahead) {
+      ahead = d;
+      best = i;
+    }
+  });
+  return best + 1;
+}
+
+/** Words for where a segment runs to, naming its turn when it has one: "Turn 4 apex". */
+export function segmentText(s: Segment, turn: number | null = null): string {
+  const t = turn ? `Turn ${turn}` : null;
   switch (s.end) {
     case 'board':
-      return `To the ${s.board} m board`;
+      return t ? `${s.board} m board for ${t}` : `To the ${s.board} m board`;
     case 'turn':
-      return 'To the turn-in';
+      return t ? `${t} turn-in` : 'To the turn-in';
     case 'in':
-      return 'Halfway to the apex';
+      return t ? `Into ${t}` : 'Halfway to the apex';
     case 'apex':
-      return 'To the apex';
+      return t ? `${t} apex` : 'To the apex';
     case 'out':
-      return 'Halfway to the exit';
+      return t ? `Out of ${t}` : 'Halfway to the exit';
     case 'exit':
-      return 'To the exit';
+      return t ? `${t} exit` : 'To the exit';
     case 'straight':
-      return 'Down the straight';
+      return t ? `Straight to ${t}` : 'Down the straight';
     default:
       return 'To the line';
   }
@@ -727,7 +759,7 @@ export function sectionText(s: Section): string {
  * mirrors: its decimetre points, or null if it is not a legal lap.
  */
 export function lapLine(t: Track, course: Course, picks: readonly Pick[]): number[] | null {
-  if (picks.length !== course.sections.length) return null;
+  if (picks.length !== course.segments.length) return null;
   const b = new LineBuilder(t);
   const pts = planPoints(t, course, picks);
   if (!b.start(pts[0].x, pts[0].y)) return null;

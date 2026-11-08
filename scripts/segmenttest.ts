@@ -1,23 +1,23 @@
-// Section by section in a phone-sized browser, with real taps: a whole lap
-// laid from a careful plan (scripts/sectionplan.ts), the lessons in order,
-// undo, changing a laid section, the race, and a result that matches the
-// headless sim of the same plan to the millisecond. Then Edit sections opens
+// Segment by segment in a phone-sized browser, with real taps: a whole lap
+// laid from a careful plan (scripts/segmentplan.ts), the lessons in order,
+// undo, changing a laid segment, the race, and a result that matches the
+// headless sim of the same plan to the millisecond. Then Edit segments opens
 // the plan again.
 //
-//   npx tsx scripts/sectiontest.ts [slug] [outDir] [url]   (dev server running)
+//   npx tsx scripts/segmenttest.ts [slug] [outDir] [url]   (dev server running)
 
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium, type Page } from 'playwright-core';
 import { formatLap } from '../src/shared/time.js';
-import { buildCourse, encodePicks } from '../src/app/sections.js';
+import { buildCourse, encodePicks } from '../src/app/segments.js';
 import { buildTrack } from '../src/sim/track.js';
-import { carefulPlan, lapTime } from './sectionplan.js';
+import { carefulPlan, lapTime } from './segmentplan.js';
 
 const DATA = process.env.EDITION === 'toybox' ? '../src/data/toybox' : '../src/data';
 const { CATALOG } = (await import(`${DATA}/catalog.ts`)) as typeof import('../src/data/catalog.js');
 const slug = process.argv[2] ?? 'spielberg';
-const out = process.argv[3] ?? '/tmp/poleline-sections';
+const out = process.argv[3] ?? '/tmp/poleline-segments';
 const url = process.argv[4] ?? 'http://localhost:5199/';
 mkdirSync(out, { recursive: true });
 
@@ -27,7 +27,7 @@ const course = buildCourse(track);
 const plan = carefulPlan(track, course);
 const expected = lapTime(track, course, plan, 'soft');
 if (expected === null) throw new Error('the careful plan is not a legal lap');
-console.log(`${slug}: ${course.sections.length} sections, careful plan ${encodePicks(plan)}, headless ${formatLap(expected)}`);
+console.log(`${slug}: ${course.segments.length} segments, careful plan ${encodePicks(plan)}, headless ${formatLap(expected)}`);
 
 const failures: string[] = [];
 const check = (ok: boolean, what: string) => {
@@ -43,14 +43,14 @@ page.on('console', (m) => {
   if (m.type() === 'error') console.log('[page]', m.text());
 });
 await page.addInitScript((s) => {
-  localStorage.setItem('poleline:v1:settings', JSON.stringify({ v: 2, tutorial: 'done', lastTrack: s, sound: false, sections: true, panCoachSeen: true }));
+  localStorage.setItem('poleline:v1:settings', JSON.stringify({ v: 2, tutorial: 'done', lastTrack: s, sound: false, segments: true, panCoachSeen: true }));
 }, slug);
 await page.goto(`${url}?debug`);
 await page.waitForTimeout(900);
 await page.getByRole('button', { name: 'Draw a lap' }).click();
 await page.waitForTimeout(900);
 
-type State = { cursor: number; total: number; picks: string; review: boolean; armed: number; startLane: number; coached: boolean; tips: { section: number; action: string; gain: number; pedal?: 'gas' | 'brake'; lane?: -1 | 0 | 1 }[] };
+type State = { cursor: number; total: number; picks: string; review: boolean; armed: number; startLane: number; coached: boolean; tips: { segment: number; action: string; gain: number; pedal?: 'gas' | 'brake'; lane?: -1 | 0 | 1 }[] };
 const state = () => page.evaluate(() => (window as unknown as { __pl: { app: { current: { state: State } } } }).__pl.app.current.state) as Promise<State>;
 const hint = () => page.evaluate(() => {
   const el = document.querySelector('.draw-hint');
@@ -59,7 +59,7 @@ const hint = () => page.evaluate(() => {
 const tap = (name: string) => page.getByRole('button', { name, exact: true }).tap();
 
 const st0 = await state();
-check(st0.total === course.sections.length, `the browser cuts the circuit into the same ${course.sections.length} sections (${st0.total})`);
+check(st0.total === course.segments.length, `the browser cuts the circuit into the same ${course.segments.length} segments (${st0.total})`);
 
 // Every pad button takes a touch across its face (nothing invisible over it).
 const reach = await page.evaluate(() => {
@@ -84,8 +84,8 @@ await note();
 
 // Lay the lap.
 const shots = new Set<number>();
-const firstBoard = course.sections.findIndex((s) => s.end === 'board');
-const firstApex = course.sections.findIndex((s) => s.end === 'apex');
+const firstBoard = course.segments.findIndex((s) => s.end === 'board');
+const firstApex = course.segments.findIndex((s) => s.end === 'apex');
 const t0 = Date.now();
 let taps = 0;
 let braked = false;
@@ -102,25 +102,25 @@ for (let k = 0; k < plan.length; k++) {
   }
   const s = await state();
   if (s.armed !== want) {
-    check(false, `section ${k + 1}: could not arm lane ${want} (armed ${s.armed})`);
+    check(false, `segment ${k + 1}: could not arm lane ${want} (armed ${s.armed})`);
     break;
   }
   if ((k === firstBoard || k === firstApex || k === 1) && !shots.has(k)) {
     shots.add(k);
     await page.waitForTimeout(450);
-    await page.screenshot({ path: join(out, `2-section-${k + 1}.png`) });
+    await page.screenshot({ path: join(out, `2-segment-${k + 1}.png`) });
   }
   await tap(plan[k].pedal === 'gas' ? 'Gas' : 'Brake');
   if (plan[k].pedal === 'brake') {
-    // The brake lesson waits for the first board section after the gas lesson (section 2 on).
-    if (!braked && k < course.sections.findIndex((x, i) => i >= 1 && x.end === 'board')) brakeBeforeBoard = true;
+    // The brake lesson waits for the first board segment after the gas lesson (segment 2 on).
+    if (!braked && k < course.segments.findIndex((x, i) => i >= 1 && x.end === 'board')) brakeBeforeBoard = true;
     braked = true;
   }
   taps++;
   await note();
   const after = await state();
   if (after.picks.length !== (k + 1) * 2) {
-    check(false, `section ${k + 1}: the tap did not set it (${after.picks.length / 2} set)`);
+    check(false, `segment ${k + 1}: the tap did not set it (${after.picks.length / 2} set)`);
     break;
   }
 }
@@ -132,7 +132,7 @@ await page.screenshot({ path: join(out, '3-review.png') });
 console.log('lessons seen:', hints);
 // A lesson whose action the player already did before its moment is skipped
 // (the careful plan often moves lanes on the first straight).
-const order = ['Tap Gas', ...(brakeBeforeBoard ? [] : ['Tap Brake']), ...(lanesBeforeBrake ? [] : ['Left and Right']), 'Tap any section'];
+const order = ['Tap Gas', ...(brakeBeforeBoard ? [] : ['Tap Brake']), ...(lanesBeforeBrake ? [] : ['Left and Right']), 'Tap any segment'];
 const seen = order.map((o) => hints.findIndex((t) => t.startsWith(o)));
 check(seen.every((i) => i >= 0) && seen.every((i, j) => j === 0 || i > seen[j - 1]), `every lesson due shows, one at a time, in order (${order.join(' / ')}: ${seen.join(', ')})`);
 check(!lanesBeforeBrake || !hints.some((t) => t.startsWith('Left and Right')), 'the gate lesson is skipped when Left or Right was already used');
@@ -146,16 +146,16 @@ const afterEnter = await page.evaluate(() => ({ medium: document.querySelector('
 check(afterEnter.medium === true && !afterEnter.racing, 'Enter on a focused tyre picks that tyre and does not start the race');
 await page.locator('.sec-tyres [data-c="soft"]').tap();
 
-// Undo the last section, then lay it again.
+// Undo the last segment, then lay it again.
 await page.locator('.sec-review .sec-undo').tap();
 let s = await state();
-check(!s.review && s.cursor === plan.length - 1 && s.picks.length === (plan.length - 1) * 2, 'Undo takes back the last section');
+check(!s.review && s.cursor === plan.length - 1 && s.picks.length === (plan.length - 1) * 2, 'Undo takes back the last segment');
 check(s.armed === plan[plan.length - 1].lane, 'and reopens it with the gate it was set with');
 await tap(plan[plan.length - 1].pedal === 'gas' ? 'Gas' : 'Brake');
 s = await state();
 check(s.review && s.picks === encodePicks(plan), 'laying it again lays the lap again');
 
-// Change a laid section by tapping it on the map, then put it back with Undo.
+// Change a laid segment by tapping it on the map, then put it back with Undo.
 const target = firstApex >= 0 ? firstApex : 3;
 await page.waitForTimeout(800);
 const spot = await page.evaluate(
@@ -163,17 +163,17 @@ const spot = await page.evaluate(
     const scr = (window as unknown as { __pl: { app: { current: unknown } } }).__pl.app.current as { cam: { toScreen(x: number, y: number): { x: number; y: number } }; track: { x: Float64Array; y: Float64Array } };
     return scr.cam.toScreen(scr.track.x[v], scr.track.y[v]);
   },
-  [Math.round((course.sections[target].v + (target ? course.sections[target - 1].v : 0)) / 2)],
+  [Math.round((course.segments[target].v + (target ? course.segments[target - 1].v : 0)) / 2)],
 );
 await page.touchscreen.tap(spot.x, spot.y);
 await page.waitForTimeout(600);
 s = await state();
-check(!s.review && s.cursor === target, `tapping section ${target + 1} on the whole-lap map opens it (cursor ${s.cursor + 1})`);
+check(!s.review && s.cursor === target, `tapping segment ${target + 1} on the whole-lap map opens it (cursor ${s.cursor + 1})`);
 await page.screenshot({ path: join(out, '4-change.png') });
 const flipped = plan[target].pedal === 'gas' ? 'Brake' : 'Gas';
 await tap(flipped);
 s = await state();
-check(s.picks[target * 2] === (flipped === 'Gas' ? 'g' : 'b') && s.cursor === target + 1 && !s.review, 'changing it sets the new pedal and walks on to the next section');
+check(s.picks[target * 2] === (flipped === 'Gas' ? 'g' : 'b') && s.cursor === target + 1 && !s.review, 'changing it sets the new pedal and walks on to the next segment');
 await tap('Whole lap');
 s = await state();
 check(s.review, 'Whole lap goes back to the whole circuit');
@@ -184,7 +184,7 @@ if (!s.review) {
   await tap('Whole lap');
   s = await state();
 }
-check(s.picks === encodePicks(plan), 'Undo puts the changed section back');
+check(s.picks === encodePicks(plan), 'Undo puts the changed segment back');
 
 // Race it and read the time. Where the lap lost time is worked out in a
 // worker meanwhile: the race must not stall for it.
@@ -209,7 +209,7 @@ console.log(sheet.slice(0, 260));
 const shown = (await page.locator('#res-time').innerText()).trim();
 check(shown === formatLap(expected), `the result (${shown}) is the headless sim of the same plan (${formatLap(expected)})`);
 check(sheet.includes(process.env.EDITION === 'toybox' ? 'apart from Your times' : 'stay off the leaderboard'), 'the result says these laps are kept apart (off the leaderboard, or apart from Your times in the app)');
-check(await page.getByRole('button', { name: 'Edit sections' }).isVisible(), 'the result offers Edit sections');
+check(await page.getByRole('button', { name: 'Edit segments' }).isVisible(), 'the result offers Edit segments');
 
 // The note says where the lap lost time once the analysis is done.
 let coachNote = '';
@@ -223,15 +223,15 @@ const coachMs = await page.evaluate(
   [slug, encodePicks(plan)] as const,
 );
 console.log(`analysis took ${(coachMs / 1000).toFixed(1)} s: ${coachNote}`);
-check(/^(Biggest gain: (Brake|Gas|Left gate|Middle gate|Right gate) in section \d+, \d+\.\d\d s quicker\.|No single change makes this lap quicker\.)/.test(coachNote), 'the result names the biggest single change and what it wins');
+check(/^(Biggest gain: (Brake|Gas|Left gate|Middle gate|Right gate) in segment \d+ \([^)]+, sector [123]\), \d+\.\d\d s quicker\.|No single change makes this lap quicker\.)/.test(coachNote), 'the result names the biggest single change, where it is (turn and sector) and what it wins');
 await page.screenshot({ path: join(out, '5-results-coached.png') });
 
-// Edit sections opens the plan again, whole, with the sections that lost time marked.
-await page.getByRole('button', { name: 'Edit sections' }).click();
+// Edit segments opens the plan again, whole, with the segments that lost time marked.
+await page.getByRole('button', { name: 'Edit segments' }).click();
 await page.waitForTimeout(1200);
 s = await state();
-check(s.review && s.picks === encodePicks(plan), 'Edit sections opens the same plan on the whole circuit');
-check(s.coached && s.tips.length > 0, `it marks the sections that lost time (${s.tips.length})`);
+check(s.review && s.picks === encodePicks(plan), 'Edit segments opens the same plan on the whole circuit');
+check(s.coached && s.tips.length > 0, `it marks the segments that lost time (${s.tips.length})`);
 await page.screenshot({ path: join(out, '6-edit.png') });
 if (s.tips.length) {
   // The tips are for the tyre the lap was raced on.
@@ -244,22 +244,22 @@ if (s.tips.length) {
   // Take the biggest tip: tap its label on the map, read the tip, make the change.
   const tip = s.tips[0];
   await page.waitForTimeout(300);
-  const labels = await page.evaluate(() => (window as unknown as { __pl: { app: { current: { gainLabels: { x: number; y: number; w: number; h: number; section: number }[] } } } }).__pl.app.current.gainLabels);
-  const label = labels.find((b) => b.section === tip.section)!;
+  const labels = await page.evaluate(() => (window as unknown as { __pl: { app: { current: { gainLabels: { x: number; y: number; w: number; h: number; segment: number }[] } } } }).__pl.app.current.gainLabels);
+  const label = labels.find((b) => b.segment === tip.segment)!;
   check(!!label && labels.length === Math.min(3, s.tips.length), `the biggest gains are labelled on the map (${labels.length})`);
   const overlap = labels.some((a, i) => labels.some((b, j) => i < j && a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h));
   check(!overlap, 'no two labels overlap');
   await page.touchscreen.tap(label.x + label.w / 2, label.y + label.h / 2);
   await page.waitForTimeout(600);
   s = await state();
-  check(s.cursor === tip.section, `tapping the biggest gain's label opens its section (section ${tip.section + 1})`);
+  check(s.cursor === tip.segment, `tapping the biggest gain's label opens its segment (segment ${tip.segment + 1})`);
   const said = await hint();
   const secs = (tip.gain / 1000).toFixed(2);
   check(said === `${tip.action} here: ${secs} s quicker.`, `it says what to change there: "${said}"`);
   await page.screenshot({ path: join(out, '7-tip.png') });
   if (tip.lane !== undefined) {
     for (let guard = 0; guard < 4 && (await state()).armed !== tip.lane; guard++) await tap((await state()).armed < tip.lane ? 'Right' : 'Left');
-    await tap(plan[tip.section].pedal === 'gas' ? 'Gas' : 'Brake');
+    await tap(plan[tip.segment].pedal === 'gas' ? 'Gas' : 'Brake');
   } else {
     await tap(tip.pedal === 'gas' ? 'Gas' : 'Brake');
   }
@@ -279,7 +279,7 @@ if (s.tips.length) {
   }
   if (tip.lane !== undefined) {
     for (let guard = 0; guard < 4 && (await state()).armed !== tip.lane; guard++) await tap((await state()).armed < tip.lane ? 'Right' : 'Left');
-    await tap(plan[tip.section].pedal === 'gas' ? 'Gas' : 'Brake');
+    await tap(plan[tip.segment].pedal === 'gas' ? 'Gas' : 'Brake');
   } else {
     await tap(tip.pedal === 'gas' ? 'Gas' : 'Brake');
   }
@@ -309,7 +309,7 @@ if (s.tips.length) {
   const p2 = await fresh.newPage();
   p2.on('pageerror', (e) => failures.push(`page error: ${e.message}`));
   await p2.addInitScript((sl) => {
-    localStorage.setItem('poleline:v1:settings', JSON.stringify({ v: 2, tutorial: 'done', lastTrack: sl, sound: false, sections: true, panCoachSeen: true }));
+    localStorage.setItem('poleline:v1:settings', JSON.stringify({ v: 2, tutorial: 'done', lastTrack: sl, sound: false, segments: true, panCoachSeen: true }));
   }, slug);
   await p2.goto(`${url}?debug`);
   await p2.waitForTimeout(900);
@@ -336,14 +336,14 @@ if (s.tips.length) {
     times.push(await timed(plan[k].pedal));
   }
   // Changing a laid lap solves the whole lap on every press.
-  await p2.evaluate(() => (window as unknown as { __pl: { app: { current: { openSection(k: number): void } } } }).__pl.app.current.openSection(4));
+  await p2.evaluate(() => (window as unknown as { __pl: { app: { current: { openSegment(k: number): void } } } }).__pl.app.current.openSegment(4));
   const edits = [await timed('left'), await timed('right'), await timed('gas')];
   check(seen2.some((x) => x.startsWith('Left and Right')), `a player who has not used Left or Right gets the gate lesson at the first corner (${seen2.join(' / ')})`);
   times.sort((a, b) => a - b);
   const p50 = times[Math.floor(times.length / 2)];
   const worst = times[times.length - 1];
-  console.log(`laying a section at 4x CPU slowdown: median ${p50.toFixed(0)} ms, worst ${worst.toFixed(0)} ms over ${times.length}; changing a laid lap: ${edits.map((x) => x.toFixed(0)).join(', ')} ms`);
-  check(p50 < 60 && worst < 400, 'laying a section stays quick with the CPU slowed four times (median under 60 ms; the last, which solves the whole lap, under 400 ms)');
+  console.log(`laying a segment at 4x CPU slowdown: median ${p50.toFixed(0)} ms, worst ${worst.toFixed(0)} ms over ${times.length}; changing a laid lap: ${edits.map((x) => x.toFixed(0)).join(', ')} ms`);
+  check(p50 < 60 && worst < 400, 'laying a segment stays quick with the CPU slowed four times (median under 60 ms; the last, which solves the whole lap, under 400 ms)');
   check(Math.max(...edits) < 600, 'changing a laid lap answers in under 600 ms with the CPU slowed four times');
   await fresh.close();
 }

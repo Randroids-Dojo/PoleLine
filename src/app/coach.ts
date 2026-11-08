@@ -1,6 +1,6 @@
-// Section by section: where a lap lost time. For every section the lap is run
+// Segment by segment: where a lap lost time. For every segment the lap is run
 // again with just that one pick changed (the other pedal, then each other gate
-// the section can reach) and the change that makes it quickest is kept as a
+// the segment can reach) and the change that makes it quickest is kept as a
 // tip, with exactly how much quicker. It also runs the same line with the car
 // choosing the pedals itself, which is what perfect pedals would give.
 //
@@ -12,10 +12,10 @@ import { simulateLap } from '../sim/lapsim';
 import { decodePath, encodePath } from '../sim/path';
 import type { Track } from '../sim/track';
 import type { Compound } from '../sim/types';
-import { brakeZones, encodePicks, laneOptions, lapLine, settleLanes, type Course, type Lane, type Pedal, type Pick } from './sections';
+import { brakeZones, encodePicks, laneOptions, lapLine, settleLanes, type Course, type Lane, type Pedal, type Pick } from './segments';
 
 export interface Tip {
-  section: number;
+  segment: number;
   /** The one change: the other pedal, or another gate. */
   pedal?: Pedal;
   lane?: Lane;
@@ -30,9 +30,9 @@ export interface CoachReport {
   timeMs: number;
   /** The same line with the car choosing the pedals itself (ms), once known. */
   perfectMs: number | null;
-  /** The best tip for each section, or null where no single change helps. */
+  /** The best tip for each segment, or null where no single change helps. */
   tips: (Tip | null)[];
-  /** Sections whose pedal and gates have all been tried. */
+  /** Segments whose pedal and gates have all been tried. */
   checked: number;
   done: boolean;
 }
@@ -44,9 +44,9 @@ function lapMs(track: Track, line: number[], compound: Compound, course: Course,
   return simulateLap(track, decodePath(encodePath(line)), compound, { brakes: brakeZones(course, picks) }).timeMs;
 }
 
-/** Yields a report after every few sections; the last one has `done` set. */
+/** Yields a report after every few segments; the last one has `done` set. */
 export function* analysePlan(track: Track, course: Course, picks: readonly Pick[], compound: Compound): Generator<CoachReport> {
-  const total = course.sections.length;
+  const total = course.segments.length;
   const report: CoachReport = { picks: encodePicks(picks), compound, timeMs: 0, perfectMs: null, tips: new Array(total).fill(null), checked: 0, done: false };
   const line = lapLine(track, course, picks);
   if (!line) {
@@ -58,22 +58,22 @@ export function* analysePlan(track: Track, course: Course, picks: readonly Pick[
   report.perfectMs = simulateLap(track, decodePath(encodePath(line)), compound).timeMs;
   yield { ...report, tips: report.tips.slice() };
   const keep = (tip: Tip) => {
-    const cur = report.tips[tip.section];
-    if (tip.gain >= MIN_GAIN && (!cur || tip.gain > cur.gain)) report.tips[tip.section] = tip;
+    const cur = report.tips[tip.segment];
+    if (tip.gain >= MIN_GAIN && (!cur || tip.gain > cur.gain)) report.tips[tip.segment] = tip;
   };
   for (let k = 0; k < total; k++) {
     // The other pedal: the line stays the same.
     const flipped = picks.map((p) => ({ ...p }));
     flipped[k] = { ...flipped[k], pedal: picks[k].pedal === 'gas' ? 'brake' : 'gas' };
-    keep({ section: k, pedal: flipped[k].pedal, gain: report.timeMs - lapMs(track, line, compound, course, flipped) });
-    // Each other gate the section can reach: the line is laid again.
+    keep({ segment: k, pedal: flipped[k].pedal, gain: report.timeMs - lapMs(track, line, compound, course, flipped) });
+    // Each other gate the segment can reach: the line is laid again.
     for (const lane of laneOptions(course, picks, k)) {
       if (lane === picks[k].lane) continue;
       const trial = picks.map((p) => ({ ...p }));
       trial[k] = { ...trial[k], lane };
       settleLanes(course, trial, k);
       const other = lapLine(track, course, trial);
-      if (other) keep({ section: k, lane, gain: report.timeMs - lapMs(track, other, compound, course, trial) });
+      if (other) keep({ segment: k, lane, gain: report.timeMs - lapMs(track, other, compound, course, trial) });
     }
     report.checked = k + 1;
     if (k % 3 === 2) yield { ...report, tips: report.tips.slice() };

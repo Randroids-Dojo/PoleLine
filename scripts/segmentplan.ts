@@ -1,15 +1,15 @@
-// Section by section, headless: how each circuit is cut into sections, whether
+// Segment by segment, headless: how each circuit is cut into segments, whether
 // every planned line is a legal lap, and how quick a careful plan gets against
 // the ideal line. Also builds the plans the browser test plays.
 //
-//   npx tsx scripts/sectionplan.ts [slug,...] [--search]
-// --search improves each plan by flipping pedals and lanes one section at a time.
+//   npx tsx scripts/segmentplan.ts [slug,...] [--search]
+// --search improves each plan by flipping pedals and lanes one segment at a time.
 
 import { pathToFileURL } from 'node:url';
 import { simulateLap } from '../src/sim/lapsim.js';
 import { decodePath, encodePath } from '../src/sim/path.js';
 import { buildTrack, type Track } from '../src/sim/track.js';
-import { brakeZones, buildCourse, lapLine, laneOffset, laneOptions, type Course, type Lane, type Pick } from '../src/app/sections.js';
+import { brakeZones, buildCourse, lapLine, laneOffset, laneOptions, type Course, type Lane, type Pick } from '../src/app/segments.js';
 import { minCurvatureOffsets, offsetsToLine } from './optimal.js';
 
 /** The planned line as the game lays it: decimetre points, or null if it is not a legal lap. */
@@ -33,7 +33,7 @@ export function carefulPlan(track: Track, course: Course, compound: 'soft' | 'me
     return ideal[best];
   };
   const picks: Pick[] = [];
-  course.sections.forEach((sec, k) => {
+  course.segments.forEach((sec, k) => {
     const a = at(sec.to >= course.length ? 0 : sec.to) / w;
     const want = (a < -1 / 3 ? -1 : a > 1 / 3 ? 1 : 0) as Lane;
     const options = laneOptions(course, picks, k);
@@ -42,7 +42,7 @@ export function carefulPlan(track: Track, course: Course, compound: 'soft' | 'me
   const line = planLine(track, course, picks);
   if (!line) return picks;
   const free = simulateLap(track, decodePath(encodePath(line)), compound);
-  course.sections.forEach((sec, k) => {
+  course.segments.forEach((sec, k) => {
     let braking = 0;
     let samples = 0;
     for (let i = 0; i < free.n; i++) {
@@ -56,7 +56,7 @@ export function carefulPlan(track: Track, course: Course, compound: 'soft' | 'me
   return picks;
 }
 
-/** One pass of flipping each section's pedal, then each lane, keeping what is quicker. */
+/** One pass of flipping each segment's pedal, then each lane, keeping what is quicker. */
 export function improve(track: Track, course: Course, picks: Pick[], compound: 'soft' | 'medium' | 'hard' = 'soft'): { picks: Pick[]; time: number } {
   let best = lapTime(track, course, picks, compound) ?? Infinity;
   const cur = picks.map((p) => ({ ...p }));
@@ -71,7 +71,7 @@ export function improve(track: Track, course: Course, picks: Pick[], compound: '
     const was = cur[k].lane;
     for (const l of laneOptions(course, cur, k)) {
       if (l === was) continue;
-      const next = course.sections[(k + 1) % cur.length];
+      const next = course.segments[(k + 1) % cur.length];
       if (Math.abs(cur[(k + 1) % cur.length].lane - l) > next.reach) continue;
       cur[k].lane = l;
       const t = lapTime(track, course, cur, compound) ?? Infinity;
@@ -93,11 +93,11 @@ async function main(): Promise<void> {
     const t0 = performance.now();
     const course = buildCourse(track);
     const ms = performance.now() - t0;
-    const lens = course.sections.map((s) => s.to - s.from);
+    const lens = course.segments.map((s) => s.to - s.from);
     const ideal = simulateLap(track, decodePath(encodePath(offsetsToLine(track, minCurvatureOffsets(track)))), 'soft').timeMs;
     const plan = carefulPlan(track, course);
     const careful = lapTime(track, course, plan);
-    let line = `${slug.padEnd(14)} turns ${String(meta.turns).padStart(2)} corners ${String(course.corners.length).padStart(2)} (brake ${String(course.corners.filter((c) => c.brakes).length).padStart(2)}) sections ${String(course.sections.length).padStart(3)} len ${Math.min(...lens).toFixed(0)}..${Math.max(...lens).toFixed(0)} build ${ms.toFixed(0)}ms | ideal ${fmt(ideal)} careful ${fmt(careful)}`;
+    let line = `${slug.padEnd(14)} turns ${String(meta.turns).padStart(2)} corners ${String(course.corners.length).padStart(2)} (brake ${String(course.corners.filter((c) => c.brakes).length).padStart(2)}) segments ${String(course.segments.length).padStart(3)} len ${Math.min(...lens).toFixed(0)}..${Math.max(...lens).toFixed(0)} build ${ms.toFixed(0)}ms | ideal ${fmt(ideal)} careful ${fmt(careful)}`;
     if (search) {
       let r = improve(track, course, plan);
       r = improve(track, course, r.picks);

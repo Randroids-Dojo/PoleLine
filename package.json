@@ -13,7 +13,7 @@
     "test": "vitest run",
     "tracks:build": "tsx scripts/build-tracks.ts && tsx scripts/build-tutorial.ts",
     "tracks:calibrate": "tsx scripts/calibrate.ts",
-    "toybox:tracks": "tsx scripts/toybox/make-circuits.ts && tsx scripts/toybox/build-tracks.ts",
+    "toybox:tracks": "tsx scripts/toybox/make-circuits.ts && tsx scripts/toybox/build-tracks.ts && tsx scripts/toybox/turns.ts",
     "toybox:calibrate": "tsx scripts/toybox/calibrate.ts",
     "build:toybox": "tsc --noEmit && VITE_EDITION=toybox vite build --outDir dist-toybox",
     "mobile:sync": "npm run build:toybox && npx cap sync",

@@ -3,9 +3,9 @@ import './styles.css';
 import { App } from './app/app';
 import { setSoundEnabled } from './app/audio';
 import { setKeepAwake } from './app/wake';
-import { bumpAttempts, currentSetup, getBest, getBestSectors, getSectionBest, getSettings, getTyre, saveSettings, setBest, setSectionBest, updateBestSectors, type PersonalBest } from './app/store';
-import { SectionScreen } from './screens/sections';
-import { brakeZones, courseFor, decodePicks, encodePicks, type Pick } from './app/sections';
+import { bumpAttempts, currentSetup, getBest, getBestSectors, getSegmentBest, getSettings, getTyre, saveSettings, setBest, setSegmentBest, updateBestSectors, type PersonalBest } from './app/store';
+import { SegmentScreen } from './screens/segments';
+import { brakeZones, courseFor, decodePicks, encodePicks, type Pick } from './app/segments';
 import { coachFor, startCoach } from './app/coach-client';
 import { HomeScreen } from './screens/home';
 import { DrawScreen } from './screens/draw';
@@ -203,10 +203,10 @@ async function draw(slug: string, compound: Compound, walkthrough = false): Prom
     if (walkthrough) endTutorial('skipped');
     home(walkthrough ? championshipSlug() : slug);
   };
-  // Section by section lays the lap a section at a time. The tutorial circuit
+  // Segment by segment lays the lap a segment at a time. The tutorial circuit
   // keeps its guided last corner, which is always drawn.
-  if (getSettings().sections && !meta.tutorial) {
-    app.show(new SectionScreen(app, track, art, compound, { complete: (pts, tyre, picks) => raceSections(track, tyre, pts, picks), exit: leave }));
+  if (getSettings().segments && !meta.tutorial) {
+    app.show(new SegmentScreen(app, track, art, compound, { complete: (pts, tyre, picks) => raceSegments(track, tyre, pts, picks), exit: leave }));
     return;
   }
   app.show(
@@ -281,27 +281,27 @@ function race(track: Track, compound: Compound, pts: number[], walkthrough = fal
   app.show(new RaceScreen(app, track, art, lap, ghost, bestSectorsBefore, { finished: showResults, exit: () => home(slug) }, null, captions));
 }
 
-/** Section by section: the lap a plan gives, with the car braking only where the plan says. */
+/** Segment by segment: the lap a plan gives, with the car braking only where the plan says. */
 function simulatePlan(track: Track, code: readonly number[], compound: Compound, picks: readonly Pick[]): LapResult {
   return simulateLap(track, decodePath(code as number[]), compound, { brakes: brakeZones(courseFor(track), picks) });
 }
 
-/** Reopen a plan to change some of its sections. */
-async function editSections(slug: string, picks: Pick[], compound: Compound): Promise<void> {
+/** Reopen a plan to change some of its segments. */
+async function editSegments(slug: string, picks: Pick[], compound: Compound): Promise<void> {
   const track = await app.track(slug);
   currentSlug = slug;
   if (history.state?.screen !== 'session') history.pushState({ screen: 'session' }, '');
   // The analysis of the lap just raced marks where this plan lost time.
   const coach = coachFor(slug, encodePicks(picks));
-  app.show(new SectionScreen(app, track, app.art(track), compound, { complete: (pts, tyre, p) => raceSections(track, tyre, pts, p), exit: () => home(slug) }, picks, coach));
+  app.show(new SegmentScreen(app, track, app.art(track), compound, { complete: (pts, tyre, p) => raceSegments(track, tyre, pts, p), exit: () => home(slug) }, picks, coach));
 }
 
 /**
- * Race a lap laid section by section. Its time depends on the picks as well
+ * Race a lap laid segment by segment. Its time depends on the picks as well
  * as the line, so it is kept apart from the personal best and the
  * leaderboard: its own best per circuit, and the ghost is that best.
  */
-function raceSections(track: Track, compound: Compound, pts: number[], picks: Pick[]): void {
+function raceSegments(track: Track, compound: Compound, pts: number[], picks: Pick[]): void {
   const slug = track.meta.slug;
   const art = app.art(track);
   const code = encodePath(pts);
@@ -315,19 +315,19 @@ function raceSections(track: Track, compound: Compound, pts: number[], picks: Pi
   const lap = simulatePlan(track, code, compound, picks);
   // Where it lost time is worked out in a worker while the race plays.
   const coach = startCoach(track, courseFor(track), picks, compound);
-  const best = getSectionBest(slug);
+  const best = getSegmentBest(slug);
   const bestPicks = best ? decodePicks(best.picks) : null;
-  const ghost = best && bestPicks && bestPicks.length === courseFor(track).sections.length ? simulatePlan(track, best.code, best.compound, bestPicks) : null;
+  const ghost = best && bestPicks && bestPicks.length === courseFor(track).segments.length ? simulatePlan(track, best.code, best.compound, bestPicks) : null;
   const previous: PersonalBest | null = best ? { timeMs: best.timeMs, compound: best.compound, sectorsMs: best.sectorsMs, code: best.code, date: best.date } : null;
   const attempt = bumpAttempts(slug);
   const isPb = !best || lap.timeMs < best.timeMs;
   const date = new Date().toISOString();
-  if (isPb) setSectionBest(slug, { timeMs: lap.timeMs, compound, sectorsMs: lap.sectorsMs, code, picks: encodePicks(picks), date });
+  if (isPb) setSegmentBest(slug, { timeMs: lap.timeMs, compound, sectorsMs: lap.sectorsMs, code, picks: encodePicks(picks), date });
   const showResults = (from: CamSnapshot) => {
     app.show(
-      new ResultsScreen(app, track, art, { lap, points, code, previous, bestSectorsBefore: best?.sectorsMs ?? null, isPb, attempt, setup: currentSetup(), kept: null, sections: true, coach }, {
+      new ResultsScreen(app, track, art, { lap, points, code, previous, bestSectorsBefore: best?.sectorsMs ?? null, isPb, attempt, setup: currentSetup(), kept: null, segments: true, coach }, {
         again: () => void draw(slug, getTyre(slug)),
-        edit: () => void editSections(slug, picks, compound),
+        edit: () => void editSegments(slug, picks, compound),
         leaderboard: () => board(slug),
         home: () => home(slug),
       }, from),
@@ -339,7 +339,7 @@ function raceSections(track: Track, compound: Compound, pts: number[], picks: Pi
 window.addEventListener('popstate', () => {
   // A stray back swipe must not throw away a half-drawn lap or an edited one.
   const cur = app.current;
-  if ((cur instanceof DrawScreen || cur instanceof SectionScreen) && cur.holdsWork) {
+  if ((cur instanceof DrawScreen || cur instanceof SegmentScreen) && cur.holdsWork) {
     history.pushState({ screen: 'session' }, '');
     return;
   }
@@ -347,7 +347,7 @@ window.addEventListener('popstate', () => {
 });
 
 if (import.meta.env.DEV || new URLSearchParams(location.search).has('debug')) {
-  (window as unknown as { __pl: unknown }).__pl = { app, race, draw, editLine, editSections, coachFor };
+  (window as unknown as { __pl: unknown }).__pl = { app, race, draw, editLine, editSegments, coachFor };
 }
 
 /** Links from lap alerts: `?track=<slug>&board=1` opens that circuit's leaderboard. */
@@ -357,7 +357,7 @@ function openLink(search: string): boolean {
   if (!slug || !CATALOG.some((m) => m.slug === slug)) return false;
   // Never throw away a lap being drawn or raced.
   const cur = app.current;
-  if (((cur instanceof DrawScreen || cur instanceof SectionScreen) && cur.holdsWork) || cur instanceof RaceScreen) return true;
+  if (((cur instanceof DrawScreen || cur instanceof SegmentScreen) && cur.holdsWork) || cur instanceof RaceScreen) return true;
   home(slug);
   if (q.has('board')) board(slug);
   return true;

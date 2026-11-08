@@ -2946,9 +2946,9 @@ button:disabled {
   box-shadow: 0 0 0 3px var(--purple-tint);
 }
 
-/* Section by section ------------------------------------------------------ */
+/* Segment by segment ------------------------------------------------------ */
 
-/* The pad: Gas and Brake set the section, Left and Right pick its gate. */
+/* The pad: Gas and Brake set the segment, Left and Right pick its gate. */
 .sec-pad {
   pointer-events: auto;
   position: absolute;
@@ -3056,7 +3056,7 @@ button:disabled {
   opacity: 0.3;
 }
 
-/* Changing a laid section: its current pedal is ringed. */
+/* Changing a laid segment: its current pedal is ringed. */
 .sec-key.is-picked {
   box-shadow:
     0 0 0 3px var(--sheet),

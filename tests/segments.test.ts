@@ -17,12 +17,12 @@ import {
   solveOffsets,
   startLane,
   type Pick,
-} from '../src/app/sections';
+} from '../src/app/segments';
 import { simulateLap } from '../src/sim/lapsim';
 import { decodePath, encodePath, validatePath } from '../src/sim/path';
 import { buildTrack, type Track } from '../src/sim/track';
 import type { TrackMeta } from '../src/sim/types';
-import { carefulPlan, lapTime, planLine } from '../scripts/sectionplan';
+import { carefulPlan, lapTime, planLine } from '../scripts/segmentplan';
 import type { CoachReport } from '../src/app/coach';
 
 async function load(meta: TrackMeta, loaders: Record<string, () => Promise<{ default: number[] }>>): Promise<Track> {
@@ -34,24 +34,24 @@ const all: [string, TrackMeta, Record<string, () => Promise<{ default: number[] 
   ...TOYBOX.filter((m) => !m.tutorial).map((m) => ['toybox', m, TOYBOX_LOADERS] as [string, TrackMeta, typeof TOYBOX_LOADERS]),
 ];
 
-describe('cutting a circuit into sections', () => {
-  it.each(all.map(([ed, m, l]) => [`${ed} ${m.slug}`, m, l] as const))('%s: sections run end to end, none too short, and a careful plan is a legal lap', async (_name, meta, loaders) => {
+describe('cutting a circuit into segments', () => {
+  it.each(all.map(([ed, m, l]) => [`${ed} ${m.slug}`, m, l] as const))('%s: segments run end to end, none too short, and a careful plan is a legal lap', async (_name, meta, loaders) => {
     const t = await load(meta, loaders);
     const c = buildCourse(t);
-    expect(c.sections.length).toBeGreaterThan(10);
-    expect(c.sections[0].from).toBe(0);
-    expect(c.sections[c.sections.length - 1].to).toBe(t.length);
-    expect(c.sections[c.sections.length - 1].v).toBe(t.n);
-    c.sections.forEach((s, k) => {
-      if (k) expect(s.from).toBe(c.sections[k - 1].to);
+    expect(c.segments.length).toBeGreaterThan(10);
+    expect(c.segments[0].from).toBe(0);
+    expect(c.segments[c.segments.length - 1].to).toBe(t.length);
+    expect(c.segments[c.segments.length - 1].v).toBe(t.n);
+    c.segments.forEach((s, k) => {
+      if (k) expect(s.from).toBe(c.segments[k - 1].to);
       expect(s.to - s.from).toBeGreaterThanOrEqual(20);
       expect(s.to - s.from).toBeLessThanOrEqual(430);
       if (s.end === 'board') expect([50, 100, 150, 200]).toContain(s.board);
     });
     // Brake boards count down towards the corner they belong to.
-    for (let k = 1; k < c.sections.length; k++) {
-      const a = c.sections[k - 1];
-      const b = c.sections[k];
+    for (let k = 1; k < c.segments.length; k++) {
+      const a = c.segments[k - 1];
+      const b = c.segments[k];
       if (a.end === 'board' && b.end === 'board' && a.corner === b.corner) expect(b.board!).toBe(a.board! - 50);
     }
     const plan = carefulPlan(t, c);
@@ -60,7 +60,7 @@ describe('cutting a circuit into sections', () => {
     expect(validatePath(t, decodePath(encodePath(line!))).ok).toBe(true);
   });
 
-  it.each(all.map(([ed, m, l]) => [`${ed} ${m.slug}`, m, l] as const))('%s: laying the lap a section at a time never folds the line across the road, and it closes inside every reach', async (_name, meta, loaders) => {
+  it.each(all.map(([ed, m, l]) => [`${ed} ${m.slug}`, m, l] as const))('%s: laying the lap a segment at a time never folds the line across the road, and it closes inside every reach', async (_name, meta, loaders) => {
     const t = await load(meta, loaders);
     const c = buildCourse(t);
     const plan = carefulPlan(t, c);
@@ -72,8 +72,8 @@ describe('cutting a circuit into sections', () => {
     }
     expect(worst).toBeLessThanOrEqual(2.5);
     expect(maxStep(solveOffsets(t, c, plan))).toBeLessThanOrEqual(2.5);
-    // The lap starts in the lane it finishes in, which the first section must reach from.
-    expect(Math.abs(plan[plan.length - 1].lane - plan[0].lane)).toBeLessThanOrEqual(c.sections[0].reach);
+    // The lap starts in the lane it finishes in, which the first segment must reach from.
+    expect(Math.abs(plan[plan.length - 1].lane - plan[0].lane)).toBeLessThanOrEqual(c.segments[0].reach);
   });
 
   it('finds about as many corners as a circuit has turns', async () => {
@@ -94,7 +94,7 @@ describe('the planned line', () => {
     expect(a.length).toBe(t.n + 1);
     const w = laneOffset(t);
     for (let q = 0; q < a.length; q++) expect(Math.abs(a[q])).toBeLessThanOrEqual(w + 1e-9);
-    c.sections.forEach((s, k) => {
+    c.segments.forEach((s, k) => {
       const [lo, hi] = gate(t, plan[k].lane);
       expect(a[s.v]).toBeGreaterThanOrEqual(lo - 1e-9);
       expect(a[s.v]).toBeLessThanOrEqual(hi + 1e-9);
@@ -115,19 +115,19 @@ describe('the planned line', () => {
   });
 
   it('starts the lap in the lane it finishes in', () => {
-    const course = { length: 100, corners: [], sections: [] as never[] };
+    const course = { length: 100, corners: [], segments: [] as never[] };
     const picks: Pick[] = [
       { pedal: 'gas', lane: 1 },
       { pedal: 'gas', lane: -1 },
     ];
-    expect(startLane({ ...course, sections: [{}, {}, {}] as never }, picks, 0)).toBe(0);
-    expect(startLane({ ...course, sections: [{}, {}] as never }, picks, 0)).toBe(-1);
-    expect(startLane({ ...course, sections: [{}, {}] as never }, picks, 1)).toBe(1);
+    expect(startLane({ ...course, segments: [{}, {}, {}] as never }, picks, 0)).toBe(0);
+    expect(startLane({ ...course, segments: [{}, {}] as never }, picks, 0)).toBe(-1);
+    expect(startLane({ ...course, segments: [{}, {}] as never }, picks, 1)).toBe(1);
   });
 
-  it('carries later lanes along when a short section can no longer reach them', () => {
+  it('carries later lanes along when a short segment can no longer reach them', () => {
     const sec = (reach: 1 | 2) => ({ from: 0, to: 30, end: 'apex' as const, corner: null, reach, v: 0 });
-    const course = { length: 120, corners: [], sections: [sec(2), sec(1), sec(1), sec(2)] };
+    const course = { length: 120, corners: [], segments: [sec(2), sec(1), sec(1), sec(2)] };
     const picks: Pick[] = [
       { pedal: 'gas', lane: 0 },
       { pedal: 'gas', lane: 1 },
@@ -137,13 +137,13 @@ describe('the planned line', () => {
     picks[0] = { pedal: 'gas', lane: -1 };
     settleLanes(course, picks, 0);
     expect(picks.map((p) => p.lane)).toEqual([-1, 0, 1, -1]);
-    expect(reachableLanes(course.sections[1], -1)).toEqual([-1, 0]);
+    expect(reachableLanes(course.segments[1], -1)).toEqual([-1, 0]);
   });
 
-  it('keeps the first section inside its reach once the lap closes', () => {
+  it('keeps the first segment inside its reach once the lap closes', () => {
     const sec = (reach: 1 | 2) => ({ from: 0, to: 30, end: 'apex' as const, corner: null, reach, v: 0 });
-    const course = { length: 200, corners: [], sections: [sec(1), sec(2), sec(2), sec(2)] };
-    // The first section moved left from the middle; the lap will start where it finishes.
+    const course = { length: 200, corners: [], segments: [sec(1), sec(2), sec(2), sec(2)] };
+    // The first segment moved left from the middle; the lap will start where it finishes.
     const picks: Pick[] = [
       { pedal: 'gas', lane: -1 },
       { pedal: 'gas', lane: 1 },
@@ -152,12 +152,12 @@ describe('the planned line', () => {
     // Ending on the right would start the lap two lanes from the first gate, past a reach of one.
     expect(laneOptions(course, picks, 3)).toEqual([-1, 0]);
     picks.push({ pedal: 'brake', lane: 0 });
-    // Changing the last lane carries round to the first section.
+    // Changing the last lane carries round to the first segment.
     picks[3] = { pedal: 'brake', lane: 1 };
     picks[0] = { pedal: 'gas', lane: -1 };
     settleLanes(course, picks, 3);
     expect(picks[0].lane).toBe(0);
-    // Changing the first section's gate is offered only what it can reach from the last.
+    // Changing the first segment's gate is offered only what it can reach from the last.
     expect(laneOptions(course, picks, 0)).toEqual([0, 1]);
   });
 
@@ -205,7 +205,7 @@ describe('gas and brake in the lap sim', () => {
     const best = lapTime(t, c, plan)!;
     // Gas everywhere: the car can only lift for the corners.
     expect(lapTime(t, c, plan.map((p) => ({ ...p, pedal: 'gas' as const })))!).toBeGreaterThan(best + 10000);
-    // Moving every brake zone a section earlier or later both lose time.
+    // Moving every brake zone a segment earlier or later both lose time.
     const shift = (by: 1 | -1) => plan.map((p, k) => ({ ...p, pedal: plan[(k + by + plan.length) % plan.length].pedal }));
     expect(lapTime(t, c, shift(1))!).toBeGreaterThan(best);
     expect(lapTime(t, c, shift(-1))!).toBeGreaterThan(best);
@@ -224,16 +224,16 @@ describe('gas and brake in the lap sim', () => {
   });
 });
 
-describe('where a lap laid section by section lost time', () => {
+describe('where a lap laid segment by segment lost time', () => {
   it('finds a missing brake and a wrong gate, each with exactly the time it cost', async () => {
     const { analysePlan, bestTips, tipAction } = await import('../src/app/coach');
     const t = await load(CATALOG.find((m) => m.slug === 'spielberg')!, GEOMETRY_LOADERS);
     const c = buildCourse(t);
     const plan = carefulPlan(t, c);
     const base = lapTime(t, c, plan)!;
-    // Plant two mistakes: no brakes in the section running to a turn-in, and the outside gate at an apex.
-    const brakeAt = c.sections.findIndex((s, k) => s.end === 'turn' && plan[k].pedal === 'brake');
-    const apexAt = c.sections.findIndex((s, k) => s.end === 'apex' && k > brakeAt + 2 && plan[k].lane !== 0 && laneOptions(c, plan, k).includes((-plan[k].lane) as -1 | 1));
+    // Plant two mistakes: no brakes in the segment running to a turn-in, and the outside gate at an apex.
+    const brakeAt = c.segments.findIndex((s, k) => s.end === 'turn' && plan[k].pedal === 'brake');
+    const apexAt = c.segments.findIndex((s, k) => s.end === 'apex' && k > brakeAt + 2 && plan[k].lane !== 0 && laneOptions(c, plan, k).includes((-plan[k].lane) as -1 | 1));
     expect(brakeAt).toBeGreaterThan(0);
     expect(apexAt).toBeGreaterThan(0);
     const bad = plan.map((p) => ({ ...p }));
@@ -269,7 +269,7 @@ describe('where a lap laid section by section lost time', () => {
     settleLanes(c, fixedGate, apexAt);
     expect(badTime - lapTime(t, c, fixedGate)!).toBe(gateTip.gain);
     // The two planted mistakes are among the biggest gains.
-    const top = tips.slice(0, 4).map((x) => x.section);
+    const top = tips.slice(0, 4).map((x) => x.segment);
     expect(top).toContain(brakeAt);
     expect(top).toContain(apexAt);
   }, 120000);

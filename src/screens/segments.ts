@@ -1,11 +1,11 @@
-// Section by section: the lap is laid one section at a time. Each section
+// Segment by segment: the lap is laid one segment at a time. Each segment
 // runs to a brake board, a turn-in, an apex, an exit or on down a straight
-// (src/app/sections.ts). For each one the player taps Left or Right to pick
+// (src/app/segments.ts). For each one the player taps Left or Right to pick
 // the third of the road (a gate) the line passes at its end, then Gas or
 // Brake, which sets it and moves on. The line takes the smoothest way through
 // the gates; the pedals become the brake zones the lap sim drives to. Once
 // the lap is laid the whole circuit shows with the brake zones in red, any
-// section can be tapped and changed, and Race runs it.
+// segment can be tapped and changed, and Race runs it.
 
 import type { App, Screen } from '../app/app';
 import { buzz, sfx, unlockAudio } from '../app/audio';
@@ -17,15 +17,16 @@ import {
   laneOptions,
   laneSide,
   planPoints,
-  sectionText,
+  segmentText,
   settleLanes,
+  turnOfSegment,
   solveOffsets,
   startLane,
   type Course,
   type Lane,
   type Pedal,
   type Pick,
-} from '../app/sections';
+} from '../app/segments';
 import { Camera, angleForHeading, easeInOutCubic, lerpAngle } from '../render/camera';
 import { INK, strokeInk } from '../render/line-art';
 import type { TrackArt } from '../render/track-art';
@@ -35,10 +36,11 @@ import { projectGlobal, type Track } from '../sim/track';
 import { COMPOUNDS, type Compound } from '../sim/types';
 import { ICONS, h, setText, tyreBadge } from '../ui/dom';
 import { openSettings } from './settings';
+import { drawSectorMarks, drawTurnLabels, turnsOf, type Box } from '../render/map-labels';
 import type { Coach } from '../app/coach-client';
 import { bestTips, tipAction, tipSeconds, type CoachReport, type Tip } from '../app/coach';
 
-export interface SectionActions {
+export interface SegmentActions {
   /** Race the lap: its line (decimetres, flat [x, y, ...]), the tyre and the picks. */
   complete(points: number[], compound: Compound, picks: Pick[]): void;
   exit(): void;
@@ -53,22 +55,22 @@ interface CamState {
 
 /** Lessons, one at a time, each shown until the player has done it. */
 const LESSONS = {
-  gas: 'Tap Gas to drive this section.',
+  gas: 'Tap Gas to drive this segment.',
   brake: 'Tap Brake where you want to slow down.',
   lane: 'Left and Right pick your gate.',
-  review: 'Tap any section to change it.',
+  review: 'Tap any segment to change it.',
 } as const;
 type Lesson = keyof typeof LESSONS;
 
 const HINT_MS = 4200;
-/** The whole lap labels the time to find in this many sections. */
+/** The whole lap labels the time to find in this many segments. */
 const TIP_LABELS = 3;
 /** Gain labels keep at least this far apart (px), more than a tap's slop around each. */
 const LABEL_GAP = 14;
-/** A tap that moves less than this (px) picks a section on the map. */
+/** A tap that moves less than this (px) picks a segment on the map. */
 const TAP_SLOP = 10;
 const BRAKE_RED = 'rgba(225, 6, 0, 0.62)';
-/** The camera frames at most this much (metres) of a section, ending at its gate. */
+/** The camera frames at most this much (metres) of a segment, ending at its gate. */
 const MAX_FRAME = 170;
 
 const ARROW = {
@@ -78,14 +80,14 @@ const ARROW = {
   right: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M19 12l-9-7v14z" fill="currentColor"/></svg>',
 };
 
-export class SectionScreen implements Screen {
+export class SegmentScreen implements Screen {
   private course: Course;
   private cam = new Camera();
   private glide: { from: CamState; to: CamState; t0: number; dur: number } | null = null;
   private picks: Pick[] = [];
-  /** The section being picked: picks.length while laying the lap, any section when changing one. */
+  /** The segment being picked: picks.length while laying the lap, any segment when changing one. */
   private cursor = 0;
-  /** The lane the line will be in at the end of the cursor's section. */
+  /** The lane the line will be in at the end of the cursor's segment. */
   private armed: Lane = 0;
   /** The lap is laid and the whole circuit shows. */
   private review = false;
@@ -95,7 +97,7 @@ export class SectionScreen implements Screen {
   private points: { x: number; y: number }[] = [];
   private ink = new Path2D();
   private brakeInk = new Path2D();
-  /** The cursor's section as the armed gate would lay it. */
+  /** The cursor's segment as the armed gate would lay it. */
   private preview: Path2D | null = null;
   private outline = new Path2D();
   private el: HTMLElement;
@@ -124,22 +126,22 @@ export class SectionScreen implements Screen {
   /** Where the plan opened from the results lost time, and that plan. */
   private report: CoachReport | null = null;
   private unwatch: (() => void) | null = null;
-  /** Where the gain labels were drawn (px), so a tap on one opens its section. */
-  private gainLabels: { x: number; y: number; w: number; h: number; section: number }[] = [];
+  /** Where the gain labels were drawn (px), so a tap on one opens its segment. */
+  private gainLabels: { x: number; y: number; w: number; h: number; segment: number }[] = [];
 
   constructor(
     private app: App,
     private track: Track,
     private art: TrackArt,
     private compound: Compound,
-    private actions: SectionActions,
+    private actions: SegmentActions,
     /** A plan to start from (changing the one just raced). */
     from: Pick[] | null = null,
     /** Where that plan lost time, being worked out (src/app/coach.ts). */
     coach: Coach | null = null,
   ) {
     this.course = courseFor(track);
-    this.learnt = getSettings().sectionLessons;
+    this.learnt = getSettings().segmentLessons;
     app.setCanvasVisible(true);
     for (let i = 0; i <= track.n; i++) {
       const k = i % track.n;
@@ -171,7 +173,7 @@ export class SectionScreen implements Screen {
     this.undoBtns.push(padUndo);
     this.pad = h(
       'div',
-      { class: 'sec-pad', role: 'group', 'aria-label': 'Pick this section' },
+      { class: 'sec-pad', role: 'group', 'aria-label': 'Pick this segment' },
       this.count,
       this.keys.gas,
       this.doneBtn,
@@ -215,7 +217,7 @@ export class SectionScreen implements Screen {
     this.cam.w = app.w;
     this.cam.h = app.h;
 
-    if (from && from.length === this.course.sections.length) {
+    if (from && from.length === this.course.segments.length) {
       this.picks = from.map((p) => ({ ...p }));
       this.cursor = this.picks.length;
       this.review = true;
@@ -224,7 +226,7 @@ export class SectionScreen implements Screen {
     this.syncArmed();
     this.syncTyres();
     this.sync();
-    this.setCam(this.review ? this.overviewFrame() : this.sectionFrame(this.cursor));
+    this.setCam(this.review ? this.overviewFrame() : this.segmentFrame(this.cursor));
     this.teach();
     if (coach) {
       this.unwatch = coach.watch((r) => {
@@ -268,7 +270,7 @@ export class SectionScreen implements Screen {
   }
 
   private tipFor(k: number): Tip | null {
-    return this.tips().find((t) => t.section === k) ?? null;
+    return this.tips().find((t) => t.segment === k) ?? null;
   }
 
   /** Test hook: where things stand. */
@@ -277,7 +279,7 @@ export class SectionScreen implements Screen {
       coached: !!this.report?.done,
       tips: this.tips().map((t) => ({ ...t, action: tipAction(t) })),
       cursor: this.cursor,
-      total: this.course.sections.length,
+      total: this.course.segments.length,
       picks: this.picks.map((p) => (p.pedal === 'gas' ? 'g' : 'b') + (p.lane < 0 ? 'l' : p.lane > 0 ? 'r' : 'm')).join(''),
       review: this.review,
       armed: this.armed,
@@ -316,7 +318,7 @@ export class SectionScreen implements Screen {
 
   private commit(pedal: Pedal): void {
     const k = this.cursor;
-    if (k >= this.course.sections.length) return;
+    if (k >= this.course.segments.length) return;
     this.remember();
     const pick: Pick = { pedal, lane: this.armed };
     const prev = this.offsets;
@@ -330,21 +332,21 @@ export class SectionScreen implements Screen {
     sfx.penDown();
     buzz(pedal === 'brake' ? [14, 40, 14] : 12);
     this.pulse = performance.now();
-    const whole = this.picks.length === this.course.sections.length;
+    const whole = this.picks.length === this.course.segments.length;
     this.solve(appending && !whole ? prev : null);
-    if (whole && appending && k === this.course.sections.length - 1) {
+    if (whole && appending && k === this.course.segments.length - 1) {
       this.lapLaid();
       return;
     }
-    // Changing a laid lap walks on through the sections after the one changed.
-    this.cursor = whole && k + 1 >= this.course.sections.length ? 0 : k + 1;
-    if (whole && k + 1 >= this.course.sections.length) {
+    // Changing a laid lap walks on through the segments after the one changed.
+    this.cursor = whole && k + 1 >= this.course.segments.length ? 0 : k + 1;
+    if (whole && k + 1 >= this.course.segments.length) {
       this.showReview();
       return;
     }
     this.syncArmed();
     this.sync();
-    this.glideTo(this.sectionFrame(this.cursor));
+    this.glideTo(this.segmentFrame(this.cursor));
     this.teach();
   }
 
@@ -363,7 +365,7 @@ export class SectionScreen implements Screen {
   }
 
   private showReview(): void {
-    if (this.picks.length !== this.course.sections.length) return;
+    if (this.picks.length !== this.course.segments.length) return;
     this.review = true;
     this.cursor = this.picks.length;
     this.preview = null;
@@ -372,15 +374,15 @@ export class SectionScreen implements Screen {
     this.teach();
   }
 
-  /** Open a section of a laid lap (or any laid section) to change it. */
-  private openSection(k: number): void {
-    if (k < 0 || k > this.picks.length || k >= this.course.sections.length) return;
+  /** Open a segment of a laid lap (or any laid segment) to change it. */
+  private openSegment(k: number): void {
+    if (k < 0 || k > this.picks.length || k >= this.course.segments.length) return;
     if (k === this.cursor && !this.review) return;
     this.review = false;
     this.cursor = k;
     this.syncArmed();
     this.sync();
-    this.glideTo(this.sectionFrame(k));
+    this.glideTo(this.segmentFrame(k));
     sfx.tap();
     this.done('review');
     this.teach();
@@ -402,7 +404,7 @@ export class SectionScreen implements Screen {
     const last = this.history.pop();
     if (!last) return;
     sfx.lift();
-    // The section the undo reopens comes back with the gate it was set with.
+    // The segment the undo reopens comes back with the gate it was set with.
     const undone = this.picks[last.cursor];
     this.picks = last.picks;
     this.cursor = last.cursor;
@@ -410,7 +412,7 @@ export class SectionScreen implements Screen {
     this.solve(null);
     this.syncArmed(undone?.lane);
     this.sync();
-    this.glideTo(this.review ? this.overviewFrame() : this.sectionFrame(this.cursor));
+    this.glideTo(this.review ? this.overviewFrame() : this.segmentFrame(this.cursor));
   }
 
   private restart(): void {
@@ -422,7 +424,7 @@ export class SectionScreen implements Screen {
     this.solve(null);
     this.syncArmed();
     this.sync();
-    this.glideTo(this.sectionFrame(0), 600);
+    this.glideTo(this.segmentFrame(0), 600);
     this.say('Back to the start line. Undo brings your lap back.');
   }
 
@@ -443,7 +445,7 @@ export class SectionScreen implements Screen {
   }
 
   private race(): void {
-    if (this.leaving || this.picks.length !== this.course.sections.length) return;
+    if (this.leaving || this.picks.length !== this.course.segments.length) return;
     const b = new LineBuilder(this.track);
     const pts = this.points;
     let ok = b.start(pts[0].x, pts[0].y);
@@ -453,7 +455,7 @@ export class SectionScreen implements Screen {
     }
     if (!ok || b.status !== 'done') {
       console.error('planned line is not a legal lap');
-      this.say('That line does not make a lap. Change a section, or undo.');
+      this.say('That line does not make a lap. Change a segment, or undo.');
       sfx.fail();
       return;
     }
@@ -464,7 +466,7 @@ export class SectionScreen implements Screen {
 
   // The line ------------------------------------------------------------------
 
-  /** Solve the line for the picks so far (re-solving only the end when `prev` is the line before one more section). */
+  /** Solve the line for the picks so far (re-solving only the end when `prev` is the line before one more segment). */
   private solve(prev: Float64Array | null): void {
     this.offsets = solveOffsets(this.track, this.course, this.picks, prev);
     this.points = this.picks.length ? planPoints(this.track, this.course, this.picks, this.offsets) : [];
@@ -473,7 +475,7 @@ export class SectionScreen implements Screen {
     const pts = this.points;
     pts.forEach((p, i) => (i ? this.ink.lineTo(p.x, p.y) : this.ink.moveTo(p.x, p.y)));
     let from = 0;
-    this.course.sections.forEach((sec, k) => {
+    this.course.segments.forEach((sec, k) => {
       if (k < this.picks.length && this.picks[k].pedal === 'brake') {
         for (let q = from; q <= sec.v && q < pts.length; q++) {
           if (q === from) this.brakeInk.moveTo(pts[q].x, pts[q].y);
@@ -484,12 +486,12 @@ export class SectionScreen implements Screen {
     });
   }
 
-  /** The cursor's section as the armed gate would lay it, dashed until it is set. */
+  /** The cursor's segment as the armed gate would lay it, dashed until it is set. */
   private updatePreview(): void {
     this.preview = null;
     if (this.review) return;
     const k = this.cursor;
-    const sec = this.course.sections[k];
+    const sec = this.course.segments[k];
     if (!sec) return;
     const trial = this.picks.map((p) => ({ ...p }));
     const pedal = trial[k]?.pedal ?? 'gas';
@@ -498,10 +500,10 @@ export class SectionScreen implements Screen {
       trial[k] = { pedal, lane: this.armed };
       settleLanes(this.course, trial, k);
     }
-    const whole = trial.length === this.course.sections.length;
+    const whole = trial.length === this.course.segments.length;
     const off = solveOffsets(this.track, this.course, trial, k === this.picks.length && !whole ? this.offsets : null);
     const t = this.track;
-    const a = k === 0 ? 0 : this.course.sections[k - 1].v;
+    const a = k === 0 ? 0 : this.course.segments[k - 1].v;
     const p = new Path2D();
     for (let q = a; q <= sec.v && q < off.length; q++) {
       const v = q % t.n;
@@ -516,8 +518,8 @@ export class SectionScreen implements Screen {
   // HUD ------------------------------------------------------------------------
 
   private sync(): void {
-    const total = this.course.sections.length;
-    const sec = this.course.sections[this.cursor];
+    const total = this.course.segments.length;
+    const sec = this.course.segments[this.cursor];
     const laid = this.picks.length;
     this.bar.style.transform = `scaleX(${laid / total})`;
     const coaching = this.report && !this.report.done && this.asRaced();
@@ -529,12 +531,12 @@ export class SectionScreen implements Screen {
         ? coaching
           ? 'Lap laid. Finding where it lost time'
           : tipped
-            ? 'Tap an orange section to find time'
+            ? 'Tap an orange segment to find time'
             : changed
               ? 'Race it to find where it loses time'
-              : 'Lap laid. Tap a section to change it'
+              : 'Lap laid. Tap a segment to change it'
         : sec
-          ? `${this.cursor + 1} of ${total}. ${sectionText(sec)}`
+          ? `Segment ${this.cursor + 1} of ${total}: ${segmentText(sec, turnOfSegment(this.course, this.cursor, turnsOf(this.track)))}`
           : '',
     );
     setText(this.count, sec ? `${this.cursor + 1}/${total}` : '');
@@ -552,7 +554,7 @@ export class SectionScreen implements Screen {
     const pedal = this.picks[this.cursor]?.pedal;
     this.keys.gas.classList.toggle('is-picked', pedal === 'gas');
     this.keys.brake.classList.toggle('is-picked', pedal === 'brake');
-    // Inside or outside of the corner this section belongs to.
+    // Inside or outside of the corner this segment belongs to.
     const side = (lane: Lane) => {
       const s = laneSide(this.course, sec, lane);
       return s > 0 ? 'inside' : s < 0 ? 'outside' : '';
@@ -590,12 +592,12 @@ export class SectionScreen implements Screen {
     if (this.hint.textContent === LESSONS[l]) this.hint.classList.add('is-hidden');
     if (this.learned(l)) return;
     this.learnt |= 1 << Object.keys(LESSONS).indexOf(l);
-    saveSettings({ sectionLessons: this.learnt });
+    saveSettings({ segmentLessons: this.learnt });
   }
 
   /** The next lesson, when the moment for it comes: gas first, brake at the first board, gates at the first corner. */
   private teach(): void {
-    const sec = this.course.sections[this.cursor];
+    const sec = this.course.segments[this.cursor];
     if (this.review) {
       if (!this.learned('review')) this.say(LESSONS.review, 6000);
       return;
@@ -604,10 +606,10 @@ export class SectionScreen implements Screen {
     if (!this.learned('gas')) return this.say(LESSONS.gas, 8000);
     if (!this.learned('brake') && sec.end === 'board') return this.say(LESSONS.brake, 8000);
     if (!this.learned('lane') && this.learned('brake') && (sec.end === 'turn' || sec.end === 'in' || sec.end === 'apex' || sec.end === 'out' || sec.end === 'exit')) return this.say(LESSONS.lane, 8000);
-    // A section the last lap lost time in says what would win it back.
+    // A segment the last lap lost time in says what would win it back.
     const tip = this.tipFor(this.cursor);
     if (tip) return this.say(`${tipAction(tip)} here: ${tipSeconds(tip)} s quicker.`, 6000);
-    // Nothing to teach here: a lesson still showing from the last section has had its moment.
+    // Nothing to teach here: a lesson still showing from the last segment has had its moment.
     if (Object.values(LESSONS).includes(this.hint.textContent as (typeof LESSONS)[Lesson]) || this.hint.textContent?.endsWith('s quicker.')) this.hint.classList.add('is-hidden');
   }
 
@@ -651,21 +653,21 @@ export class SectionScreen implements Screen {
     const r = this.app.canvas.getBoundingClientRect();
     const sx = e.clientX - r.left;
     const sy = e.clientY - r.top;
-    // A gain label opens its section.
+    // A gain label opens its segment.
     const inside = (b: { x: number; y: number; w: number; h: number }, pad: number) => sx >= b.x - pad && sx <= b.x + b.w + pad && sy >= b.y - pad && sy <= b.y + b.h + pad;
     const label = this.review ? (this.gainLabels.find((b) => inside(b, 0)) ?? this.gainLabels.find((b) => inside(b, 6))) : undefined;
     if (label) {
-      this.openSection(label.section);
+      this.openSegment(label.segment);
       return;
     }
     const w = this.cam.toWorld(sx, sy);
     const p = projectGlobal(this.track, w.x, w.y);
     // A finger's width off the road still counts, however far out the map is.
     if (p.dist > this.track.limit + 22 / this.cam.zoom) return;
-    const k = this.course.sections.findIndex((s) => p.s >= s.from && p.s < s.to);
+    const k = this.course.segments.findIndex((s) => p.s >= s.from && p.s < s.to);
     if (k < 0) return;
-    // Laid sections and the next one can be opened.
-    if (k <= this.picks.length) this.openSection(k);
+    // Laid segments and the next one can be opened.
+    if (k <= this.picks.length) this.openSegment(k);
   }
 
   // Camera ---------------------------------------------------------------------
@@ -679,13 +681,13 @@ export class SectionScreen implements Screen {
   }
 
   /**
-   * Frame a section with the road just past it (enough to see the corner it
+   * Frame a segment with the road just past it (enough to see the corner it
    * leads to), turned so the road runs up the screen.
    */
-  private sectionFrame(k: number): CamState {
+  private segmentFrame(k: number): CamState {
     const t = this.track;
-    const sec = this.course.sections[Math.min(k, this.course.sections.length - 1)];
-    // A long section shows its last stretch: the gate and the brake boards are what matter.
+    const sec = this.course.segments[Math.min(k, this.course.segments.length - 1)];
+    // A long segment shows its last stretch: the gate and the brake boards are what matter.
     const s0 = Math.max(sec.from, sec.to - MAX_FRAME) - 12;
     const ahead = Math.max(70, Math.min(140, (sec.to - sec.from) * 0.6));
     const s1 = Math.max(sec.to + ahead, s0 + 150);
@@ -742,19 +744,35 @@ export class SectionScreen implements Screen {
     return { cx: cx - Math.sin(angle) * shift, cy: cy - Math.cos(angle) * shift, zoom, angle };
   }
 
+  /**
+   * The whole circuit, as big as the free space allows: north up, or a quarter
+   * turn when that makes it at least 15% bigger (a wide circuit on a tall
+   * phone). Room is left around it for the turn badges and gain labels.
+   */
   private overviewFrame(): CamState {
     const t = this.track;
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (let i = 0; i < t.n; i++) {
-      minX = Math.min(minX, t.x[i]);
-      maxX = Math.max(maxX, t.x[i]);
-      minY = Math.min(minY, t.y[i]);
-      maxY = Math.max(maxY, t.y[i]);
-    }
     const { top, bottom } = this.safeArea();
-    const zoom = Math.min((this.app.w - 36) / (maxX - minX + 40), (bottom - top) / (maxY - minY + 40));
-    const shift = ((top + bottom) / 2 - this.app.h / 2) / zoom;
-    return { cx: (minX + maxX) / 2, cy: (minY + maxY) / 2 - shift, zoom, angle: 0 };
+    let best: CamState | null = null;
+    for (const angle of [0, -Math.PI / 2]) {
+      const c = Math.cos(angle);
+      const sn = Math.sin(angle);
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (let i = 0; i < t.n; i++) {
+        const x = t.x[i] * c - t.y[i] * sn;
+        const y = t.x[i] * sn + t.y[i] * c;
+        minX = Math.min(minX, x);
+        maxX = Math.max(maxX, x);
+        minY = Math.min(minY, y);
+        maxY = Math.max(maxY, y);
+      }
+      const zoom = Math.min((this.app.w - 110) / (maxX - minX + 40), (bottom - top - 50) / (maxY - minY + 40));
+      if (best && zoom < best.zoom * 1.15) continue;
+      const mx = (minX + maxX) / 2;
+      const my = (minY + maxY) / 2;
+      const shift = ((top + bottom) / 2 - this.app.h / 2) / zoom;
+      best = { cx: mx * c + my * sn - Math.sin(angle) * shift, cy: -mx * sn + my * c - Math.cos(angle) * shift, zoom, angle };
+    }
+    return best!;
   }
 
   private setCam(s: CamState): void {
@@ -774,7 +792,7 @@ export class SectionScreen implements Screen {
     this.cam.w = this.app.w;
     this.cam.h = this.app.h;
     this.glide = null;
-    this.setCam(this.review ? this.overviewFrame() : this.sectionFrame(this.cursor));
+    this.setCam(this.review ? this.overviewFrame() : this.segmentFrame(this.cursor));
   }
 
   // Drawing ----------------------------------------------------------------
@@ -795,8 +813,8 @@ export class SectionScreen implements Screen {
     this.cam.apply(ctx, dpr);
     this.art.draw(ctx, this.cam);
     const z = this.cam.zoom;
-    const sec = this.course.sections[this.cursor];
-    if (sec && !this.review) this.drawSectionBand(ctx, sec.from, sec.to);
+    const sec = this.course.segments[this.cursor];
+    if (sec && !this.review) this.drawSegmentBand(ctx, sec.from, sec.to);
     const tips = this.review ? this.tips() : [];
     if (tips.length) this.drawLosses(ctx, tips);
     if (this.review) this.drawBoundaries(ctx);
@@ -823,13 +841,16 @@ export class SectionScreen implements Screen {
     if (sec && !this.review) this.drawGates(ctx, sec.v);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.drawBoards(ctx);
+    // Where each timing sector starts, and the turn numbers.
+    const badges = [...drawSectorMarks(ctx, this.cam, this.track, { size: this.review ? 11 : 12 }), ...drawTurnLabels(ctx, this.cam, this.track, { size: this.review ? 10 : 13 })];
+    if (sec && !this.review) this.drawSegmentNumbers(ctx);
     if (sec && !this.review) this.drawTip(ctx, now);
-    if (tips.length) this.drawGains(ctx, tips.slice(0, TIP_LABELS));
+    if (tips.length) this.drawGains(ctx, tips.slice(0, TIP_LABELS), badges);
     else this.gainLabels = [];
   }
 
   /**
-   * On the whole lap, the sections that lost time: a wide orange band under
+   * On the whole lap, the segments that lost time: a wide orange band under
    * the line, stronger the more there is to find, wide enough to see with the
    * whole circuit on screen.
    */
@@ -841,8 +862,8 @@ export class SectionScreen implements Screen {
     ctx.lineJoin = 'round';
     ctx.lineWidth = Math.max(t.limit * 2.2, 26 / z);
     for (const tip of tips) {
-      const sec = this.course.sections[tip.section];
-      const from = tip.section === 0 ? 0 : this.course.sections[tip.section - 1].v;
+      const sec = this.course.segments[tip.segment];
+      const from = tip.segment === 0 ? 0 : this.course.segments[tip.segment - 1].v;
       ctx.beginPath();
       for (let q = from; q <= sec.v; q++) {
         const v = q % t.n;
@@ -855,8 +876,41 @@ export class SectionScreen implements Screen {
     ctx.restore();
   }
 
-  /** On the whole lap, the time to find in the sections with the most, as labels that open them. */
-  private drawGains(ctx: CanvasRenderingContext2D, tips: Tip[]): void {
+  /**
+   * The number of the segment being picked and the next two, in a small
+   * white tag on the left of the road at the middle of each.
+   */
+  private drawSegmentNumbers(ctx: CanvasRenderingContext2D): void {
+    const t = this.track;
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '800 11px "Archivo Variable", sans-serif';
+    for (let k = this.cursor; k < Math.min(this.course.segments.length, this.cursor + 3); k++) {
+      const seg = this.course.segments[k];
+      const from = k === 0 ? 0 : this.course.segments[k - 1].v;
+      const mid = Math.round((from + seg.v) / 2) % t.n;
+      const off = t.limit + 12 / this.cam.zoom;
+      const p = this.cam.toScreen(t.x[mid] - t.nx[mid] * off, t.y[mid] - t.ny[mid] * off);
+      if (p.x < -20 || p.y < -20 || p.x > this.app.w + 20 || p.y > this.app.h + 20) continue;
+      const text = String(k + 1);
+      const w = Math.max(20, ctx.measureText(text).width + 10);
+      ctx.globalAlpha = k === this.cursor ? 1 : 0.7;
+      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = k === this.cursor ? '#6a12d6' : '#4b535d';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.roundRect(p.x - w / 2, p.y - 9, w, 18, 4);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#000000';
+      ctx.fillText(text, p.x, p.y + 0.5);
+    }
+    ctx.restore();
+  }
+
+  /** On the whole lap, the time to find in the segments with the most, as labels that open them. */
+  private drawGains(ctx: CanvasRenderingContext2D, tips: Tip[], badges: Box[] = []): void {
     const t = this.track;
     this.gainLabels = [];
     ctx.save();
@@ -864,18 +918,20 @@ export class SectionScreen implements Screen {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     for (const tip of tips) {
-      const sec = this.course.sections[tip.section];
-      const from = tip.section === 0 ? 0 : this.course.sections[tip.section - 1].v;
+      const sec = this.course.segments[tip.segment];
+      const from = tip.segment === 0 ? 0 : this.course.segments[tip.segment - 1].v;
       const mid = Math.round((from + sec.v) / 2) % t.n;
       const p = this.cam.toScreen(t.x[mid], t.y[mid]);
-      const text = `-${tipSeconds(tip)} s`;
+      const text = `Segment ${tip.segment + 1}: -${tipSeconds(tip)} s`;
       const w = ctx.measureText(text).width + 16;
       const h2 = 24;
-      // Above the section, or clear of a label already there.
-      let box = { x: p.x - w / 2, y: p.y - h2 - 10, w, h: h2, section: tip.section };
+      // Above the segment, or clear of a label already there, and on the screen.
+      const x = Math.max(8, Math.min(this.app.w - 8 - w, p.x - w / 2));
+      let box = { x, y: p.y - h2 - 10, w, h: h2, segment: tip.segment };
       for (const dy of [0, h2 + 26, -(h2 + LABEL_GAP), 2 * h2 + 40, -(2 * h2 + 2 * LABEL_GAP)]) {
         const trial = { ...box, y: p.y - h2 - 10 + dy };
-        if (!this.gainLabels.some((o) => trial.x < o.x + o.w + LABEL_GAP && o.x < trial.x + trial.w + LABEL_GAP && trial.y < o.y + o.h + LABEL_GAP && o.y < trial.y + trial.h + LABEL_GAP)) {
+        const near = (o: Box, gap: number) => trial.x < o.x + o.w + gap && o.x < trial.x + trial.w + gap && trial.y < o.y + o.h + gap && o.y < trial.y + trial.h + gap;
+        if (!this.gainLabels.some((o) => near(o, LABEL_GAP)) && !badges.some((o) => near(o, 2))) {
           box = trial;
           break;
         }
@@ -894,8 +950,8 @@ export class SectionScreen implements Screen {
     ctx.restore();
   }
 
-  /** The section being picked, shaded on the asphalt. */
-  private drawSectionBand(ctx: CanvasRenderingContext2D, from: number, to: number, fill = 'rgba(155, 48, 255, 0.16)'): void {
+  /** The segment being picked, shaded on the asphalt. */
+  private drawSegmentBand(ctx: CanvasRenderingContext2D, from: number, to: number, fill = 'rgba(155, 48, 255, 0.16)'): void {
     const t = this.track;
     const w = t.limit;
     ctx.beginPath();
@@ -917,14 +973,14 @@ export class SectionScreen implements Screen {
     ctx.fill();
   }
 
-  /** In the whole-lap view, a tick across the road at every section boundary. */
+  /** In the whole-lap view, a tick across the road at every segment boundary. */
   private drawBoundaries(ctx: CanvasRenderingContext2D): void {
     const t = this.track;
     ctx.save();
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
     ctx.lineWidth = Math.max(0.6, 1.4 / this.cam.zoom);
     ctx.beginPath();
-    for (const s of this.course.sections) {
+    for (const s of this.course.segments) {
       const v = s.v % t.n;
       ctx.moveTo(t.x[v] + t.nx[v] * t.limit, t.y[v] + t.ny[v] * t.limit);
       ctx.lineTo(t.x[v] - t.nx[v] * t.limit, t.y[v] - t.ny[v] * t.limit);
@@ -933,7 +989,7 @@ export class SectionScreen implements Screen {
     ctx.restore();
   }
 
-  /** The three gates across the road where the section ends: the armed one purple, the ones it can reach white. */
+  /** The three gates across the road where the segment ends: the armed one purple, the ones it can reach white. */
   private drawGates(ctx: CanvasRenderingContext2D, v: number): void {
     const t = this.track;
     const i = v % t.n;
@@ -979,7 +1035,7 @@ export class SectionScreen implements Screen {
     ctx.font = '800 11px "Archivo Variable", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    this.course.sections.forEach((sec, k) => {
+    this.course.segments.forEach((sec, k) => {
       if (sec.end !== 'board' || sec.corner === null) return;
       const c = this.course.corners[sec.corner];
       const i = sec.v % t.n;
@@ -1005,12 +1061,12 @@ export class SectionScreen implements Screen {
     ctx.restore();
   }
 
-  /** Where the line stands now: the start of the section being picked. */
+  /** Where the line stands now: the start of the segment being picked. */
   private drawTip(ctx: CanvasRenderingContext2D, now: number): void {
     const t = this.track;
     const k = this.cursor;
-    const v = k === 0 ? 0 : this.course.sections[k - 1].v % t.n;
-    const a = k === 0 ? (this.picks.length ? this.offsets[0] : 0) : this.offsets[this.course.sections[k - 1].v] ?? 0;
+    const v = k === 0 ? 0 : this.course.segments[k - 1].v % t.n;
+    const a = k === 0 ? (this.picks.length ? this.offsets[0] : 0) : this.offsets[this.course.segments[k - 1].v] ?? 0;
     const p = this.cam.toScreen(t.x[v] + t.nx[v] * a, t.y[v] + t.ny[v] * a);
     const grow = Math.max(0, 1 - (now - this.pulse) / 500);
     ctx.beginPath();

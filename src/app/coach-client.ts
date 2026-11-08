@@ -1,10 +1,10 @@
-// Starts the section by section analysis in a worker and hands its reports to
+// Starts the segment by segment analysis in a worker and hands its reports to
 // whichever screen is showing: the results while it finishes, then Edit
-// sections. Only the latest lap is analysed; starting another stops the last.
+// segments. Only the latest lap is analysed; starting another stops the last.
 
 import type { CoachReport } from './coach';
 import type { CoachMessage, CoachRequest } from './coach.worker';
-import { encodePicks, type Course, type Pick } from './sections';
+import { encodePicks, type Course, type Pick } from './segments';
 import type { Track } from '../sim/track';
 import type { Compound } from '../sim/types';
 

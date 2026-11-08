@@ -9,6 +9,8 @@ import { formatDelta, formatLap, formatSector, gridSlot, kmh } from '../app/form
 import { getPlayer, type DrawSetup, type PersonalBest } from '../app/store';
 import type { Coach } from '../app/coach-client';
 import { bestTips, tipAction, tipSeconds, type CoachReport } from '../app/coach';
+import { courseFor, segmentText, turnOfSegment } from '../app/segments';
+import { drawSectorMarks, drawTurnLabels, sectorAt, turnsOf } from '../render/map-labels';
 import { TUTORIAL_COPY } from '../app/tutorial-copy';
 import { promptAfterLap } from './prompts';
 import { worldBoard } from './world-board';
@@ -21,7 +23,7 @@ import { speedPaths } from '../render/line-art';
 import type { TrackArt } from '../render/track-art';
 import { COMPOUND_SPECS } from '../sim/car';
 import type { LapResult } from '../sim/lapsim';
-import { frameAt, type Track } from '../sim/track';
+import type { Track } from '../sim/track';
 import { ICONS, h, tyreBadge } from '../ui/dom';
 import { sectorColour, type CamSnapshot } from './race';
 
@@ -50,9 +52,9 @@ export interface ResultsInput {
   kept?: { rank: number | null; total: number } | null;
   /** The time of the saved line this lap was edited from. */
   editedFrom?: number | null;
-  /** Laid section by section: off the leaderboard, compared with the best lap laid that way. */
-  sections?: boolean;
-  /** Section by section: where the lap lost time, being worked out. */
+  /** Laid segment by segment: off the leaderboard, compared with the best lap laid that way. */
+  segments?: boolean;
+  /** Segment by segment: where the lap lost time, being worked out. */
   coach?: Coach | null;
 }
 
@@ -94,7 +96,7 @@ export class ResultsScreen implements Screen {
     const meta = track.meta;
     const slot = gridSlot(lap.timeMs, meta.poleRef);
     const prev = input.previous;
-    const deltaText = !prev ? (input.sections ? 'First lap laid section by section here' : 'First timed lap here') : input.isPb ? `New personal best, ${formatDelta(lap.timeMs - prev.timeMs)}` : `${formatDelta(lap.timeMs - prev.timeMs)} to your best ${formatLap(prev.timeMs)}`;
+    const deltaText = !prev ? (input.segments ? 'First lap laid segment by segment here' : 'First timed lap here') : input.isPb ? `New personal best, ${formatDelta(lap.timeMs - prev.timeMs)}` : `${formatDelta(lap.timeMs - prev.timeMs)} to your best ${formatLap(prev.timeMs)}`;
     // An edit of a line other than your best also says how the edit went.
     const edited = input.editedFrom;
     const editText = edited != null && edited !== prev?.timeMs ? `${formatDelta(lap.timeMs - edited)} to the line you edited` : null;
@@ -136,7 +138,7 @@ export class ResultsScreen implements Screen {
       editText ? h('p', { class: 'res-delta res-edit' }, editText) : null,
       sectors,
       // The engineer's most useful note leads; the numbers wait under Lap details.
-      // Laid section by section, the note is where the lap lost time.
+      // Laid segment by segment, the note is where the lap lost time.
       input.coach ? h('div', { class: 'res-notes' }, (this.coachNote = h('p', null, 'Working out where this lap lost time.'))) : notes.length ? h('div', { class: 'res-notes' }, h('p', null, notes[0])) : null,
       h('details', { class: 'res-details' }, h('summary', null, h('span', null, 'Lap details'), h('span', { class: 'res-details-icon', html: ICONS.chevron })), facts),
       this.world,
@@ -162,7 +164,7 @@ export class ResultsScreen implements Screen {
               'div',
               { class: 'res-main' },
               h('button', { class: 'btn-primary', onclick: () => this.actions.again() }, 'Draw again'),
-              this.actions.edit ? h('button', { class: 'btn-outline', onclick: () => this.actions.edit!() }, input.sections ? 'Edit sections' : 'Edit line') : null,
+              this.actions.edit ? h('button', { class: 'btn-outline', onclick: () => this.actions.edit!() }, input.segments ? 'Edit segments' : 'Edit line') : null,
             ),
             h(
               'div',
@@ -182,13 +184,13 @@ export class ResultsScreen implements Screen {
       this.confetti = makeConfetti(app.w, slot.tier === 'pole' ? 170 : 90);
     }
     if (input.coach) this.unwatch = input.coach.watch((r) => this.showCoach(r));
-    if (input.sections) this.world.append(h('p', { class: 'res-world-status' }, LOCAL_ONLY ? 'Laps laid section by section keep their own best, apart from Your times, for now.' : 'Laps laid section by section stay off the leaderboard for now.'));
+    if (input.segments) this.world.append(h('p', { class: 'res-world-status' }, LOCAL_ONLY ? 'Laps laid segment by segment keep their own best, apart from Your times, for now.' : 'Laps laid segment by segment stay off the leaderboard for now.'));
     else if (LOCAL_ONLY) this.ownTimesBlock();
     else worldBoard({ track, input, world: this.world, posted: () => void (!input.walkthrough && this.queuePrompts(1200)) });
     // Install and lap alert prompts wait for the result to land. A first lap
     // waits for the name form, so they follow the lap reaching the board.
     // The walkthrough's ending stays uncluttered; the prompts follow the next lap.
-    if (!LOCAL_ONLY && !input.walkthrough && !input.sections && !(input.isPb && !getPlayer().name)) this.queuePrompts(2400);
+    if (!LOCAL_ONLY && !input.walkthrough && !input.segments && !(input.isPb && !getPlayer().name)) this.queuePrompts(2400);
   }
 
   /** Toybox edition: where this lap sits among the quickest laps kept on the device. */
@@ -288,29 +290,22 @@ export class ResultsScreen implements Screen {
       ctx.stroke(p.path);
     }
     ctx.restore();
-    // Sector boundaries.
-    for (const f of [1 / 3, 2 / 3]) {
-      const fr = frameAt(this.track, this.track.length * f);
-      const s = this.track.limit + 8;
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 2 / z;
-      ctx.beginPath();
-      ctx.moveTo(fr.x + fr.nx * s, fr.y + fr.ny * s);
-      ctx.lineTo(fr.x - fr.nx * s, fr.y - fr.ny * s);
-      ctx.stroke();
-    }
+    // Where each timing sector starts, and the turn numbers.
+    ctx.setTransform(this.app.dpr, 0, 0, this.app.dpr, 0, 0);
+    drawSectorMarks(ctx, this.cam, this.track, { size: 10 });
+    drawTurnLabels(ctx, this.cam, this.track, { size: 9, alpha: 0.9 });
     if (this.confetti) {
       ctx.setTransform(this.app.dpr, 0, 0, this.app.dpr, 0, 0);
       if (!drawConfetti(ctx, this.confetti, dt, this.app.h)) this.confetti = null;
     }
   }
 
-  /** Section by section: the biggest single change, and what perfect pedals give on this line. */
+  /** Segment by segment: the biggest single change, and what perfect pedals give on this line. */
   private showCoach(r: CoachReport): void {
     const p = this.coachNote;
     if (!p) return;
     if (!r.done) {
-      p.textContent = `Working out where this lap lost time (${r.checked} of ${r.tips.length} sections).`;
+      p.textContent = `Working out where this lap lost time (${r.checked} of ${r.tips.length} segments).`;
       return;
     }
     const tips = bestTips(r);
@@ -320,8 +315,12 @@ export class ResultsScreen implements Screen {
       return;
     }
     const top = tips[0];
-    const rest = tips.length > 1 ? ` Edit sections marks ${tips.length - 1} more.` : '';
-    p.textContent = `Biggest gain: ${tipAction(top)} in section ${top.section + 1}, ${tipSeconds(top)} s quicker.${rest}${perfect}`;
+    const rest = tips.length > 1 ? ` Edit segments marks ${tips.length - 1} more.` : '';
+    // Where it is, in the names on the map: the turn and the timing sector.
+    const course = courseFor(this.track);
+    const seg = course.segments[top.segment];
+    const where = [segmentText(seg, turnOfSegment(course, top.segment, turnsOf(this.track))), `sector ${sectorAt(this.track, (seg.from + seg.to) / 2)}`].join(', ');
+    p.textContent = `Biggest gain: ${tipAction(top)} in segment ${top.segment + 1} (${where}), ${tipSeconds(top)} s quicker.${rest}${perfect}`;
   }
 
   destroy(): void {
