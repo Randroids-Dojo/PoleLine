@@ -345,6 +345,51 @@ if (s.tips.length) {
   await page.screenshot({ path: join(out, '9-rough.png') });
 }
 
+// All gas, no brakes: offered after five Gas picks in a row while laying a
+// lap, gone after a Brake, and one tap gasses the rest of the lap; one Undo
+// takes it back.
+{
+  await page.locator('.sec-review .sec-restart').tap();
+  await page.waitForTimeout(500);
+  const offered = () => page.locator('.sec-allgas').isVisible();
+  for (let i = 0; i < 4; i++) await tap('Gas');
+  const atFour = await offered();
+  await tap('Gas');
+  const atFive = await offered();
+  check(!atFour && atFive, `the offer comes after five Gas in a row, not four (${atFour}, ${atFive})`);
+  const face = await page.evaluate(() => {
+    const b = document.querySelector<HTMLElement>('.sec-allgas')!;
+    const r = b.getBoundingClientRect();
+    return [[0.5, 0.5], [0.2, 0.3], [0.8, 0.7]].every(([fx, fy]) => b.contains(document.elementFromPoint(r.left + r.width * fx, r.top + r.height * fy)));
+  });
+  check(face, 'the offer takes a touch across its face');
+  await page.screenshot({ path: join(out, '10-all-gas-offer.png') });
+  await tap('Brake');
+  const afterBrake = await offered();
+  for (let i = 0; i < 5; i++) await tap('Gas');
+  check(!afterBrake && (await offered()), 'a Brake takes it away, five more Gas bring it back');
+  const beforeAll = await state();
+  await page.locator('.sec-allgas').tap();
+  await page.waitForTimeout(300);
+  const stampText = await page.locator('.stamp').innerText().catch(() => '');
+  const all = await state();
+  const rest = all.picks.slice(beforeAll.picks.length);
+  check(all.review && all.picks.length === all.total * 2 && /^(g[lmr])+$/.test(rest) && all.picks.startsWith(beforeAll.picks) && stampText.trim() === 'No brakes!', `tapping it lays the rest of the lap on the gas ("${stampText.trim()}", ${rest.length / 2} segments)`);
+  await page.locator('.sec-review .sec-undo').tap();
+  const undone = await state();
+  check(!undone.review && undone.picks === beforeAll.picks && (await offered()), 'one Undo takes it all back, offer and all');
+  await page.locator('.sec-allgas').tap();
+  await page.waitForTimeout(1200);
+  await page.screenshot({ path: join(out, '11-all-gas-laid.png') });
+  await tap('Race');
+  await page.waitForTimeout(1500);
+  await page.screenshot({ path: join(out, '12-all-gas-race.png') });
+  await page.getByRole('button', { name: /skip/i }).click();
+  await page.waitForTimeout(4500);
+  await page.screenshot({ path: join(out, '13-all-gas-result.png') });
+  check(await page.locator('#res-time').isVisible(), 'and the lap races');
+}
+
 // A fresh player who keeps to the middle until they first brake is shown the
 // gate lesson at the first corner. Timed with the CPU slowed four times, as a
 // stand-in for a phone.

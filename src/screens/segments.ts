@@ -67,6 +67,9 @@ type Lesson = keyof typeof LESSONS;
 const HINT_MS = 4200;
 /** The whole lap labels the time to find in this many segments. */
 const TIP_LABELS = 3;
+/** The All gas, no brakes offer comes after this many Gas picks in a row. */
+const ALL_GAS_AFTER = 5;
+const FLAME = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 2.5c.6 3-1.7 4.6-3 6.4-1.6 2.1-2.4 3.6-2.4 5.6A5.4 5.4 0 0012 20a5.4 5.4 0 005.4-5.5c0-2.2-1-3.9-2.2-5.2.1 1.5-.4 2.6-1.3 3.2.3-3.6-.6-7.4-1.9-10z" fill="#ff8a00"/><path d="M12 11.5c.3 1.6-.9 2.4-1.5 3.3-.6.8-.9 1.5-.9 2.3A2.4 2.4 0 0012 19.5a2.4 2.4 0 002.4-2.4c0-1.3-.8-2.4-1.5-3.1.1.6-.1 1.1-.5 1.4 0-1.5-.1-2.7-.4-3.9z" fill="#ffc163"/></svg>';
 /** After a change to an analysed lap, analyse it again once the player has paused this long (ms). */
 const RECOACH_MS = 900;
 /** A tip as shown: stale while the plan as it stands now is still being analysed. */
@@ -135,6 +138,7 @@ export class SegmentScreen implements Screen {
   private roadFrom!: SVGCircleElement;
   private undoBtns: HTMLButtonElement[] = [];
   private doneBtn: HTMLButtonElement;
+  private allGasBtn: HTMLButtonElement;
   private raceBtn: HTMLButtonElement;
   private tyreBtns: HTMLButtonElement[] = [];
   private listeners: [EventTarget, string, EventListener][] = [];
@@ -191,11 +195,19 @@ export class SegmentScreen implements Screen {
     const undo = () => h('button', { class: 'sec-corner sec-undo', 'aria-label': 'Undo', html: ICONS.undo, onclick: () => this.undo() }) as HTMLButtonElement;
     const restart = () => h('button', { class: 'sec-corner sec-restart', 'aria-label': 'Start the lap again', html: ICONS.restart, onclick: () => this.restart() }) as HTMLButtonElement;
     this.doneBtn = h('button', { class: 'sec-done', hidden: true, onclick: () => this.showReview() }, 'Whole lap') as HTMLButtonElement;
+    // Offered after a run of Gas: gas the rest of the lap in one tap.
+    this.allGasBtn = h(
+      'button',
+      { class: 'sec-allgas', hidden: true, 'aria-label': 'All gas, no brakes', onclick: () => this.allGas() },
+      h('span', { class: 'sec-allgas-icon', html: FLAME }),
+      h('span', { class: 'sec-allgas-text' }, h('b', null, 'All gas,'), h('b', null, 'no brakes')),
+    ) as HTMLButtonElement;
     const padUndo = undo();
     this.undoBtns.push(padUndo);
     this.pad = h(
       'div',
       { class: 'sec-pad', role: 'group', 'aria-label': 'Pick this segment' },
+      this.allGasBtn,
       this.keys.gas,
       this.doneBtn,
       this.keys.left,
@@ -413,11 +425,11 @@ export class SegmentScreen implements Screen {
     this.teach();
   }
 
-  private lapLaid(): void {
+  private lapLaid(text = 'Lap laid'): void {
     sfx.lapDrawn();
     buzz(20);
     this.stamp?.remove();
-    this.stamp = h('div', { class: 'stamp' }, 'Lap laid');
+    this.stamp = h('div', { class: 'stamp' }, text);
     this.el.append(this.stamp);
     const stamp = this.stamp;
     setTimeout(() => {
@@ -425,6 +437,40 @@ export class SegmentScreen implements Screen {
       if (this.stamp === stamp) this.stamp = null;
     }, 1100);
     this.showReview();
+  }
+
+  /** Gas picks in a row at the end of the lap laid so far. */
+  private gasRun(): number {
+    let n = 0;
+    for (let k = this.picks.length - 1; k >= 0 && this.picks[k].pedal === 'gas'; k--) n++;
+    return n;
+  }
+
+  /** The offer shows while laying a lap (not changing one) after a run of Gas, with some of the lap still to lay. */
+  private offerAllGas(): boolean {
+    return !this.review && !this.leaving && this.cursor === this.picks.length && this.course.segments.length - this.picks.length >= 2 && this.gasRun() >= ALL_GAS_AFTER;
+  }
+
+  /**
+   * All gas, no brakes: every segment left goes on the gas, each staying in
+   * the lane it starts in (the gate armed now for this one), and the lap is
+   * laid. One undo takes it all back.
+   */
+  private allGas(): void {
+    if (!this.offerAllGas()) return;
+    this.remember();
+    const total = this.course.segments.length;
+    while (this.picks.length < total) {
+      const k = this.picks.length;
+      const options = laneOptions(this.course, this.picks, k);
+      const stay = k === this.cursor ? this.armed : startLane(this.course, this.picks, k);
+      const lane = options.includes(stay) ? stay : options.reduce((a, b) => (Math.abs(b - stay) < Math.abs(a - stay) ? b : a), options[0]);
+      this.picks.push({ pedal: 'gas', lane });
+    }
+    this.done('gas');
+    this.solve(null);
+    buzz([20, 30, 20, 30, 40]);
+    this.lapLaid('No brakes!');
   }
 
   private showReview(): void {
@@ -609,6 +655,14 @@ export class SegmentScreen implements Screen {
     this.reviewBar.hidden = !this.review;
     this.el.classList.toggle('is-review', this.review);
     this.doneBtn.hidden = this.review || laid !== total;
+    const offer = this.offerAllGas();
+    if (offer && this.allGasBtn.hidden) {
+      // Pops in once when the run reaches it.
+      this.allGasBtn.classList.remove('is-new');
+      void this.allGasBtn.offsetWidth;
+      this.allGasBtn.classList.add('is-new');
+    }
+    this.allGasBtn.hidden = !offer;
     const canUndo = this.history.length > 0;
     for (const b of this.undoBtns) b.disabled = !canUndo;
     if (!sec || this.review) return;
