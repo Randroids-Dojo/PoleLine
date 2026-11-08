@@ -2948,27 +2948,29 @@ button:disabled {
 
 /* Segment by segment ------------------------------------------------------ */
 
-/* The pad: Gas and Brake set the segment, Left and Right pick its gate. */
+/*
+ * The pad: one cross, like a controller's D-pad, floating over the map. Gas
+ * and Brake set the segment, Left and Right pick its gate, and the middle is
+ * a miniature of the road showing the line from where the segment starts to
+ * the gate picked. Undo, restart and Whole lap sit in the cross's corners.
+ * One outline goes round everything (drop shadows on the group), so the arms
+ * read as one control.
+ */
 .sec-pad {
   pointer-events: auto;
   position: absolute;
-  left: 10px;
-  right: 10px;
-  bottom: calc(12px + var(--safe-bottom));
-  max-width: 420px;
-  margin: 0 auto;
+  left: 50%;
+  bottom: calc(14px + var(--safe-bottom));
+  transform: translateX(-50%);
+  width: min(340px, calc(100% - 24px));
   display: grid;
-  grid-template-columns: 1fr 1.3fr 1fr;
-  grid-template-rows: 56px 56px 56px;
+  grid-template-columns: 1fr 1.22fr 1fr;
+  grid-template-rows: 62px 88px 62px;
   grid-template-areas:
-    'count gas done'
-    'left lanes right'
+    'nw gas done'
+    'left road right'
     'undo brake restart';
-  gap: 6px;
-  padding: 8px;
-  background: var(--sheet);
-  border: 1.5px solid var(--ink);
-  border-radius: 10px;
+  filter: drop-shadow(1.5px 0 0 #000) drop-shadow(-1.5px 0 0 #000) drop-shadow(0 1.5px 0 #000) drop-shadow(0 -1.5px 0 #000) drop-shadow(0 8px 12px rgba(0, 0, 0, 0.35));
 }
 
 .sec-pad[hidden],
@@ -2977,93 +2979,105 @@ button:disabled {
 }
 
 .sec-key {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  border-radius: 8px;
-  font-size: 17px;
+  gap: 8px;
+  color: #fff;
+  font-size: 18px;
   font-weight: 850;
   font-stretch: 118%;
   letter-spacing: -0.01em;
-  transition: transform 0.06s ease, opacity 0.15s ease;
   touch-action: manipulation;
+  transition: filter 0.08s ease, opacity 0.15s ease;
 }
 
 .sec-key:active {
-  transform: scale(0.96);
+  filter: brightness(1.3);
 }
 
 .sec-arrow {
   display: grid;
   place-items: center;
+  opacity: 0.9;
+}
+
+.sec-word {
+  display: grid;
+  justify-items: start;
+  line-height: 1.05;
 }
 
 .sec-gas {
   grid-area: gas;
-  background: var(--ink);
-  color: #fff;
+  border-radius: 16px 16px 0 0;
+  background: linear-gradient(#24282e, #121417);
+  flex-direction: column;
+  gap: 1px;
 }
 
 .sec-brake {
   grid-area: brake;
-  background: var(--red);
-  color: #fff;
+  border-radius: 0 0 16px 16px;
+  background: linear-gradient(#f0261c, #c80500);
+  flex-direction: column-reverse;
+  gap: 1px;
+}
+
+.sec-gas .sec-word,
+.sec-brake .sec-word {
+  justify-items: center;
 }
 
 .sec-left,
 .sec-right {
-  flex-direction: column;
-  gap: 0;
-  box-shadow: inset 0 0 0 2px var(--ink);
-  color: var(--ink);
-  line-height: 1.05;
+  background: #4a5059;
+  gap: 4px;
+  padding: 0 6px;
 }
 
 .sec-left {
   grid-area: left;
+  border-radius: 16px 0 0 16px;
+  /* Overlap the road a pixel so no seam shows through at the join. */
+  margin-right: -1px;
 }
 
 .sec-right {
   grid-area: right;
+  border-radius: 0 16px 16px 0;
+  flex-direction: row-reverse;
+  margin-left: -1px;
 }
 
-.sec-left .sec-arrow,
-.sec-right .sec-arrow {
-  display: none;
-}
-
-.sec-left b::before {
-  content: '◀ ';
-  font-size: 13px;
-}
-
-.sec-right b::after {
-  content: ' ▶';
-  font-size: 13px;
+.sec-right .sec-word {
+  justify-items: end;
 }
 
 .sec-left small,
 .sec-right small {
-  font-size: 12px;
-  font-weight: 650;
-  color: var(--ink-2);
-  font-stretch: 100%;
   min-height: 1em;
+  font-size: 12px;
+  font-weight: 700;
+  font-stretch: 100%;
+  letter-spacing: 0;
+  color: #c9d0d8;
 }
 
-.sec-key.is-off {
-  opacity: 0.3;
+/* A gate this segment cannot reach: the arm stays (the cross keeps its shape) but goes quiet. */
+.sec-key.is-off > * {
+  opacity: 0.28;
 }
 
-/* Changing a laid segment: its current pedal is ringed. */
+/* Changing a laid segment: the pedal it has now is ringed inside its arm. */
 .sec-key.is-picked {
   box-shadow:
-    0 0 0 3px var(--sheet),
-    0 0 0 5px var(--purple);
+    inset 0 0 0 3px #fff,
+    inset 0 0 0 6px var(--purple);
 }
 
-.sec-key.is-shake {
+.sec-key.is-shake > * {
   animation: sec-shake 0.3s ease;
 }
 
@@ -3076,88 +3090,108 @@ button:disabled {
   }
 }
 
-/* The three gates across the road, the armed one purple, and a dot where the line comes from. */
-.sec-lanes {
-  grid-area: lanes;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 4px;
-  padding: 6px 8px;
-  border-radius: 8px;
-  background: #3b4048;
-  box-shadow:
-    inset 3px 0 0 #fff,
-    inset -3px 0 0 #fff;
+/* The miniature road in the middle of the cross. */
+.sec-road {
+  grid-area: road;
+  overflow: hidden;
 }
 
-.sec-lanes i {
-  position: relative;
-  align-self: start;
-  height: 9px;
-  border-radius: 3px;
-  background: rgba(255, 255, 255, 0.12);
+.sec-road-art {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
-.sec-lanes i.is-open {
-  background: #fff;
+.sec-gate {
+  fill: rgba(255, 255, 255, 0.14);
+  transition: fill 0.15s ease;
 }
 
-.sec-lanes i.is-armed {
-  background: var(--purple);
-  box-shadow: 0 0 0 2px #fff;
+.sec-gate.is-open {
+  fill: #ffffff;
 }
 
-.sec-lanes i.is-from::after {
-  content: '';
-  position: absolute;
-  left: 50%;
-  top: 26px;
-  width: 10px;
-  height: 10px;
-  margin-left: -5px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: inset 0 0 0 3px var(--purple);
+.sec-gate.is-armed {
+  fill: var(--purple);
+  stroke: #ffffff;
+  stroke-width: 2;
 }
 
-.sec-count {
-  grid-area: count;
+.sec-route,
+.sec-route-glow {
+  fill: none;
+  stroke: var(--purple);
+  stroke-linecap: round;
+  transition: d 0.18s ease;
+}
+
+.sec-route {
+  stroke-width: 3.5;
+}
+
+.sec-route-glow {
+  stroke-width: 10;
+  opacity: 0.3;
+}
+
+.sec-from {
+  fill: #ffffff;
+  stroke: var(--purple);
+  stroke-width: 3.5;
+  transition: cx 0.18s ease;
+}
+
+/* Round buttons in the cross's corners. */
+.sec-corner,
+.sec-done {
   align-self: center;
   justify-self: center;
-  font-size: 15px;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-  color: var(--ink-2);
+  background: var(--sheet);
+  color: var(--ink);
 }
 
-.sec-done {
-  grid-area: done;
-  border-radius: 8px;
-  box-shadow: inset 0 0 0 2px var(--purple-ink);
-  color: var(--purple-ink);
-  font-size: 14px;
-  font-weight: 800;
+.sec-corner {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  touch-action: manipulation;
+}
+
+.sec-corner:active {
+  background: var(--paper);
+}
+
+.sec-pad .sec-corner:disabled {
+  opacity: 1;
+  color: var(--rule);
 }
 
 .sec-undo {
   grid-area: undo;
-  justify-self: center;
-  align-self: center;
 }
 
 .sec-restart {
   grid-area: restart;
-  justify-self: center;
-  align-self: center;
 }
 
-.sec-pad .icon-btn:disabled,
+.sec-done {
+  grid-area: done;
+  padding: 0 12px;
+  min-height: 40px;
+  border-radius: 20px;
+  color: var(--purple-ink);
+  font-size: 13px;
+  font-weight: 800;
+}
+
 .sec-review .icon-btn:disabled {
   opacity: 0.3;
 }
 
 .sec-hud .draw-hint {
-  bottom: calc(232px + var(--safe-bottom));
+  bottom: calc(236px + var(--safe-bottom));
 }
 
 .sec-review {

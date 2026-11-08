@@ -73,12 +73,25 @@ const BRAKE_RED = 'rgba(225, 6, 0, 0.62)';
 /** The camera frames at most this much (metres) of a segment, ending at its gate. */
 const MAX_FRAME = 170;
 
-const ARROW = {
-  up: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 5l7 9H5z" fill="currentColor"/></svg>',
-  down: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 19l7-9H5z" fill="currentColor"/></svg>',
-  left: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M5 12l9-7v14z" fill="currentColor"/></svg>',
-  right: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M19 12l-9-7v14z" fill="currentColor"/></svg>',
-};
+/** One chevron, turned four ways, for the four arms of the pad. */
+const chevron = (turn: number) =>
+  `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" style="transform:rotate(${turn}deg)"><path d="M5 15l7-7 7 7" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const ARROW = { up: chevron(0), right: chevron(90), down: chevron(180), left: chevron(270) };
+
+/** Where each gate sits across the miniature road in the pad (viewBox units). */
+const ROAD_LANE_X: Record<Lane, number> = { [-1]: 31, 0: 60, 1: 89 } as Record<Lane, number>;
+const ROAD_SVG = `<svg class="sec-road-art" viewBox="0 0 120 88" aria-hidden="true">
+  <defs><pattern id="sec-kerb" width="8" height="12" patternUnits="userSpaceOnUse"><rect width="8" height="6" fill="#e10600"/><rect y="6" width="8" height="6" fill="#ffffff"/></pattern></defs>
+  <rect width="120" height="88" fill="#2f343b"/>
+  <rect x="0" width="8" height="88" fill="url(#sec-kerb)"/><rect x="112" width="8" height="88" fill="url(#sec-kerb)"/>
+  <rect x="10" width="1.6" height="88" fill="#ffffff" opacity="0.85"/><rect x="108.4" width="1.6" height="88" fill="#ffffff" opacity="0.85"/>
+  <rect class="sec-gate" data-lane="-1" x="18" y="10" width="26" height="8" rx="4"/>
+  <rect class="sec-gate" data-lane="0" x="47" y="10" width="26" height="8" rx="4"/>
+  <rect class="sec-gate" data-lane="1" x="76" y="10" width="26" height="8" rx="4"/>
+  <path class="sec-route-glow" d="M60 70 C60 48 60 40 60 22"/>
+  <path class="sec-route" d="M60 70 C60 48 60 40 60 22"/>
+  <circle class="sec-from" cx="60" cy="72" r="6"/>
+</svg>`;
 
 export class SegmentScreen implements Screen {
   private course: Course;
@@ -110,8 +123,10 @@ export class SegmentScreen implements Screen {
   private keys: Record<'gas' | 'brake' | 'left' | 'right', HTMLButtonElement>;
   private leftSide: HTMLElement;
   private rightSide: HTMLElement;
-  private laneBars: HTMLElement[] = [];
-  private count: HTMLElement;
+  /** The pad's miniature road: its three gates, the line to the armed one, and where it starts. */
+  private roadGates: SVGRectElement[] = [];
+  private roadRoute: SVGPathElement[] = [];
+  private roadFrom!: SVGCircleElement;
   private undoBtns: HTMLButtonElement[] = [];
   private doneBtn: HTMLButtonElement;
   private raceBtn: HTMLButtonElement;
@@ -150,7 +165,7 @@ export class SegmentScreen implements Screen {
     }
 
     const key = (k: 'gas' | 'brake' | 'left' | 'right', icon: string, word: string, extra: HTMLElement | null = null) =>
-      h('button', { class: `sec-key sec-${k}`, 'aria-label': word, onclick: () => this.press(k) }, h('span', { class: 'sec-arrow', html: icon }), h('b', null, word), extra) as HTMLButtonElement;
+      h('button', { class: `sec-key sec-${k}`, 'aria-label': word, onclick: () => this.press(k) }, h('span', { class: 'sec-arrow', html: icon }), h('span', { class: 'sec-word' }, h('b', null, word), extra)) as HTMLButtonElement;
     this.leftSide = h('small', null, '');
     this.rightSide = h('small', null, '');
     this.keys = {
@@ -159,26 +174,22 @@ export class SegmentScreen implements Screen {
       left: key('left', ARROW.left, 'Left', this.leftSide),
       right: key('right', ARROW.right, 'Right', this.rightSide),
     };
-    const lanes = h('div', { class: 'sec-lanes', 'aria-hidden': 'true' });
-    for (let i = 0; i < 3; i++) {
-      const b = h('i');
-      this.laneBars.push(b);
-      lanes.append(b);
-    }
-    const undo = () => h('button', { class: 'icon-btn sec-undo', 'aria-label': 'Undo', html: ICONS.undo, onclick: () => this.undo() }) as HTMLButtonElement;
-    const restart = () => h('button', { class: 'icon-btn sec-restart', 'aria-label': 'Start the lap again', html: ICONS.restart, onclick: () => this.restart() }) as HTMLButtonElement;
-    this.count = h('span', { class: 'sec-count' }, '');
+    const road = h('div', { class: 'sec-road', html: ROAD_SVG });
+    this.roadGates = Array.from(road.querySelectorAll<SVGRectElement>('.sec-gate'));
+    this.roadRoute = Array.from(road.querySelectorAll<SVGPathElement>('.sec-route, .sec-route-glow'));
+    this.roadFrom = road.querySelector<SVGCircleElement>('.sec-from')!;
+    const undo = () => h('button', { class: 'sec-corner sec-undo', 'aria-label': 'Undo', html: ICONS.undo, onclick: () => this.undo() }) as HTMLButtonElement;
+    const restart = () => h('button', { class: 'sec-corner sec-restart', 'aria-label': 'Start the lap again', html: ICONS.restart, onclick: () => this.restart() }) as HTMLButtonElement;
     this.doneBtn = h('button', { class: 'sec-done', hidden: true, onclick: () => this.showReview() }, 'Whole lap') as HTMLButtonElement;
     const padUndo = undo();
     this.undoBtns.push(padUndo);
     this.pad = h(
       'div',
       { class: 'sec-pad', role: 'group', 'aria-label': 'Pick this segment' },
-      this.count,
       this.keys.gas,
       this.doneBtn,
       this.keys.left,
-      lanes,
+      road,
       this.keys.right,
       padUndo,
       this.keys.brake,
@@ -539,7 +550,6 @@ export class SegmentScreen implements Screen {
           ? `Segment ${this.cursor + 1} of ${total}: ${segmentText(sec, turnOfSegment(this.course, this.cursor, turnsOf(this.track)))}`
           : '',
     );
-    setText(this.count, sec ? `${this.cursor + 1}/${total}` : '');
     this.pad.hidden = this.review;
     this.reviewBar.hidden = !this.review;
     this.el.classList.toggle('is-review', this.review);
@@ -561,12 +571,18 @@ export class SegmentScreen implements Screen {
     };
     setText(this.leftSide, side(-1));
     setText(this.rightSide, side(1));
+    // The miniature road: the gates this segment can reach, and the line from
+    // where it starts to the armed one.
     const from = startLane(this.course, this.picks, this.cursor);
-    this.laneBars.forEach((b, j) => {
-      const lane = (j - 1) as Lane;
-      b.className = lane === this.armed ? 'is-armed' : options.includes(lane) ? 'is-open' : '';
-      b.classList.toggle('is-from', lane === from);
-    });
+    for (const g of this.roadGates) {
+      const lane = Number(g.dataset.lane) as Lane;
+      g.setAttribute('class', `sec-gate${lane === this.armed ? ' is-armed' : options.includes(lane) ? ' is-open' : ''}`);
+    }
+    const fx = ROAD_LANE_X[from];
+    const ax = ROAD_LANE_X[this.armed];
+    const d = `M${fx} 70 C${fx} 50 ${ax} 42 ${ax} 22`;
+    for (const r of this.roadRoute) r.style.setProperty('d', `path("${d}")`);
+    this.roadFrom.style.setProperty('cx', `${fx}px`);
   }
 
   private flash(k: 'left' | 'right'): void {
