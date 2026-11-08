@@ -50,7 +50,7 @@ await page.waitForTimeout(900);
 await page.getByRole('button', { name: 'Draw a lap' }).click();
 await page.waitForTimeout(900);
 
-type State = { cursor: number; total: number; picks: string; review: boolean; armed: number; startLane: number; coached: boolean; tips: { segment: number; action: string; gain: number; pedal?: 'gas' | 'brake'; lane?: -1 | 0 | 1 }[] };
+type State = { cursor: number; total: number; picks: string; review: boolean; armed: number; startLane: number; coached: boolean; tips: { segment: number; action: string; gain: number; stale: boolean; pedal?: 'gas' | 'brake'; lane?: -1 | 0 | 1 }[] };
 const state = () => page.evaluate(() => (window as unknown as { __pl: { app: { current: { state: State } } } }).__pl.app.current.state) as Promise<State>;
 const hint = () => page.evaluate(() => {
   const el = document.querySelector('.draw-hint');
@@ -234,13 +234,29 @@ check(s.review && s.picks === encodePicks(plan), 'Edit segments opens the same p
 check(s.coached && s.tips.length > 0, `it marks the segments that lost time (${s.tips.length})`);
 await page.screenshot({ path: join(out, '6-edit.png') });
 if (s.tips.length) {
-  // The tips are for the tyre the lap was raced on.
+  // Another tyre: the tips stay, marked stale, while the lap is analysed on
+  // it; then they are exact for that tyre. Back on the raced tyre they are
+  // the raced ones again at once.
   const before = s.tips.length;
+  const subtitle = async () => (await page.locator('.draw-title span').innerText()).trim();
+  const coached = async (ms = 60000) => {
+    for (let t = 0; t < ms; t += 250) {
+      const x = await state();
+      if (x.coached) return x;
+      await page.waitForTimeout(250);
+    }
+    return state();
+  };
   await page.locator('.sec-tyres [data-c="medium"]').tap();
-  const onMedium = (await state()).tips.length;
+  const staleOnMedium = await state();
+  const subMedium = await subtitle();
+  check(staleOnMedium.tips.length > 0 && staleOnMedium.tips.every((x) => x.stale) && subMedium === 'Updating where it loses time', `another tyre keeps the tips, marked stale, while it updates ("${subMedium}", ${staleOnMedium.tips.length})`);
+  const onMedium = await coached();
+  check(onMedium.coached && onMedium.tips.every((x) => !x.stale) && (await subtitle()) === 'Tap an orange segment to find time', `then they are worked out for that tyre (${onMedium.tips.length})`);
   await page.locator('.sec-tyres [data-c="soft"]').tap();
-  const backOnSoft = (await state()).tips.length;
-  check(onMedium === 0 && backOnSoft === before, `another tyre hides the tips, the raced one brings them back (${before}, ${onMedium}, ${backOnSoft})`);
+  await page.waitForTimeout(150);
+  const backOnSoft = await state();
+  check(backOnSoft.coached && backOnSoft.tips.length === before, `back on the raced tyre the raced tips are back at once (${before}, ${backOnSoft.tips.length})`);
   // Take the biggest tip: tap its label on the map, read the tip, make the change.
   const tip = s.tips[0];
   await page.waitForTimeout(300);
@@ -265,11 +281,14 @@ if (s.tips.length) {
   }
   await tap('Whole lap');
   s = await state();
-  const sub = (await page.locator('.draw-title span').innerText()).trim();
-  check(s.tips.length === 0 && sub === 'Race it to find where it loses time', `a changed plan hides every tip until it is raced ("${sub}")`);
+  const sub = await subtitle();
+  check(s.tips.length > 0 && s.tips.every((x) => x.stale && x.segment !== tip.segment) && sub === 'Updating where it loses time', `after a change the other tips stay, marked stale, while it updates ("${sub}", ${s.tips.length})`);
+  s = await coached();
+  check(s.coached && s.tips.every((x) => !x.stale) && (await subtitle()) === 'Tap an orange segment to find time', `then the changed lap is worked out again (${s.tips.length} tips)`);
   await page.locator('.sec-review .sec-undo').tap();
+  await page.waitForTimeout(150);
   s = await state();
-  check(s.tips.length === before, 'Undo back to the raced plan brings them back');
+  check(s.coached && s.tips.length === before, 'Undo back to the raced plan brings its tips back at once');
   await page.locator('.sec-review .sec-undo').tap().catch(() => {});
   // Redo the change (Undo stepped back through it) and race it.
   s = await state();

@@ -12,6 +12,7 @@ import { buzz, sfx, unlockAudio } from '../app/audio';
 import { getSettings, saveSettings, setTyre } from '../app/store';
 import {
   courseFor,
+  decodePicks,
   encodePicks,
   gate,
   laneOptions,
@@ -38,7 +39,7 @@ import { ICONS, h, setText, tyreBadge } from '../ui/dom';
 import { openSettings } from './settings';
 import { drawSectorMarks, drawTurnLabels, turnsOf, type Box } from '../render/map-labels';
 import { placeLabels } from '../render/label-place';
-import type { Coach } from '../app/coach-client';
+import { analysed, startCoach, type Coach } from '../app/coach-client';
 import { bestTips, tipAction, tipSeconds, type CoachReport, type Tip } from '../app/coach';
 
 export interface SegmentActions {
@@ -66,6 +67,10 @@ type Lesson = keyof typeof LESSONS;
 const HINT_MS = 4200;
 /** The whole lap labels the time to find in this many segments. */
 const TIP_LABELS = 3;
+/** After a change to an analysed lap, analyse it again once the player has paused this long (ms). */
+const RECOACH_MS = 900;
+/** A tip as shown: stale while the plan as it stands now is still being analysed. */
+type ShownTip = Tip & { stale: boolean };
 /** The whole track numbers the first segment and every this many after it. */
 const SEGMENT_NUMBER_EVERY = 5;
 /** A tap that moves less than this (px) picks a segment on the map. */
@@ -141,6 +146,10 @@ export class SegmentScreen implements Screen {
   private learnt: number;
   /** Where the plan opened from the results lost time, and that plan. */
   private report: CoachReport | null = null;
+  /** The latest finished analysis of any plan: its tips that still apply show while a changed plan is analysed. */
+  private lastDone: CoachReport | null = null;
+  private coach: Coach | null = null;
+  private recoachTimer: ReturnType<typeof setTimeout> | null = null;
   private unwatch: (() => void) | null = null;
   /** Where the gain labels were drawn (px), so a tap on one opens its segment. */
   private gainLabels: { x: number; y: number; w: number; h: number; segment: number }[] = [];
@@ -240,12 +249,9 @@ export class SegmentScreen implements Screen {
     this.sync();
     this.setCam(this.review ? this.overviewFrame() : this.segmentFrame(this.cursor));
     this.teach();
-    if (coach) {
-      this.unwatch = coach.watch((r) => {
-        this.report = r;
-        this.sync();
-      });
-    }
+    // A plan opened from its result is analysed (or already was), so the
+    // whole lap shows where it lost time.
+    if (from && this.picks.length === this.course.segments.length) this.watchCoach(coach ?? startCoach(track, this.course, this.picks, this.compound));
 
     const c = app.canvas;
     this.listen(c, 'pointerdown', (e) => this.onDown(e as PointerEvent));
@@ -264,31 +270,75 @@ export class SegmentScreen implements Screen {
     return this.picks.length > 0 && !this.leaving;
   }
 
+  private watchCoach(coach: Coach): void {
+    this.unwatch?.();
+    this.coach = coach;
+    this.unwatch = coach.watch((r) => {
+      this.report = r;
+      if (r.done) this.lastDone = r;
+      this.sync();
+    });
+  }
+
   /**
-   * Tips from the analysis, while the plan and tyre are still the lap that was
-   * raced: each gain is exact for that lap only (battery and tyres tie the
-   * whole lap together), so any change hides them until the next race.
+   * After a change to a laid lap that has been analysed (or a change of tyre),
+   * analyse it again once the player pauses, so the whole lap keeps showing
+   * where it loses time.
    */
-  private tips(): Tip[] {
-    const r = this.report;
-    if (!r?.done || !this.asRaced()) return [];
-    return bestTips(r);
+  private recoachSoon(): void {
+    if (!this.coach) return;
+    if (this.recoachTimer) clearTimeout(this.recoachTimer);
+    // A plan seen before (an undo, the tyre it was raced on) answers at once.
+    if (this.picks.length === this.course.segments.length && analysed(this.track.meta.slug, this.picks, this.compound)) {
+      this.watchCoach(startCoach(this.track, this.course, this.picks, this.compound));
+      return;
+    }
+    this.recoachTimer = setTimeout(() => {
+      this.recoachTimer = null;
+      if (this.leaving || this.picks.length !== this.course.segments.length || this.matches(this.report)) return;
+      this.watchCoach(startCoach(this.track, this.course, this.picks, this.compound));
+    }, RECOACH_MS);
   }
 
-  /** The plan and tyre are the ones the analysis ran on. */
-  private asRaced(): boolean {
-    const r = this.report;
-    return !!r && r.compound === this.compound && encodePicks(this.picks) === r.picks;
+  /** A report on the plan and tyre as they stand now. */
+  private matches(r: CoachReport | null): boolean {
+    return !!r && r.compound === this.compound && r.picks === encodePicks(this.picks);
   }
 
-  private tipFor(k: number): Tip | null {
+  /**
+   * The tips to show, biggest first. Each gain is exact for the plan and tyre
+   * it was worked out on (battery and tyres tie the whole lap together). While
+   * a changed plan is being analysed, the segments already checked show their
+   * new tips and the rest show the last analysis's tips that still apply (the
+   * segment's pick is unchanged and the gate is still reachable), marked stale.
+   */
+  private tips(): ShownTip[] {
+    const cur = this.matches(this.report) ? this.report : null;
+    if (cur?.done) return bestTips(cur).map((t) => ({ ...t, stale: false }));
+    const fresh: ShownTip[] = cur ? bestTips(cur).map((t) => ({ ...t, stale: false })) : [];
+    const old = this.lastDone;
+    const stale: ShownTip[] = [];
+    if (old && old !== cur) {
+      const was = decodePicks(old.picks);
+      for (const t of bestTips(old)) {
+        if (cur && t.segment < cur.checked) continue;
+        const p = this.picks[t.segment];
+        if (!was || !p || p.pedal !== was[t.segment].pedal || p.lane !== was[t.segment].lane) continue;
+        if (t.lane !== undefined && !laneOptions(this.course, this.picks, t.segment).includes(t.lane)) continue;
+        stale.push({ ...t, stale: true });
+      }
+    }
+    return [...fresh, ...stale].sort((x, y) => y.gain - x.gain);
+  }
+
+  private tipFor(k: number): ShownTip | null {
     return this.tips().find((t) => t.segment === k) ?? null;
   }
 
   /** Test hook: where things stand. */
-  get state(): { cursor: number; total: number; picks: string; review: boolean; armed: Lane; startLane: Lane; coached: boolean; tips: (Tip & { action: string })[] } {
+  get state(): { cursor: number; total: number; picks: string; review: boolean; armed: Lane; startLane: Lane; coached: boolean; tips: (ShownTip & { action: string })[] } {
     return {
-      coached: !!this.report?.done,
+      coached: !!this.report?.done && this.matches(this.report),
       tips: this.tips().map((t) => ({ ...t, action: tipAction(t) })),
       cursor: this.cursor,
       total: this.course.segments.length,
@@ -346,6 +396,7 @@ export class SegmentScreen implements Screen {
     this.pulse = performance.now();
     const whole = this.picks.length === this.course.segments.length;
     this.solve(appending && !whole ? prev : null);
+    if (whole) this.recoachSoon();
     if (whole && appending && k === this.course.segments.length - 1) {
       this.lapLaid();
       return;
@@ -423,6 +474,7 @@ export class SegmentScreen implements Screen {
     this.review = last.review;
     this.solve(null);
     this.syncArmed(undone?.lane);
+    this.recoachSoon();
     this.sync();
     this.glideTo(this.review ? this.overviewFrame() : this.segmentFrame(this.cursor));
   }
@@ -446,6 +498,7 @@ export class SegmentScreen implements Screen {
     sfx.tap();
     this.syncTyres();
     this.sync();
+    this.recoachSoon();
   }
 
   private syncTyres(): void {
@@ -534,19 +587,20 @@ export class SegmentScreen implements Screen {
     const sec = this.course.segments[this.cursor];
     const laid = this.picks.length;
     this.bar.style.transform = `scaleX(${laid / total})`;
-    const coaching = this.report && !this.report.done && this.asRaced();
-    const tipped = this.tips().length > 0;
-    const changed = this.report && !this.asRaced();
+    const shown = this.tips();
+    const settled = this.matches(this.report) && !!this.report?.done;
     setText(
       this.subtitle,
       this.review
-        ? coaching
-          ? 'Lap laid. Finding where it lost time'
-          : tipped
-            ? 'Tap an orange segment to find time'
-            : changed
-              ? 'Race it to find where it loses time'
-              : 'Lap laid. Tap a segment to change it'
+        ? !this.coach
+          ? 'Lap laid. Tap a segment to change it'
+          : !settled
+            ? shown.length
+              ? 'Updating where it loses time'
+              : 'Finding where it loses time'
+            : shown.length
+              ? 'Tap an orange segment to find time'
+              : 'No single change makes it quicker'
         : sec
           ? `Segment ${this.cursor + 1} of ${total}: ${segmentText(sec, turnOfSegment(this.course, this.cursor, turnsOf(this.track)))}`
           : '',
@@ -616,6 +670,8 @@ export class SegmentScreen implements Screen {
   private teach(): void {
     const sec = this.course.segments[this.cursor];
     if (this.review) {
+      // A segment's "here" line means nothing on the whole lap.
+      if (this.hint.textContent?.endsWith('s quicker.')) this.hint.classList.add('is-hidden');
       if (!this.learned('review')) this.say(LESSONS.review, 6000);
       return;
     }
@@ -625,7 +681,7 @@ export class SegmentScreen implements Screen {
     if (!this.learned('lane') && this.learned('brake') && (sec.end === 'turn' || sec.end === 'in' || sec.end === 'apex' || sec.end === 'out' || sec.end === 'exit')) return this.say(LESSONS.lane, 8000);
     // A segment the last lap lost time in says what would win it back.
     const tip = this.tipFor(this.cursor);
-    if (tip) return this.say(`${tipAction(tip)} here: ${tipSeconds(tip)} s quicker.`, 6000);
+    if (tip) return this.say(`${tipAction(tip)} here: ${tip.stale ? 'about ' : ''}${tipSeconds(tip)} s quicker.`, 6000);
     // Nothing to teach here: a lesson still showing from the last segment has had its moment.
     if (Object.values(LESSONS).includes(this.hint.textContent as (typeof LESSONS)[Lesson]) || this.hint.textContent?.endsWith('s quicker.')) this.hint.classList.add('is-hidden');
   }
@@ -877,7 +933,7 @@ export class SegmentScreen implements Screen {
    * the line, stronger the more there is to find, wide enough to see with the
    * whole circuit on screen.
    */
-  private drawLosses(ctx: CanvasRenderingContext2D, tips: Tip[]): void {
+  private drawLosses(ctx: CanvasRenderingContext2D, tips: ShownTip[]): void {
     const t = this.track;
     const z = this.cam.zoom;
     ctx.save();
@@ -893,7 +949,8 @@ export class SegmentScreen implements Screen {
         if (q === from) ctx.moveTo(t.x[v], t.y[v]);
         else ctx.lineTo(t.x[v], t.y[v]);
       }
-      ctx.strokeStyle = `rgba(255, 138, 0, ${(0.45 + 0.5 * Math.min(1, tip.gain / 300)).toFixed(3)})`;
+      // Stale (still being checked again): fainter.
+      ctx.strokeStyle = `rgba(255, 138, 0, ${((0.45 + 0.5 * Math.min(1, tip.gain / 300)) * (tip.stale ? 0.5 : 1)).toFixed(3)})`;
       ctx.stroke();
     }
     ctx.restore();
@@ -938,7 +995,7 @@ export class SegmentScreen implements Screen {
   }
 
   /** On the whole lap, the time to find in the segments with the most, as labels that open them. */
-  private drawGains(ctx: CanvasRenderingContext2D, tips: Tip[], badges: Box[] = []): void {
+  private drawGains(ctx: CanvasRenderingContext2D, tips: ShownTip[], badges: Box[] = []): void {
     const t = this.track;
     this.gainLabels = [];
     ctx.save();
@@ -981,6 +1038,8 @@ export class SegmentScreen implements Screen {
     });
     for (const g of this.gainLabels) {
       const it = items.find((x) => x.tip.segment === g.segment)!;
+      // A stale tip (from before the latest change, still being checked) has a dashed edge.
+      ctx.setLineDash(it.tip.stale ? [5, 4] : []);
       ctx.fillStyle = '#ffffff';
       ctx.strokeStyle = '#ff8a00';
       ctx.lineWidth = 2.5;
@@ -988,7 +1047,8 @@ export class SegmentScreen implements Screen {
       ctx.roundRect(g.x, g.y, g.w, g.h, 12);
       ctx.fill();
       ctx.stroke();
-      ctx.fillStyle = '#000000';
+      ctx.setLineDash([]);
+      ctx.fillStyle = it.tip.stale ? '#4b535d' : '#000000';
       ctx.fillText(it.text, g.x + g.w / 2, g.y + g.h / 2 + 0.5);
     }
     ctx.restore();
@@ -1124,6 +1184,7 @@ export class SegmentScreen implements Screen {
 
   destroy(): void {
     this.unwatch?.();
+    if (this.recoachTimer) clearTimeout(this.recoachTimer);
     for (const [t, type, fn] of this.listeners) t.removeEventListener(type, fn);
     if (this.hintTimer) clearTimeout(this.hintTimer);
     this.el.remove();
