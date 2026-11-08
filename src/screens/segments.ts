@@ -37,6 +37,7 @@ import { COMPOUNDS, type Compound } from '../sim/types';
 import { ICONS, h, setText, tyreBadge } from '../ui/dom';
 import { openSettings } from './settings';
 import { drawSectorMarks, drawTurnLabels, turnsOf, type Box } from '../render/map-labels';
+import { placeLabels } from '../render/label-place';
 import type { Coach } from '../app/coach-client';
 import { bestTips, tipAction, tipSeconds, type CoachReport, type Tip } from '../app/coach';
 
@@ -67,8 +68,6 @@ const HINT_MS = 4200;
 const TIP_LABELS = 3;
 /** The whole track numbers the first segment and every this many after it. */
 const SEGMENT_NUMBER_EVERY = 5;
-/** Gain labels keep at least this far apart (px), more than a tap's slop around each. */
-const LABEL_GAP = 14;
 /** A tap that moves less than this (px) picks a segment on the map. */
 const TAP_SLOP = 10;
 const BRAKE_RED = 'rgba(225, 6, 0, 0.62)';
@@ -946,35 +945,51 @@ export class SegmentScreen implements Screen {
     ctx.font = '800 12px "Archivo Variable", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    for (const tip of tips) {
-      const sec = this.course.segments[tip.segment];
+    const h = 24;
+    const items = tips.map((tip) => {
+      const seg = this.course.segments[tip.segment];
       const from = tip.segment === 0 ? 0 : this.course.segments[tip.segment - 1].v;
-      const mid = Math.round((from + sec.v) / 2) % t.n;
+      const mid = Math.round((from + seg.v) / 2) % t.n;
       const p = this.cam.toScreen(t.x[mid], t.y[mid]);
       const text = `Segment ${tip.segment + 1}: -${tipSeconds(tip)} s`;
-      const w = ctx.measureText(text).width + 16;
-      const h2 = 24;
-      // Above the segment, or clear of a label already there, and on the screen.
-      const x = Math.max(8, Math.min(this.app.w - 8 - w, p.x - w / 2));
-      let box = { x, y: p.y - h2 - 10, w, h: h2, segment: tip.segment };
-      for (const dy of [0, h2 + 26, -(h2 + LABEL_GAP), 2 * h2 + 40, -(2 * h2 + 2 * LABEL_GAP)]) {
-        const trial = { ...box, y: p.y - h2 - 10 + dy };
-        const near = (o: Box, gap: number) => trial.x < o.x + o.w + gap && o.x < trial.x + trial.w + gap && trial.y < o.y + o.h + gap && o.y < trial.y + trial.h + gap;
-        if (!this.gainLabels.some((o) => near(o, LABEL_GAP)) && !badges.some((o) => near(o, 2))) {
-          box = trial;
-          break;
-        }
+      return { tip, text, x: p.x, y: p.y, w: ctx.measureText(text).width + 16, h };
+    });
+    // Never over one another; clear of the badges where there is room; on the
+    // free part of the screen, between the top bar and the bottom bar.
+    const bar = this.reviewBar.getBoundingClientRect();
+    const bounds = { x: 8, y: 100, w: this.app.w - 16, h: (bar.height ? bar.top : this.app.h) - 8 - 100 };
+    const spots = placeLabels(items, badges, bounds);
+    items.forEach((it, i) => {
+      const box = spots[i];
+      if (!box) return;
+      this.gainLabels.push({ ...box, segment: it.tip.segment });
+      // A label pushed away from its segment points back at it.
+      const cx = Math.max(box.x, Math.min(box.x + box.w, it.x));
+      const cy = Math.max(box.y, Math.min(box.y + box.h, it.y));
+      if (Math.hypot(cx - it.x, cy - it.y) > 14) {
+        ctx.strokeStyle = '#ff8a00';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(it.x, it.y);
+        ctx.stroke();
+        ctx.fillStyle = '#ff8a00';
+        ctx.beginPath();
+        ctx.arc(it.x, it.y, 3.5, 0, Math.PI * 2);
+        ctx.fill();
       }
-      this.gainLabels.push(box);
+    });
+    for (const g of this.gainLabels) {
+      const it = items.find((x) => x.tip.segment === g.segment)!;
       ctx.fillStyle = '#ffffff';
       ctx.strokeStyle = '#ff8a00';
       ctx.lineWidth = 2.5;
       ctx.beginPath();
-      ctx.roundRect(box.x, box.y, box.w, box.h, 12);
+      ctx.roundRect(g.x, g.y, g.w, g.h, 12);
       ctx.fill();
       ctx.stroke();
       ctx.fillStyle = '#000000';
-      ctx.fillText(text, box.x + box.w / 2, box.y + box.h / 2 + 0.5);
+      ctx.fillText(it.text, g.x + g.w / 2, g.y + g.h / 2 + 0.5);
     }
     ctx.restore();
   }

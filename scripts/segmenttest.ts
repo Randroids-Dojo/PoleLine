@@ -301,6 +301,31 @@ if (s.tips.length) {
   check(/^(Biggest gain|No single change)/.test(second) && second !== coachNote, `the new lap gets its own analysis: ${second.slice(0, 80)}`);
 }
 
+// A rough lap (gas nearly everywhere) loses time in many neighbouring
+// segments: the time labels on the whole track must never sit on each other,
+// and must stay on the free part of the screen.
+{
+  await page.getByRole('button', { name: 'Draw again' }).click();
+  await page.waitForTimeout(900);
+  await page.evaluate(`(() => { const s = window.__pl.app.current; for (let i = 0; i < 200 && !s.state.review; i++) s.press(i % 9 === 4 ? 'brake' : 'gas'); })()`);
+  await page.waitForTimeout(800);
+  await tap('Race');
+  await page.waitForTimeout(1500);
+  await page.getByRole('button', { name: /skip/i }).click();
+  for (let i = 0; i < 120; i++) {
+    if (!(await page.locator('.res-notes p').innerText()).trim().startsWith('Working out')) break;
+    await page.waitForTimeout(500);
+  }
+  await page.getByRole('button', { name: 'Edit segments' }).click();
+  await page.waitForTimeout(1300);
+  const rough = await page.evaluate(() => (window as unknown as { __pl: { app: { current: { gainLabels: { x: number; y: number; w: number; h: number }[] } } } }).__pl.app.current.gainLabels);
+  const hit = (a: { x: number; y: number; w: number; h: number }, b: typeof a) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+  const bar = await page.locator('.sec-review').boundingBox();
+  check(rough.length === 3 && !rough.some((a, i) => rough.some((b, j) => i < j && hit(a, b))), `a rough lap's time labels never overlap (${rough.length} labels)`);
+  check(rough.every((l) => l.x >= 0 && l.x + l.w <= 390 && l.y >= 96 && l.y + l.h <= (bar?.y ?? 844)), 'and stay between the top bar and the bottom bar');
+  await page.screenshot({ path: join(out, '9-rough.png') });
+}
+
 // A fresh player who keeps to the middle until they first brake is shown the
 // gate lesson at the first corner. Timed with the CPU slowed four times, as a
 // stand-in for a phone.
