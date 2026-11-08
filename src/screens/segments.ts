@@ -65,6 +65,8 @@ type Lesson = keyof typeof LESSONS;
 const HINT_MS = 4200;
 /** The whole lap labels the time to find in this many segments. */
 const TIP_LABELS = 3;
+/** The whole track numbers the first segment and every this many after it. */
+const SEGMENT_NUMBER_EVERY = 5;
 /** Gain labels keep at least this far apart (px), more than a tap's slop around each. */
 const LABEL_GAP = 14;
 /** A tap that moves less than this (px) picks a segment on the map. */
@@ -858,8 +860,14 @@ export class SegmentScreen implements Screen {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.drawBoards(ctx);
     // Where each timing sector starts, and the turn numbers.
-    const badges = [...drawSectorMarks(ctx, this.cam, this.track, { size: this.review ? 11 : 12 }), ...drawTurnLabels(ctx, this.cam, this.track, { size: this.review ? 10 : 13 })];
-    if (sec && !this.review) this.drawSegmentNumbers(ctx);
+    // Where each timing sector starts shows everywhere. Turn numbers and
+    // segment numbers only on the whole track: close up, the brake boards and
+    // the gate are all a segment needs.
+    const badges = drawSectorMarks(ctx, this.cam, this.track, { size: this.review ? 11 : 12 });
+    if (this.review) {
+      badges.push(...drawTurnLabels(ctx, this.cam, this.track, { size: 10 }));
+      badges.push(...this.drawSegmentNumbers(ctx, badges));
+    }
     if (sec && !this.review) this.drawTip(ctx, now);
     if (tips.length) this.drawGains(ctx, tips.slice(0, TIP_LABELS), badges);
     else this.gainLabels = [];
@@ -893,36 +901,41 @@ export class SegmentScreen implements Screen {
   }
 
   /**
-   * The number of the segment being picked and the next two, in a small
-   * white tag on the left of the road at the middle of each.
+   * On the whole track, the number of the first segment and every fifth one,
+   * in small tags on the left of the road at the middle of each, so a segment
+   * a result names can be found. A tag that would cover a badge is left out.
    */
-  private drawSegmentNumbers(ctx: CanvasRenderingContext2D): void {
+  private drawSegmentNumbers(ctx: CanvasRenderingContext2D, avoid: Box[]): Box[] {
     const t = this.track;
+    const drawn: Box[] = [];
     ctx.save();
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = '800 11px "Archivo Variable", sans-serif';
-    for (let k = this.cursor; k < Math.min(this.course.segments.length, this.cursor + 3); k++) {
-      const seg = this.course.segments[k];
+    ctx.font = '800 10px "Archivo Variable", sans-serif';
+    this.course.segments.forEach((seg, k) => {
+      if (k !== 0 && (k + 1) % SEGMENT_NUMBER_EVERY !== 0) return;
       const from = k === 0 ? 0 : this.course.segments[k - 1].v;
       const mid = Math.round((from + seg.v) / 2) % t.n;
-      const off = t.limit + 12 / this.cam.zoom;
+      const off = t.limit + 11 / this.cam.zoom;
       const p = this.cam.toScreen(t.x[mid] - t.nx[mid] * off, t.y[mid] - t.ny[mid] * off);
-      if (p.x < -20 || p.y < -20 || p.x > this.app.w + 20 || p.y > this.app.h + 20) continue;
       const text = String(k + 1);
-      const w = Math.max(20, ctx.measureText(text).width + 10);
-      ctx.globalAlpha = k === this.cursor ? 1 : 0.7;
+      const w = Math.max(18, ctx.measureText(text).width + 8);
+      const box = { x: p.x - w / 2, y: p.y - 8, w, h: 16 };
+      const hits = (o: Box) => box.x < o.x + o.w + 2 && o.x < box.x + box.w + 2 && box.y < o.y + o.h + 2 && o.y < box.y + box.h + 2;
+      if (p.x < 0 || p.y < 0 || p.x > this.app.w || p.y > this.app.h || avoid.some(hits) || drawn.some(hits)) return;
       ctx.fillStyle = '#ffffff';
-      ctx.strokeStyle = k === this.cursor ? '#6a12d6' : '#4b535d';
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#4b535d';
+      ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.roundRect(p.x - w / 2, p.y - 9, w, 18, 4);
+      ctx.roundRect(box.x, box.y, box.w, box.h, 4);
       ctx.fill();
       ctx.stroke();
       ctx.fillStyle = '#000000';
       ctx.fillText(text, p.x, p.y + 0.5);
-    }
+      drawn.push(box);
+    });
     ctx.restore();
+    return drawn;
   }
 
   /** On the whole lap, the time to find in the segments with the most, as labels that open them. */
