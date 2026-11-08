@@ -18,6 +18,9 @@ export interface SavedLap {
   code: number[];
   date: string;
   setup?: DrawSetup;
+  /** Laid segment by segment: its brake zones (decimetres) and picks, so it replays and reopens as it was laid. */
+  brakes?: number[];
+  picks?: string;
 }
 
 function key(slug: string): string {
@@ -61,6 +64,12 @@ function sameCode(a: readonly number[], b: readonly number[]): boolean {
   return true;
 }
 
+/** The same lap: the same line, and the same brake zones (or none). */
+function sameLap(a: { code: readonly number[]; brakes?: readonly number[] }, b: { code: readonly number[]; brakes?: readonly number[] }): boolean {
+  if (!a.brakes !== !b.brakes) return false;
+  return sameCode(a.code, b.code) && (!a.brakes || sameCode(a.brakes, b.brakes!));
+}
+
 /**
  * Quickest first. Every read is defensive: a bad entry is dropped, never
  * thrown. The personal best is always among them: the web edition kept only
@@ -69,8 +78,8 @@ function sameCode(a: readonly number[], b: readonly number[]): boolean {
 export function getLaps(slug: string): SavedLap[] {
   const laps = stored(slug);
   const pb = getBest(slug);
-  if (pb && !laps.some((l) => l.timeMs === pb.timeMs && sameCode(l.code, pb.code))) {
-    laps.push({ timeMs: pb.timeMs, compound: pb.compound, sectorsMs: pb.sectorsMs, code: pb.code, date: pb.date, setup: pb.setup });
+  if (pb && !laps.some((l) => l.timeMs === pb.timeMs && sameLap(l, pb))) {
+    laps.push({ timeMs: pb.timeMs, compound: pb.compound, sectorsMs: pb.sectorsMs, code: pb.code, date: pb.date, setup: pb.setup, brakes: pb.brakes, picks: pb.picks });
   }
   return laps.sort((a, b) => a.timeMs - b.timeMs).slice(0, LAPS_KEPT);
 }
@@ -79,7 +88,7 @@ export function getLaps(slug: string): SavedLap[] {
 export function addLap(slug: string, lap: SavedLap): { rank: number | null; total: number } {
   const laps = getLaps(slug);
   // A new best is saved as the personal best first, so getLaps may list it already.
-  let entry = laps.find((l) => l.timeMs === lap.timeMs && sameCode(l.code, lap.code));
+  let entry = laps.find((l) => l.timeMs === lap.timeMs && sameLap(l, lap));
   if (!entry) {
     entry = lap;
     laps.push(lap);

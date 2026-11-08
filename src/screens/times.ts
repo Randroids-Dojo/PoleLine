@@ -113,10 +113,11 @@ export function openLinePicker(app: App, slug: string, opts: LinePickerOptions):
 /** How a lap was drawn, in the settings' own words. */
 function setupText(setup: DrawSetup, compound: Compound): string {
   const parts: string[] = [drawModeText(setup.drawMode)];
-  // Tap and bend never scrolls under the finger, so the scroll settings say nothing about it.
-  if (setup.drawMode !== 'curves' && setup.scrollMode === 'pause') {
+  // Segment by segment and tap and bend never scroll under the finger, so the scroll settings say nothing about them.
+  const scrolls = setup.drawMode !== 'curves' && setup.drawMode !== 'segments';
+  if (scrolls && setup.scrollMode === 'pause') {
     parts.push('pause my stroke');
-  } else if (setup.drawMode !== 'curves') {
+  } else if (scrolls) {
     parts.push(`keep drawing at ${setup.scrollSpeed.toFixed(2)}×`);
     const damping = CORNER_DAMPING_OPTIONS.find((o) => o.id === setup.cornerDamping);
     parts.push(setup.cornerDamping === 'off' || !damping ? 'no corner slowdown' : damping.label.toLowerCase());

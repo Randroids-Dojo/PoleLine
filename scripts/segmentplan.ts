@@ -6,7 +6,7 @@
 // --search improves each plan by flipping pedals and lanes one segment at a time.
 
 import { pathToFileURL } from 'node:url';
-import { simulateLap } from '../src/sim/lapsim.js';
+import { simulateLap, simulatePlan } from '../src/sim/lapsim.js';
 import { decodePath, encodePath } from '../src/sim/path.js';
 import { buildTrack, type Track } from '../src/sim/track.js';
 import { brakeZones, buildCourse, lapLine, laneOffset, laneOptions, type Course, type Lane, type Pick } from '../src/app/segments.js';
@@ -20,7 +20,7 @@ export function planLine(track: Track, course: Course, picks: readonly Pick[]): 
 export function lapTime(track: Track, course: Course, picks: readonly Pick[], compound: 'soft' | 'medium' | 'hard' = 'soft'): number | null {
   const line = planLine(track, course, picks);
   if (!line) return null;
-  return simulateLap(track, decodePath(encodePath(line)), compound, { brakes: brakeZones(course, picks) }).timeMs;
+  return simulatePlan(track, decodePath(encodePath(line)), compound, brakeZones(course, picks)).timeMs;
 }
 
 /** Lanes nearest the ideal line at each boundary, pedals from where the ideal speed profile brakes. */

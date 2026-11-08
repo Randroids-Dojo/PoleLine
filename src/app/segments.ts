@@ -356,9 +356,10 @@ export function gate(t: Track, lane: Lane): [number, number] {
  * Solved on every fourth vertex first, then on all of them. With `prev` (the
  * offsets before the latest segment was laid) only the last few segments are
  * re-solved; a whole lap is always solved whole, so its line depends only on
- * the picks.
+ * the picks. `fixed` pins the offsets of the first vertices (a stretch laid for
+ * the player, which the lap also starts and finishes on).
  */
-export function solveOffsets(t: Track, course: Course, picks: readonly Pick[], prev?: Float64Array | null): Float64Array {
+export function solveOffsets(t: Track, course: Course, picks: readonly Pick[], prev?: Float64Array | null, fixed?: Float64Array | null): Float64Array {
   const n = t.n;
   const w = laneOffset(t);
   const total = course.segments.length;
@@ -390,6 +391,11 @@ export function solveOffsets(t: Track, course: Course, picks: readonly Pick[], p
     isKnot[q] = 1;
   });
   for (let q = N; q < NX; q++) alpha[q] = alpha[N - 1];
+  // A stretch laid for the player (the tutorial's opening) is held exactly.
+  if (fixed) {
+    for (let q = 0; q < Math.min(fixed.length, NX); q++) lo[q] = hi[q] = alpha[q] = fixed[q];
+    if (whole) lo[N - 1] = hi[N - 1] = alpha[N - 1] = fixed[0];
+  }
   if (NX < 3) return alpha.slice(0, N);
   // Laying one more segment of an unfinished lap: only the last few segments
   // move, so the line before them is kept as it was and holds the join smooth.
@@ -611,16 +617,17 @@ export function reachableLanes(segment: Segment, startLane: number): Lane[] {
   return out;
 }
 
-/** The brake zones for the lap sim: flat [from, to, ...] metres of lap progress. */
+/** The brake zones for the lap sim: flat [from, to, ...] whole decimetres of lap progress. */
 export function brakeZones(course: Course, picks: readonly Pick[]): number[] {
   const out: number[] = [];
   const L = course.length;
+  const dm = (m: number) => Math.round(m * 10);
   course.segments.forEach((sec, k) => {
     if (picks[k]?.pedal !== 'brake') return;
     // A little past each end of the lap, where the line runs a hair either side of the start line.
-    const from = sec.from <= 0 ? -10 : sec.from;
-    const to = sec.to >= L ? L + 10 : sec.to;
-    if (out.length && Math.abs(out[out.length - 1] - from) < 1e-9) out[out.length - 1] = to;
+    const from = sec.from <= 0 ? -100 : dm(sec.from);
+    const to = sec.to >= L ? dm(L) + 100 : dm(sec.to);
+    if (out.length && out[out.length - 1] === from) out[out.length - 1] = to;
     else out.push(from, to);
   });
   return out;

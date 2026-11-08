@@ -43,7 +43,7 @@ page.on('console', (m) => {
   if (m.type() === 'error') console.log('[page]', m.text());
 });
 await page.addInitScript((s) => {
-  localStorage.setItem('poleline:v1:settings', JSON.stringify({ v: 2, tutorial: 'done', lastTrack: s, sound: false, segments: true, panCoachSeen: true }));
+  localStorage.setItem('poleline:v1:settings', JSON.stringify({ v: 2, tutorial: 'done', lastTrack: s, sound: false, drawMode: 'segments', panCoachSeen: true }));
 }, slug);
 await page.goto(`${url}?debug`);
 await page.waitForTimeout(900);
@@ -208,7 +208,7 @@ const sheet = (await page.locator('.res-sheet').innerText()).replace(/\n+/g, ' |
 console.log(sheet.slice(0, 260));
 const shown = (await page.locator('#res-time').innerText()).trim();
 check(shown === formatLap(expected), `the result (${shown}) is the headless sim of the same plan (${formatLap(expected)})`);
-check(sheet.includes(process.env.EDITION === 'toybox' ? 'apart from Your times' : 'stay off the leaderboard'), 'the result says these laps are kept apart (off the leaderboard, or apart from Your times in the app)');
+check(sheet.includes(process.env.EDITION === 'toybox' ? 'saved with its line' : 'Post this lap to the world leaderboard'), 'the lap goes on the leaderboard (or into Your times in the app) like any other');
 check(await page.getByRole('button', { name: 'Edit segments' }).isVisible(), 'the result offers Edit segments');
 
 // The note says where the lap lost time once the analysis is done.
@@ -390,6 +390,21 @@ if (s.tips.length) {
   check(await page.locator('#res-time').isVisible(), 'and the lap races');
 }
 
+// A lap laid segment by segment is a saved lap like any other: home's Edit a
+// saved line opens it as its segments again.
+{
+  // From the results of the last lap.
+  await page.getByRole('button', { name: 'Circuits', exact: true }).click();
+  await page.waitForTimeout(800);
+  await page.getByRole('button', { name: 'Edit a saved line' }).click();
+  await page.waitForTimeout(500);
+  await page.locator('.board-open').first().click();
+  await page.waitForTimeout(1200);
+  const best = await page.evaluate((sl) => JSON.parse(localStorage.getItem(`poleline:v1:pb:${sl}`) ?? 'null'), slug);
+  const reopened = await state().catch(() => null);
+  check(!!best?.picks && !!reopened && reopened.review && reopened.picks === best.picks, `a saved segment lap opens as its segments from Edit a saved line (${reopened?.picks?.slice(0, 12)} vs ${best?.picks?.slice(0, 12)})`);
+}
+
 // A fresh player who keeps to the middle until they first brake is shown the
 // gate lesson at the first corner. Timed with the CPU slowed four times, as a
 // stand-in for a phone.
@@ -398,7 +413,7 @@ if (s.tips.length) {
   const p2 = await fresh.newPage();
   p2.on('pageerror', (e) => failures.push(`page error: ${e.message}`));
   await p2.addInitScript((sl) => {
-    localStorage.setItem('poleline:v1:settings', JSON.stringify({ v: 2, tutorial: 'done', lastTrack: sl, sound: false, segments: true, panCoachSeen: true }));
+    localStorage.setItem('poleline:v1:settings', JSON.stringify({ v: 2, tutorial: 'done', lastTrack: sl, sound: false, drawMode: 'segments', panCoachSeen: true }));
   }, slug);
   await p2.goto(`${url}?debug`);
   await p2.waitForTimeout(900);

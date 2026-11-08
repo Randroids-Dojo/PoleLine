@@ -41,6 +41,8 @@ export interface ResultsInput {
   lap: LapResult;
   points: Float64Array;
   code: number[];
+  /** Laid segment by segment: the brake zones it was raced with (decimetres), posted with the line. */
+  brakes?: number[];
   previous: PersonalBest | null;
   bestSectorsBefore: [number, number, number] | null;
   isPb: boolean;
@@ -52,7 +54,7 @@ export interface ResultsInput {
   kept?: { rank: number | null; total: number } | null;
   /** The time of the saved line this lap was edited from. */
   editedFrom?: number | null;
-  /** Laid segment by segment: off the leaderboard, compared with the best lap laid that way. */
+  /** Laid segment by segment (its edit button reopens the segments). */
   segments?: boolean;
   /** Segment by segment: where the lap lost time, being worked out. */
   coach?: Coach | null;
@@ -96,7 +98,7 @@ export class ResultsScreen implements Screen {
     const meta = track.meta;
     const slot = gridSlot(lap.timeMs, meta.poleRef);
     const prev = input.previous;
-    const deltaText = !prev ? (input.segments ? 'First lap laid segment by segment here' : 'First timed lap here') : input.isPb ? `New personal best, ${formatDelta(lap.timeMs - prev.timeMs)}` : `${formatDelta(lap.timeMs - prev.timeMs)} to your best ${formatLap(prev.timeMs)}`;
+    const deltaText = !prev ? 'First timed lap here' : input.isPb ? `New personal best, ${formatDelta(lap.timeMs - prev.timeMs)}` : `${formatDelta(lap.timeMs - prev.timeMs)} to your best ${formatLap(prev.timeMs)}`;
     // An edit of a line other than your best also says how the edit went.
     const edited = input.editedFrom;
     const editText = edited != null && edited !== prev?.timeMs ? `${formatDelta(lap.timeMs - edited)} to the line you edited` : null;
@@ -184,13 +186,12 @@ export class ResultsScreen implements Screen {
       this.confetti = makeConfetti(app.w, slot.tier === 'pole' ? 170 : 90);
     }
     if (input.coach) this.unwatch = input.coach.watch((r) => this.showCoach(r));
-    if (input.segments) this.world.append(h('p', { class: 'res-world-status' }, LOCAL_ONLY ? 'Laps laid segment by segment keep their own best, apart from Your times, for now.' : 'Laps laid segment by segment stay off the leaderboard for now.'));
-    else if (LOCAL_ONLY) this.ownTimesBlock();
+    if (LOCAL_ONLY) this.ownTimesBlock();
     else worldBoard({ track, input, world: this.world, posted: () => void (!input.walkthrough && this.queuePrompts(1200)) });
     // Install and lap alert prompts wait for the result to land. A first lap
     // waits for the name form, so they follow the lap reaching the board.
     // The walkthrough's ending stays uncluttered; the prompts follow the next lap.
-    if (!LOCAL_ONLY && !input.walkthrough && !input.segments && !(input.isPb && !getPlayer().name)) this.queuePrompts(2400);
+    if (!LOCAL_ONLY && !input.walkthrough && !(input.isPb && !getPlayer().name)) this.queuePrompts(2400);
   }
 
   /** Toybox edition: where this lap sits among the quickest laps kept on the device. */

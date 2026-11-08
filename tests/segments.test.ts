@@ -181,8 +181,9 @@ describe('gas and brake in the lap sim', () => {
     const pts = decodePath(encodePath(planLine(t, c, plan)!));
     const zones = brakeZones(c, plan);
     const lap = simulateLap(t, pts, 'soft', { brakes: zones });
+    // Zones are in decimetres.
     const inZone = (s: number) => {
-      for (let k = 0; k < zones.length; k += 2) if (s >= zones[k] && s < zones[k + 1]) return true;
+      for (let k = 0; k < zones.length; k += 2) if (s >= zones[k] / 10 && s < zones[k + 1] / 10) return true;
       return false;
     };
     let braking = 0;

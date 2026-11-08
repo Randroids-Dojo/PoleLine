@@ -24,6 +24,8 @@ export interface ReplayLap {
   compound: Compound;
   timeMs: number;
   line: string;
+  /** Laid segment by segment: its brake zones (decimetres). */
+  brakes?: number[];
 }
 
 export interface Board {
@@ -76,7 +78,7 @@ export async function fetchRecords(force = false): Promise<Records> {
   return recordsCache.data;
 }
 
-export function submitLap(payload: { track: string; compound: Compound; line: number[]; playerId: string; name: string; setup?: DrawSetup }): Promise<SubmitResult> {
+export function submitLap(payload: { track: string; compound: Compound; line: number[]; brakes?: number[]; playerId: string; name: string; setup?: DrawSetup }): Promise<SubmitResult> {
   recordsCache = null;
   return request<SubmitResult>(
     '/api/leaderboard',

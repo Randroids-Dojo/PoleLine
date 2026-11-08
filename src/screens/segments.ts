@@ -13,6 +13,7 @@ import { getSettings, saveSettings, setTyre } from '../app/store';
 import {
   courseFor,
   decodePicks,
+  laneOffset,
   encodePicks,
   gate,
   laneOptions,
@@ -33,10 +34,17 @@ import { INK, strokeInk } from '../render/line-art';
 import type { TrackArt } from '../render/track-art';
 import { LineBuilder } from '../sim/builder';
 import { COMPOUND_SPECS } from '../sim/car';
-import { projectGlobal, type Track } from '../sim/track';
+import { frameAt, projectGlobal, type Track } from '../sim/track';
 import { COMPOUNDS, type Compound } from '../sim/types';
 import { ICONS, h, setText, tyreBadge } from '../ui/dom';
 import { openSettings } from './settings';
+import { difficultyPicker, openPauseMenu } from './pause';
+import { REAL_CIRCUITS } from '../app/edition';
+import { TUTORIAL_COPY } from '../app/tutorial-copy';
+import type { DrawMode } from '../app/draw-mode';
+import { simulateLap } from '../sim/lapsim';
+import { UNITS_PER_METRE } from '../sim/path';
+import { polyPath } from '../render/line-art';
 import { drawSectorMarks, drawTurnLabels, turnsOf, type Box } from '../render/map-labels';
 import { placeLabels } from '../render/label-place';
 import { analysed, startCoach, type Coach } from '../app/coach-client';
@@ -46,6 +54,28 @@ export interface SegmentActions {
   /** Race the lap: its line (decimetres, flat [x, y, ...]), the tyre and the picks. */
   complete(points: number[], compound: Compound, picks: Pick[]): void;
   exit(): void;
+  /** The player left the tutorial walkthrough. */
+  skip?(): void;
+  /** The tutorial: carry on in a drawing mode instead (picked on the welcome card or the pause menu). */
+  switchMode?(mode: DrawMode): void;
+}
+
+/**
+ * The tutorial circuit: the lap is laid for the player as far as the last
+ * corner (the same line the drawn tutorial gives, so a lap starts with it as
+ * the leaderboard requires), and they lay the last corner's segments.
+ */
+export interface SegmentTutorial {
+  /** The line laid for the player, absolute decimetre points [x, y, ...]. */
+  prefix: number[];
+  /** One fast way round the whole lap (metres, flat), whose pedals the laid segments take. */
+  ideal: Float64Array;
+  /** A dotted guide through the last corner (metres, flat). */
+  guide: Float64Array | null;
+  /** First run: welcome, a flight along the laid line, then the player's turn, with coaching. */
+  walkthrough: boolean;
+  /** Carry on straight to the player's turn (they switched here from a drawing mode). */
+  skipIntro?: boolean;
 }
 
 interface CamState {
@@ -65,6 +95,9 @@ const LESSONS = {
 type Lesson = keyof typeof LESSONS;
 
 const HINT_MS = 4200;
+/** The tutorial: a segment ending this close (metres) past where the laid line stops is laid too. */
+const GIVEN_SLACK = 8;
+const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 /** The whole lap labels the time to find in this many segments. */
 const TIP_LABELS = 3;
 /** The All gas, no brakes offer comes after this many Gas picks in a row. */
@@ -155,6 +188,21 @@ export class SegmentScreen implements Screen {
   private coach: Coach | null = null;
   private recoachTimer: ReturnType<typeof setTimeout> | null = null;
   private unwatch: (() => void) | null = null;
+  /** The tutorial: segments laid for the player, the vertex the laid line runs to, its offsets, and how it looks. */
+  private given = 0;
+  private givenPicks: Pick[] = [];
+  private givenV = 0;
+  private fixed: Float64Array | null = null;
+  private givenInk: Path2D | null = null;
+  private guidePath: Path2D | null = null;
+  /** The tutorial lap finishes in the gate it starts in. */
+  private startGate: Lane = 0;
+  /** Walkthrough: the pad waits while a coach card is up, and the first pick ends the "Your turn" card. */
+  private locked = false;
+  private waitPick: (() => void) | null = null;
+  private coachCard: HTMLElement | null = null;
+  private coachSpot: HTMLElement | null = null;
+  private closed = false;
   /** Where the gain labels were drawn (px), so a tap on one opens its segment. */
   private gainLabels: { x: number; y: number; w: number; h: number; segment: number }[] = [];
 
@@ -168,8 +216,10 @@ export class SegmentScreen implements Screen {
     from: Pick[] | null = null,
     /** Where that plan lost time, being worked out (src/app/coach.ts). */
     coach: Coach | null = null,
+    private tutorial: SegmentTutorial | null = null,
   ) {
     this.course = courseFor(track);
+    if (tutorial) this.layGiven(tutorial);
     this.learnt = getSettings().segmentLessons;
     app.setCanvasVisible(true);
     for (let i = 0; i <= track.n; i++) {
@@ -239,7 +289,9 @@ export class SegmentScreen implements Screen {
         { class: 'strip strip-top' },
         h('button', { class: 'icon-btn', 'aria-label': 'Back to circuits', html: ICONS.close, onclick: () => this.actions.exit() }),
         h('div', { class: 'draw-title' }, h('strong', null, track.meta.short), this.subtitle),
-        h('button', { class: 'icon-btn', 'aria-label': 'Settings', html: ICONS.gear, onclick: () => openSettings(this.app, () => {}) }),
+        tutorial
+          ? h('button', { class: 'icon-btn', 'aria-label': 'Pause', html: ICONS.pause, onclick: () => this.openPause() })
+          : h('button', { class: 'icon-btn', 'aria-label': 'Settings', html: ICONS.gear, onclick: () => openSettings(this.app, () => {}) }),
       ),
       h('div', { class: 'draw-progress', role: 'progressbar', 'aria-label': 'Lap laid' }, this.bar),
       this.hint,
@@ -264,12 +316,209 @@ export class SegmentScreen implements Screen {
     // A plan opened from its result is analysed (or already was), so the
     // whole lap shows where it lost time.
     if (from && this.picks.length === this.course.segments.length) this.watchCoach(coach ?? startCoach(track, this.course, this.picks, this.compound));
+    if (tutorial?.walkthrough) void this.walkthrough(!!tutorial.skipIntro);
 
     const c = app.canvas;
     this.listen(c, 'pointerdown', (e) => this.onDown(e as PointerEvent));
     this.listen(c, 'pointerup', (e) => this.onUp(e as PointerEvent));
     this.listen(c, 'pointercancel', () => (this.down = null));
     this.listen(window, 'keydown', (e) => this.onKey(e as KeyboardEvent));
+  }
+
+  /**
+   * The tutorial: the segments up to where the laid line ends are laid for
+   * the player. The line there is the laid line itself (its offsets pinned in
+   * the solve); their pedals are where one fast lap brakes; the player's
+   * segments start after it.
+   */
+  private layGiven(tu: SegmentTutorial): void {
+    const t = this.track;
+    const pre = Array.from(tu.prefix, (v) => v / UNITS_PER_METRE);
+    const m = pre.length / 2;
+    const end = projectGlobal(t, pre[(m - 1) * 2], pre[(m - 1) * 2 + 1]);
+    const segs = this.course.segments;
+    // Laid for the player: every segment the laid line reaches the end of (or
+    // all but a few metres of), so theirs start where it stops.
+    this.given = Math.max(1, segs.findIndex((g) => g.to > end.s + GIVEN_SLACK));
+    this.givenV = segs[this.given - 1].v;
+    // The laid line's offset at each vertex: where it crosses the vertex's normal.
+    const fixed = new Float64Array(this.givenV + 1);
+    let j = 0;
+    for (let q = 0; q <= this.givenV; q++) {
+      const v = q % t.n;
+      const cx = t.x[v], cy = t.y[v], nx = t.nx[v], ny = t.ny[v];
+      // Along the track (its own direction there): the laid points either side of this vertex.
+      const along = (k: number) => (pre[k * 2] - cx) * t.tx[v] + (pre[k * 2 + 1] - cy) * t.ty[v];
+      while (j < m - 2 && along(j + 1) < 0) j++;
+      const a = along(j);
+      const b = along(j + 1);
+      const u = b !== a ? Math.min(1, Math.max(0, -a / (b - a))) : 0;
+      const px = pre[j * 2] + (pre[j * 2 + 2] - pre[j * 2]) * u;
+      const py = pre[j * 2 + 1] + (pre[j * 2 + 3] - pre[j * 2 + 1]) * u;
+      const lim = laneOffset(t);
+      fixed[q] = Math.max(-lim, Math.min(lim, (px - cx) * nx + (py - cy) * ny));
+    }
+    this.fixed = fixed;
+    const w = laneOffset(t);
+    const laneOf = (a: number): Lane => (a < -w / 3 ? -1 : a > w / 3 ? 1 : 0);
+    this.startGate = laneOf(fixed[0]);
+    // Pedals: brake where the fast lap spends most of a segment braking.
+    const lap = simulateLap(t, tu.ideal, 'medium');
+    this.givenPicks = segs.slice(0, this.given).map((g) => {
+      let n = 0, braking = 0;
+      for (let i = 0; i < lap.n; i++) {
+        if (lap.s[i] >= g.from && lap.s[i] < g.to) {
+          n++;
+          if (lap.brake[i] > 0.05) braking++;
+        }
+      }
+      return { pedal: n && braking / n > 0.35 ? 'brake' : 'gas', lane: laneOf(fixed[Math.min(g.v, this.givenV)]) } as Pick;
+    });
+    this.picks = this.givenPicks.map((p) => ({ ...p }));
+    this.cursor = this.given;
+    this.givenInk = polyPath(pre);
+    this.guidePath = tu.guide ? polyPath(tu.guide) : null;
+  }
+
+  /**
+   * The guided first run on the tutorial circuit, in segment by segment's
+   * words: welcome (with the difficulty), a flight along the laid line, the
+   * player's turn at the last corner, then the tyre for the race.
+   */
+  private async walkthrough(skipIntro: boolean): Promise<void> {
+    this.locked = true;
+    if (!skipIntro) {
+      const welcome = await this.coachStep({
+        title: 'Welcome to PoleLine',
+        body: `You lay the racing line, and a ${REAL_CIRCUITS ? '2026 F1 car' : 'modern single-seater'} drives it flat out. We have laid this lap for you as far as the last corner. You finish it.`,
+        primary: 'Show me',
+        extra: h(
+          'div',
+          { class: 'coach-diff' },
+          h('span', { class: 'coach-diff-head' }, 'How do you want to lay it?'),
+          difficultyPicker('segments', (m) => this.switchMode(m)),
+          h('small', null, 'Change it any time from the pause button.'),
+        ),
+      });
+      if (this.closed) return;
+      if (welcome === 'skip') return this.skipWalkthrough();
+      await this.tour();
+      if (this.closed) return;
+    }
+    this.locked = false;
+    this.glideTo(this.segmentFrame(this.cursor));
+    await wait(450);
+    if (this.closed) return;
+    const turn = this.coachStep({
+      step: 'Step 1 of 2',
+      title: 'Your turn',
+      body: TUTORIAL_COPY.segments.turn,
+      target: () => this.pad.getBoundingClientRect(),
+    });
+    const started = new Promise<'next'>((r) => (this.waitPick = () => {
+      this.waitPick = null;
+      r('next');
+    }));
+    if ((await Promise.race([turn, started])) === 'skip') return this.skipWalkthrough();
+    this.closeCoach();
+    this.teach();
+    // The tyre comes with the race, once the corner is laid.
+    await new Promise<void>((r) => {
+      const check = () => (this.closed || this.review ? r() : setTimeout(check, 200));
+      check();
+    });
+    if (this.closed) return;
+    await wait(900);
+    if (this.closed || !this.review) return;
+    const tyres = await this.coachStep({
+      step: 'Step 2 of 2',
+      title: 'Pick your tyres, then Race',
+      body: `It is ${this.track.meta.trackTemp}°C on track. Softs grip most but overheat, hards never get warm. Mediums are made for days like this.`,
+      target: () => this.reviewBar.getBoundingClientRect(),
+    });
+    if (tyres === 'skip') this.skipWalkthrough();
+  }
+
+  /** Fly the camera along the line laid for the player, start line to the last corner. */
+  private async tour(): Promise<void> {
+    this.say('The purple line is laid for you, from the start to the last corner.', 5000);
+    const t = this.track;
+    const end = this.course.segments[this.given - 1].to;
+    for (const f of [0.18, 0.4, 0.62, 0.82, 1]) {
+      if (this.closed) return;
+      const s = end * f;
+      const a = frameAt(t, s);
+      const b = frameAt(t, s + 80);
+      this.glideTo({ cx: a.x, cy: a.y, zoom: 1.6, angle: angleForHeading(b.x - a.x, b.y - a.y) }, 820);
+      await wait(820);
+    }
+  }
+
+  private skipWalkthrough(): void {
+    this.closeCoach();
+    this.actions.skip?.();
+  }
+
+  private switchMode(m: DrawMode): void {
+    if (m === 'segments') return;
+    this.closeCoach();
+    this.leaving = true;
+    this.actions.switchMode?.(m);
+  }
+
+  /** The tutorial's pause menu: difficulty, resume, every setting, or skip the walkthrough. */
+  private openPause(): void {
+    openPauseMenu(this.app, {
+      mode: 'segments',
+      pick: (m) => this.switchMode(m),
+      settings: () => openSettings(this.app, () => {}),
+      skip: this.tutorial?.walkthrough ? () => this.skipWalkthrough() : undefined,
+    });
+  }
+
+  /** A coach card, centred or beside the thing to touch (ringed, everything else dimmed). */
+  private coachStep(o: { step?: string; title: string; body: string; extra?: HTMLElement; primary?: string; target?: () => DOMRect | null }): Promise<'next' | 'skip'> {
+    this.closeCoach();
+    return new Promise((resolve) => {
+      const done = (r: 'next' | 'skip') => {
+        this.closeCoach();
+        resolve(r);
+      };
+      const card = h(
+        'div',
+        { class: 'coach', role: 'dialog', 'aria-label': o.title },
+        o.step ? h('span', { class: 'coach-step' }, o.step) : null,
+        h('strong', null, o.title),
+        h('p', null, o.body),
+        o.extra ?? null,
+        h(
+          'div',
+          { class: 'coach-actions' },
+          o.primary ? h('button', { class: 'btn-ink', onclick: () => done('next') }, o.primary) : null,
+          h('button', { class: 'coach-skip', onclick: () => done('skip') }, 'Skip tutorial'),
+        ),
+      );
+      const r = o.target?.() ?? null;
+      if (r && r.height) {
+        const pad = 6;
+        this.coachSpot = h('div', { class: 'coach-spot', style: `left:${r.left - pad}px;top:${r.top - pad}px;width:${r.width + pad * 2}px;height:${r.height + pad * 2}px` });
+        this.el.append(this.coachSpot);
+        card.classList.add('is-above');
+        card.style.setProperty('bottom', `${this.app.h - r.top + 18}px`);
+      } else {
+        card.classList.add('is-center');
+        this.coachSpot = h('div', { class: 'coach-dim' });
+        this.el.append(this.coachSpot);
+      }
+      this.coachCard = card;
+      this.el.append(card);
+    });
+  }
+
+  private closeCoach(): void {
+    this.coachCard?.remove();
+    this.coachSpot?.remove();
+    this.coachCard = this.coachSpot = null;
   }
 
   private listen(target: EventTarget, type: string, fn: EventListener): void {
@@ -279,7 +528,7 @@ export class SegmentScreen implements Screen {
 
   /** A lap is underway, so a stray back gesture should not throw it away. */
   get holdsWork(): boolean {
-    return this.picks.length > 0 && !this.leaving;
+    return this.picks.length > this.given && !this.leaving;
   }
 
   private watchCoach(coach: Coach): void {
@@ -365,7 +614,8 @@ export class SegmentScreen implements Screen {
 
   private press(k: 'gas' | 'brake' | 'left' | 'right'): void {
     unlockAudio();
-    if (this.review || this.leaving) return;
+    if (this.review || this.leaving || this.locked) return;
+    this.waitPick?.();
     if (k === 'left' || k === 'right') {
       const options = this.options();
       const i = options.indexOf(this.armed);
@@ -387,7 +637,13 @@ export class SegmentScreen implements Screen {
   }
 
   private options(): Lane[] {
-    return laneOptions(this.course, this.picks, this.cursor);
+    return this.optionsFor(this.cursor);
+  }
+
+  private optionsFor(k: number): Lane[] {
+    // The tutorial lap finishes in the gate it starts in.
+    if (this.tutorial && k === this.course.segments.length - 1) return [this.startGate];
+    return laneOptions(this.course, this.picks, k);
   }
 
   private commit(pedal: Pedal): void {
@@ -448,7 +704,7 @@ export class SegmentScreen implements Screen {
 
   /** The offer shows while laying a lap (not changing one) after a run of Gas, with some of the lap still to lay. */
   private offerAllGas(): boolean {
-    return !this.review && !this.leaving && this.cursor === this.picks.length && this.course.segments.length - this.picks.length >= 2 && this.gasRun() >= ALL_GAS_AFTER;
+    return !this.tutorial && !this.review && !this.leaving && this.cursor === this.picks.length && this.course.segments.length - this.picks.length >= 2 && this.gasRun() >= ALL_GAS_AFTER;
   }
 
   /**
@@ -462,7 +718,7 @@ export class SegmentScreen implements Screen {
     const total = this.course.segments.length;
     while (this.picks.length < total) {
       const k = this.picks.length;
-      const options = laneOptions(this.course, this.picks, k);
+      const options = this.optionsFor(k);
       const stay = k === this.cursor ? this.armed : startLane(this.course, this.picks, k);
       const lane = options.includes(stay) ? stay : options.reduce((a, b) => (Math.abs(b - stay) < Math.abs(a - stay) ? b : a), options[0]);
       this.picks.push({ pedal: 'gas', lane });
@@ -485,7 +741,7 @@ export class SegmentScreen implements Screen {
 
   /** Open a segment of a laid lap (or any laid segment) to change it. */
   private openSegment(k: number): void {
-    if (k < 0 || k > this.picks.length || k >= this.course.segments.length) return;
+    if (k < this.given || k > this.picks.length || k >= this.course.segments.length) return;
     if (k === this.cursor && !this.review) return;
     this.review = false;
     this.cursor = k;
@@ -526,16 +782,16 @@ export class SegmentScreen implements Screen {
   }
 
   private restart(): void {
-    if (!this.picks.length) return;
+    if (this.picks.length <= this.given) return;
     this.remember();
-    this.picks = [];
-    this.cursor = 0;
+    this.picks = this.givenPicks.map((p) => ({ ...p }));
+    this.cursor = this.given;
     this.review = false;
     this.solve(null);
     this.syncArmed();
     this.sync();
-    this.glideTo(this.segmentFrame(0), 600);
-    this.say('Back to the start line. Undo brings your lap back.');
+    this.glideTo(this.segmentFrame(this.cursor), 600);
+    this.say(this.tutorial ? 'Back to the last corner. Undo brings your lap back.' : 'Back to the start line. Undo brings your lap back.');
   }
 
   private pickTyre(c: Compound): void {
@@ -559,13 +815,18 @@ export class SegmentScreen implements Screen {
     if (this.leaving || this.picks.length !== this.course.segments.length) return;
     const b = new LineBuilder(this.track);
     const pts = this.points;
-    let ok = b.start(pts[0].x, pts[0].y);
-    for (let i = 1; ok && i < pts.length && b.status !== 'done'; i++) {
+    // The tutorial lap starts with the line laid for the player, point for point.
+    let ok = this.tutorial ? b.preload(this.tutorial.prefix) : b.start(pts[0].x, pts[0].y);
+    let why = ok ? 'never reached the line' : 'bad start';
+    for (let i = this.tutorial ? this.givenV + 1 : 1; ok && i < pts.length && b.status !== 'done'; i++) {
       const r = b.extend(pts[i].x, pts[i].y);
-      if (r === 'offtrack' || r === 'backward') ok = false;
+      if (r === 'offtrack' || r === 'backward') {
+        ok = false;
+        why = `${r} at vertex ${i}`;
+      }
     }
     if (!ok || b.status !== 'done') {
-      console.error('planned line is not a legal lap');
+      console.error('planned line is not a legal lap:', why);
       this.say('That line does not make a lap. Change a segment, or undo.');
       sfx.fail();
       return;
@@ -579,12 +840,14 @@ export class SegmentScreen implements Screen {
 
   /** Solve the line for the picks so far (re-solving only the end when `prev` is the line before one more segment). */
   private solve(prev: Float64Array | null): void {
-    this.offsets = solveOffsets(this.track, this.course, this.picks, prev);
+    this.offsets = solveOffsets(this.track, this.course, this.picks, prev, this.fixed);
     this.points = this.picks.length ? planPoints(this.track, this.course, this.picks, this.offsets) : [];
     this.ink = new Path2D();
     this.brakeInk = new Path2D();
     const pts = this.points;
-    pts.forEach((p, i) => (i ? this.ink.lineTo(p.x, p.y) : this.ink.moveTo(p.x, p.y)));
+    // On the tutorial the laid-for-you line is drawn faint on its own; the ink is the player's part.
+    const first = this.tutorial ? this.givenV : 0;
+    for (let i = first; i < pts.length; i++) (i === first ? this.ink.moveTo(pts[i].x, pts[i].y) : this.ink.lineTo(pts[i].x, pts[i].y));
     let from = 0;
     this.course.segments.forEach((sec, k) => {
       if (k < this.picks.length && this.picks[k].pedal === 'brake') {
@@ -612,7 +875,7 @@ export class SegmentScreen implements Screen {
       settleLanes(this.course, trial, k);
     }
     const whole = trial.length === this.course.segments.length;
-    const off = solveOffsets(this.track, this.course, trial, k === this.picks.length && !whole ? this.offsets : null);
+    const off = solveOffsets(this.track, this.course, trial, k === this.picks.length && !whole ? this.offsets : null, this.fixed);
     const t = this.track;
     const a = k === 0 ? 0 : this.course.segments[k - 1].v;
     const p = new Path2D();
@@ -731,7 +994,9 @@ export class SegmentScreen implements Screen {
     }
     if (!sec) return;
     if (!this.learned('gas')) return this.say(LESSONS.gas, 8000);
-    if (!this.learned('brake') && sec.end === 'board') return this.say(LESSONS.brake, 8000);
+    // Brake: at a brake board, or on the way to the turn-in, of a corner the car slows for.
+    const slows = sec.corner !== null && this.course.corners[sec.corner].brakes;
+    if (!this.learned('brake') && (sec.end === 'board' || (sec.end === 'turn' && slows))) return this.say(LESSONS.brake, 8000);
     if (!this.learned('lane') && this.learned('brake') && (sec.end === 'turn' || sec.end === 'in' || sec.end === 'apex' || sec.end === 'out' || sec.end === 'exit')) return this.say(LESSONS.lane, 8000);
     // A segment the last lap lost time in says what would win it back.
     const tip = this.tipFor(this.cursor);
@@ -945,6 +1210,19 @@ export class SegmentScreen implements Screen {
     const tips = this.review ? this.tips() : [];
     if (tips.length) this.drawLosses(ctx, tips);
     if (this.review) this.drawBoundaries(ctx);
+    if (this.guidePath) {
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.setLineDash([7 / z, 6 / z]);
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)';
+      ctx.lineWidth = 4.5 / z;
+      ctx.stroke(this.guidePath);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+      ctx.lineWidth = 2.2 / z;
+      ctx.stroke(this.guidePath);
+      ctx.restore();
+    }
+    if (this.givenInk) strokeInk(ctx, this.givenInk, z, INK, 0.45);
     // Brake zones glow red under the line.
     if (this.picks.length) {
       ctx.save();
@@ -968,7 +1246,6 @@ export class SegmentScreen implements Screen {
     if (sec && !this.review) this.drawGates(ctx, sec.v);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.drawBoards(ctx);
-    // Where each timing sector starts, and the turn numbers.
     // Where each timing sector starts shows everywhere. Turn numbers and
     // segment numbers only on the whole track: close up, the brake boards and
     // the gate are all a segment needs.
@@ -1237,6 +1514,8 @@ export class SegmentScreen implements Screen {
   }
 
   destroy(): void {
+    this.closed = true;
+    this.closeCoach();
     this.unwatch?.();
     if (this.recoachTimer) clearTimeout(this.recoachTimer);
     for (const [t, type, fn] of this.listeners) t.removeEventListener(type, fn);

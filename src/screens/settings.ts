@@ -97,45 +97,24 @@ export function openSettings(app: App, onChange?: (s: Settings) => void): void {
   modeGroup.append(keepOptions);
   syncSpeed(s.scrollMode);
 
-  // Tap and bend never scrolls under the finger, so its scroll settings are hidden.
+  // Segment by segment and tap and bend never scroll under the finger, so their scroll settings are hidden.
   const scrollHead = h('h3', null, 'When the map scrolls while you draw');
   const syncScroll = (mode: DrawMode) => {
-    scrollHead.hidden = modeGroup.hidden = mode === 'curves';
+    scrollHead.hidden = modeGroup.hidden = mode === 'curves' || mode === 'segments';
   };
   const drawGroup = h('div', { class: 'set-group', role: 'radiogroup', 'aria-label': 'How you draw' });
   for (const m of DRAW_MODES) {
     const input = h('input', { type: 'radio', name: 'draw-mode', value: m.id }) as HTMLInputElement;
-    input.checked = !s.segments && s.drawMode === m.id;
+    input.checked = s.drawMode === m.id;
     input.addEventListener('change', () => {
       if (!input.checked) return;
-      changed({ drawMode: m.id, segments: false });
+      changed({ drawMode: m.id });
       syncScroll(m.id);
     });
     const tag = h('span', { class: `set-level is-${m.level}` }, LEVEL_LABELS[m.level]);
     drawGroup.append(h('label', { class: 'set-mode' }, input, h('span', { class: 'set-text' }, h('b', null, m.label, tag), h('small', null, m.detail))));
   }
-  // Segment by segment is a different way to lay a lap, not a drawing mode: the
-  // tutorial and editing a saved line keep the drawing mode picked above it.
-  {
-    const input = h('input', { type: 'radio', name: 'draw-mode', value: 'segments' }) as HTMLInputElement;
-    input.checked = s.segments;
-    input.addEventListener('change', () => {
-      if (!input.checked) return;
-      changed({ segments: true });
-      scrollHead.hidden = modeGroup.hidden = true;
-    });
-    const tag = h('span', { class: 'set-level is-new' }, 'New');
-    drawGroup.append(
-      h(
-        'label',
-        { class: 'set-mode' },
-        input,
-        h('span', { class: 'set-text' }, h('b', null, 'Segment by segment', tag), h('small', null, `Call Gas or Brake for each segment, and Left or Right to pick a gate. ${LOCAL_ONLY ? 'These laps keep their own best, apart from Your times, for now.' : 'These laps stay off the leaderboard for now.'}`)),
-      ),
-    );
-  }
   syncScroll(s.drawMode);
-  if (s.segments) scrollHead.hidden = modeGroup.hidden = true;
 
   const closeBtn = h('button', { class: 'icon-btn', 'aria-label': 'Close settings', html: ICONS.close, onclick: close });
   const sheet = h(

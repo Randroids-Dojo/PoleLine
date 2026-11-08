@@ -166,6 +166,34 @@ describe('leaderboard api', () => {
     expect(r.ok).toBe(false);
   });
 
+  it('scores a lap laid segment by segment with its brake zones, as the browser does, and keeps them for replays', async () => {
+    const { buildCourse, brakeZones, lapLine } = await import('../src/app/segments');
+    const { carefulPlan } = await import('../scripts/segmentplan');
+    const { simulatePlan } = await import('../src/sim/lapsim');
+    const course = buildCourse(track);
+    const plan = carefulPlan(track, course);
+    const line = encodePath(lapLine(track, course, plan)!);
+    const brakes = brakeZones(course, plan);
+    const client = simulatePlan(track, decodePath(line), 'soft', brakes).timeMs;
+    const scored = scoreLine('monaco', line, 'soft', brakes);
+    expect(scored).toEqual({ ok: true, timeMs: client });
+    // The pedals matter: the same line scored without them is quicker.
+    const free = scoreLine('monaco', line, 'soft');
+    expect(free.ok && free.timeMs).toBeLessThan(client);
+    const r = await call('POST', {}, { track: 'monaco', compound: 'soft', line, brakes, playerId: P1, name: 'Segments', setup: { drawMode: 'segments', scrollMode: 'pause', scrollSpeed: 0.35, cornerDamping: 'off', autoRotate: true } });
+    expect(r.status).toBe(200);
+    expect(r.json.timeMs).toBe(client);
+    const board = await call('GET', { track: 'monaco' });
+    expect((board.json.entries as { setup: { drawMode: string } }[])[0].setup.drawMode).toBe('segments');
+    const lap = await call('GET', { track: 'monaco', lap: '1' });
+    expect(lap.json.brakes).toEqual(brakes);
+    const replay = simulatePlan(track, decodePath(unpackLine(lap.json.line as string)), 'soft', lap.json.brakes as number[]);
+    expect(replay.timeMs).toBe(client);
+    // Brake zones out of order are refused.
+    const bad = await call('POST', {}, { track: 'monaco', compound: 'soft', line, brakes: [500, 400], playerId: P2, name: 'Odd' });
+    expect(bad.status).toBe(400);
+  });
+
   it('cleans names', () => {
     expect(cleanName('  Max   V!! ')).toBe('Max V');
     expect(cleanName('x')).toBeNull();

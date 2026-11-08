@@ -73,6 +73,9 @@ export interface PersonalBest {
   submitted?: boolean;
   /** Drawing settings the lap was drawn with (shared on the leaderboard). */
   setup?: DrawSetup;
+  /** Laid segment by segment: its brake zones (decimetres; src/sim/lapsim.ts SimOptions.brakes) and picks (src/app/segments.ts encodePicks). */
+  brakes?: number[];
+  picks?: string;
 }
 
 export function getBest(slug: string): PersonalBest | null {
@@ -115,7 +118,7 @@ export type ScrollMode = 'pause' | 'continuous';
 
 export interface Settings {
   sound: boolean;
-  /** Tap and bend (easy), tidy my strokes (medium) or freehand (hard); see src/app/draw-mode.ts. */
+  /** Segment by segment (easy), tap and bend (medium), tidy my strokes (hard) or freehand (expert); see src/app/draw-mode.ts. */
   drawMode: DrawMode;
   tutorialDone: boolean;
   lastTrack: string;
@@ -140,12 +143,6 @@ export interface Settings {
   alerts: boolean;
   /** The tutorial walkthrough: '' until the player finishes or skips it. */
   tutorial: '' | 'done' | 'skipped';
-  /**
-   * Lay laps segment by segment (src/screens/segments.ts) instead of drawing
-   * them. Kept apart from drawMode, which the tutorial and editing a saved
-   * line still use.
-   */
-  segments: boolean;
   /** Segment by segment: the lessons the player has done (bits). */
   segmentLessons: number;
 }
@@ -191,11 +188,11 @@ export function getSettings(): Settings {
     alertsPrompted: false,
     alerts: false,
     tutorial: '',
-    segments: false,
     segmentLessons: 0,
     ...stored,
   };
-  s.segments = s.segments === true;
+  // Before segment by segment was a drawing mode it was a setting of its own.
+  if ((stored as { segments?: unknown }).segments === true && !('drawMode' in stored)) s.drawMode = 'segments';
   if (typeof s.segmentLessons !== 'number' || !Number.isFinite(s.segmentLessons)) s.segmentLessons = 0;
   if (s.scrollMode !== 'pause' && s.scrollMode !== 'continuous') s.scrollMode = 'pause';
   if (!isDrawMode(s.drawMode)) s.drawMode = DEFAULT_DRAW_MODE;
@@ -229,13 +226,13 @@ export function sameSetup(a: DrawSetup, b: DrawSetup): boolean {
   return (a.drawMode ?? 'freehand') === (b.drawMode ?? 'freehand') && a.scrollMode === b.scrollMode && Math.abs(a.scrollSpeed - b.scrollSpeed) < 0.005 && a.cornerDamping === b.cornerDamping && a.autoRotate === b.autoRotate;
 }
 
-/** Is this the setup the next lap will be drawn with? Never while laps are laid segment by segment. */
+/** Is this the setup the next lap will be drawn with? */
 export function setupInUse(setup: DrawSetup): boolean {
-  return !getSettings().segments && sameSetup(currentSetup(), setup);
+  return sameSetup(currentSetup(), setup);
 }
 
 export function applySetup(setup: DrawSetup): Settings {
-  return saveSettings({ segments: false, drawMode: setup.drawMode ?? 'freehand', scrollMode: setup.scrollMode, scrollSpeed: setup.scrollSpeed, cornerDamping: setup.cornerDamping, autoRotate: setup.autoRotate });
+  return saveSettings({ drawMode: setup.drawMode ?? 'freehand', scrollMode: setup.scrollMode, scrollSpeed: setup.scrollSpeed, cornerDamping: setup.cornerDamping, autoRotate: setup.autoRotate });
 }
 
 export function getTyre(slug: string): Compound {
@@ -255,30 +252,4 @@ export function bumpAttempts(slug: string): number {
   const n = getAttempts(slug) + 1;
   write(`attempts:${slug}`, n);
   return n;
-}
-
-/**
- * Segment by segment: the quickest lap on a circuit with its line and its
- * picks (src/app/segments.ts encodePicks). Kept apart from the personal best:
- * the picks decide where the car brakes, so the line alone does not give the
- * time, and these laps stay off the leaderboard.
- */
-export interface SegmentBest {
-  v?: number;
-  timeMs: number;
-  compound: Compound;
-  sectorsMs: [number, number, number];
-  code: number[];
-  picks: string;
-  date: string;
-}
-
-export function getSegmentBest(slug: string): SegmentBest | null {
-  const b = read<SegmentBest | null>(`sbest:${slug}`, null);
-  if (!b || typeof b.timeMs !== 'number' || !Array.isArray(b.code) || typeof b.picks !== 'string' || (b.v ?? 1) !== SIM_VERSION) return null;
-  return b;
-}
-
-export function setSegmentBest(slug: string, best: SegmentBest): void {
-  write(`sbest:${slug}`, { ...best, v: SIM_VERSION });
 }

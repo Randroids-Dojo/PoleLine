@@ -591,9 +591,10 @@ export interface SimOptions {
   surfaceGrip?: number;
   /**
    * Segment by segment: the stretches of the lap where the player called the
-   * brakes, flat [from, to, ...] in metres of lap progress along the
-   * centreline. Everywhere else they called the gas. Without it the car takes
-   * the quickest speed for the line, as it always has.
+   * brakes, flat [from, to, ...] in whole decimetres of lap progress along the
+   * centreline (integers, like the line, so every engine reads them alike).
+   * Everywhere else they called the gas. An empty list is all gas. Without it
+   * the car takes the quickest speed for the line, as it always has.
    */
   brakes?: readonly number[];
 }
@@ -639,7 +640,7 @@ export function simulateLap(track: Track, pts: Float64Array, compound: Compound,
   // Segment by segment: which samples the player put on the brakes.
   let plan: Uint8Array | undefined;
   if (opts.brakes) {
-    const z = opts.brakes;
+    const z = opts.brakes.map((dm) => dm / 10);
     plan = new Uint8Array(n);
     for (let i = 0; i < n; i++) {
       const s = prog[i];
@@ -809,4 +810,17 @@ export function simulateLap(track: Track, pts: Float64Array, compound: Compound,
   out.stats.distance = dist;
   out.stats.avgSpeed = dist / lap;
   return out;
+}
+
+/**
+ * A lap laid segment by segment: the line driven to its brake zones
+ * (SimOptions.brakes, decimetres). Calling the pedals never beats letting the
+ * car choose them, so if the plan comes out quicker than the same line driven
+ * freely (coasting can save a little battery), the free lap is the one that
+ * counts. The browser and the leaderboard both score a plan through here.
+ */
+export function simulatePlan(track: Track, pts: Float64Array, compound: Compound, brakes: readonly number[]): LapResult {
+  const planned = simulateLap(track, pts, compound, { brakes });
+  const free = simulateLap(track, pts, compound);
+  return planned.timeMs < free.timeMs ? free : planned;
 }

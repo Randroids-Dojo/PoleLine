@@ -34,11 +34,11 @@ npm test             # sim + API tests
 npm run build
 npx tsx scripts/playtest.ts spielberg ideal /tmp/play   # scripted phone playtest with screenshots (dev server running)
 npx tsx scripts/calibrate.ts --report                  # lap times, tyre gaps, sensitivity per circuit
-npx tsx scripts/tidytest.ts                            # tidy strokes (medium) against freehand (hard) on hand-like laps, headless
+npx tsx scripts/tidytest.ts                            # tidy strokes (hard) against freehand (expert) on hand-like laps, headless
 npx tsx scripts/easytest.ts                            # drawing modes in the browser: settings and default, a corrected stroke, a curve's handles (dev server running)
 npx tsx scripts/curvetest.ts spielberg /tmp/curves     # tap and bend: a whole lap of taps and bends, then the race (dev server running)
 npx tsx scripts/closetest.ts                           # closing the loop: a last dot or lift on the start point finishes the lap in every mode, never 99% (dev server running)
-npx tsx scripts/tutorialtest.ts                        # the guided first lap: difficulty on the welcome card, the pause menu, copy that follows the mode (dev server running)
+npx tsx scripts/tutorialtest.ts                        # the guided first lap: easy (segment by segment) from a first launch, switching between laying and drawing, the pause menu, copy that follows the mode (dev server running)
 npx tsx scripts/edittest.ts                            # editing a saved line in every mode: picker, whole-lap view, a redraw that strays then rejoins, the splice point for point, undo, race (dev server running; EDITION=toybox with harbour-loop for the app)
 npx tsx scripts/segmentplan.ts [slug,...] [--search]       # segment by segment, headless: how each circuit is cut, every planned line legal, a careful plan against the ideal line
 npx tsx scripts/segmenttest.ts spielberg /tmp/segments     # segment by segment in the browser: a whole lap with real taps, lessons in order, undo, changing a segment, a result equal to the headless sim, where it lost time (no stall while the worker runs, the top tip wins exactly its gain), speed at 4x CPU slowdown (dev server or vite preview running)

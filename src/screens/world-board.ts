@@ -29,7 +29,7 @@ export function worldBoard(o: WorldBoardInput): void {
   world.append(status);
   const post = (name: string) => {
     setText(status, 'Posting to the world leaderboard…');
-    submitLap({ track: slug, compound: lap.compound, line: code, playerId: player.id, name, setup: o.input.setup })
+    submitLap({ track: slug, compound: lap.compound, line: code, brakes: o.input.brakes, playerId: player.id, name, setup: o.input.setup })
       .then((r) => {
         markSubmitted(slug);
         void flushUnsubmitted(slug);

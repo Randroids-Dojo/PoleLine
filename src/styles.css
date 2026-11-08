@@ -3213,9 +3213,10 @@ button:disabled {
   padding: 0 24px;
 }
 
-.set-level.is-new {
+.set-level.is-expert {
   border-color: var(--ink);
   color: var(--ink);
+  background: var(--paper);
 }
 
 .sec-hud.is-review .draw-hint {
