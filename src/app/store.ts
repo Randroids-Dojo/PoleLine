@@ -140,6 +140,14 @@ export interface Settings {
   alerts: boolean;
   /** The tutorial walkthrough: '' until the player finishes or skips it. */
   tutorial: '' | 'done' | 'skipped';
+  /**
+   * Lay laps section by section (src/screens/sections.ts) instead of drawing
+   * them. Kept apart from drawMode, which the tutorial and editing a saved
+   * line still use.
+   */
+  sections: boolean;
+  /** Section by section: the lessons the player has done (bits). */
+  sectionLessons: number;
 }
 
 export const SCROLL_SPEED_MIN = 0.25;
@@ -183,8 +191,12 @@ export function getSettings(): Settings {
     alertsPrompted: false,
     alerts: false,
     tutorial: '',
+    sections: false,
+    sectionLessons: 0,
     ...stored,
   };
+  s.sections = s.sections === true;
+  if (typeof s.sectionLessons !== 'number' || !Number.isFinite(s.sectionLessons)) s.sectionLessons = 0;
   if (s.scrollMode !== 'pause' && s.scrollMode !== 'continuous') s.scrollMode = 'pause';
   if (!isDrawMode(s.drawMode)) s.drawMode = DEFAULT_DRAW_MODE;
   if (!['off', 'gentle', 'early', 'hold', 'pace'].includes(s.cornerDamping)) s.cornerDamping = 'off';
@@ -217,8 +229,13 @@ export function sameSetup(a: DrawSetup, b: DrawSetup): boolean {
   return (a.drawMode ?? 'freehand') === (b.drawMode ?? 'freehand') && a.scrollMode === b.scrollMode && Math.abs(a.scrollSpeed - b.scrollSpeed) < 0.005 && a.cornerDamping === b.cornerDamping && a.autoRotate === b.autoRotate;
 }
 
+/** Is this the setup the next lap will be drawn with? Never while laps are laid section by section. */
+export function setupInUse(setup: DrawSetup): boolean {
+  return !getSettings().sections && sameSetup(currentSetup(), setup);
+}
+
 export function applySetup(setup: DrawSetup): Settings {
-  return saveSettings({ drawMode: setup.drawMode ?? 'freehand', scrollMode: setup.scrollMode, scrollSpeed: setup.scrollSpeed, cornerDamping: setup.cornerDamping, autoRotate: setup.autoRotate });
+  return saveSettings({ sections: false, drawMode: setup.drawMode ?? 'freehand', scrollMode: setup.scrollMode, scrollSpeed: setup.scrollSpeed, cornerDamping: setup.cornerDamping, autoRotate: setup.autoRotate });
 }
 
 export function getTyre(slug: string): Compound {
@@ -238,4 +255,30 @@ export function bumpAttempts(slug: string): number {
   const n = getAttempts(slug) + 1;
   write(`attempts:${slug}`, n);
   return n;
+}
+
+/**
+ * Section by section: the quickest lap on a circuit with its line and its
+ * picks (src/app/sections.ts encodePicks). Kept apart from the personal best:
+ * the picks decide where the car brakes, so the line alone does not give the
+ * time, and these laps stay off the leaderboard.
+ */
+export interface SectionBest {
+  v?: number;
+  timeMs: number;
+  compound: Compound;
+  sectorsMs: [number, number, number];
+  code: number[];
+  picks: string;
+  date: string;
+}
+
+export function getSectionBest(slug: string): SectionBest | null {
+  const b = read<SectionBest | null>(`sbest:${slug}`, null);
+  if (!b || typeof b.timeMs !== 'number' || !Array.isArray(b.code) || typeof b.picks !== 'string' || (b.v ?? 1) !== SIM_VERSION) return null;
+  return b;
+}
+
+export function setSectionBest(slug: string, best: SectionBest): void {
+  write(`sbest:${slug}`, { ...best, v: SIM_VERSION });
 }

@@ -105,16 +105,37 @@ export function openSettings(app: App, onChange?: (s: Settings) => void): void {
   const drawGroup = h('div', { class: 'set-group', role: 'radiogroup', 'aria-label': 'How you draw' });
   for (const m of DRAW_MODES) {
     const input = h('input', { type: 'radio', name: 'draw-mode', value: m.id }) as HTMLInputElement;
-    input.checked = s.drawMode === m.id;
+    input.checked = !s.sections && s.drawMode === m.id;
     input.addEventListener('change', () => {
       if (!input.checked) return;
-      changed({ drawMode: m.id });
+      changed({ drawMode: m.id, sections: false });
       syncScroll(m.id);
     });
     const tag = h('span', { class: `set-level is-${m.level}` }, LEVEL_LABELS[m.level]);
     drawGroup.append(h('label', { class: 'set-mode' }, input, h('span', { class: 'set-text' }, h('b', null, m.label, tag), h('small', null, m.detail))));
   }
+  // Section by section is a different way to lay a lap, not a drawing mode: the
+  // tutorial and editing a saved line keep the drawing mode picked above it.
+  {
+    const input = h('input', { type: 'radio', name: 'draw-mode', value: 'sections' }) as HTMLInputElement;
+    input.checked = s.sections;
+    input.addEventListener('change', () => {
+      if (!input.checked) return;
+      changed({ sections: true });
+      scrollHead.hidden = modeGroup.hidden = true;
+    });
+    const tag = h('span', { class: 'set-level is-new' }, 'New');
+    drawGroup.append(
+      h(
+        'label',
+        { class: 'set-mode' },
+        input,
+        h('span', { class: 'set-text' }, h('b', null, 'Section by section', tag), h('small', null, `Call Gas or Brake for each section, and Left or Right to pick a gate. ${LOCAL_ONLY ? 'These laps keep their own best, apart from Your times, for now.' : 'These laps stay off the leaderboard for now.'}`)),
+      ),
+    );
+  }
   syncScroll(s.drawMode);
+  if (s.sections) scrollHead.hidden = modeGroup.hidden = true;
 
   const closeBtn = h('button', { class: 'icon-btn', 'aria-label': 'Close settings', html: ICONS.close, onclick: close });
   const sheet = h(

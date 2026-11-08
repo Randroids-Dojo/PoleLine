@@ -87,14 +87,15 @@ function roughness(line: number[]): number {
   return (sum / Math.max(1, turns.length - 1)) * (180 / Math.PI);
 }
 
-// 1. Settings: three ways to draw, and tap and bend hides the scroll options.
+// 1. Settings: three ways to draw (plus laying a lap section by section), and tap and bend hides the scroll options.
 {
   const page = await open('freehand');
   await page.getByRole('button', { name: 'Settings' }).click();
   await page.waitForTimeout(400);
   await page.screenshot({ path: join(out, '1-settings.png') });
   const modes = await page.locator('input[name="draw-mode"]').count();
-  check('settings offer three ways to draw', modes === 3, `${modes}`);
+  const ids = await page.locator('input[name="draw-mode"]').evaluateAll((els) => els.map((e) => (e as HTMLInputElement).value));
+  check('settings offer three ways to draw, then section by section', modes === 4 && ids.join(',') === 'curves,smooth,freehand,sections', ids.join(','));
   await page.getByText('Tap and bend').click();
   await page.waitForTimeout(150);
   const scrollShown = await page.getByText('When the map scrolls while you draw').isVisible();
@@ -110,7 +111,7 @@ function roughness(line: number[]): number {
   const chosen = await fresh.locator('input[name="draw-mode"]:checked').getAttribute('value');
   check('tap and bend is the default', chosen === 'curves', chosen ?? 'none');
   const levels = await fresh.locator('.set-level').allTextContents();
-  check('the modes read easy, medium, hard', levels.join(',') === 'Easy,Medium,Hard', levels.join(','));
+  check('the modes read easy, medium, hard (and section by section reads new)', levels.join(',') === 'Easy,Medium,Hard,New', levels.join(','));
   await fresh.context().close();
 }
 

@@ -7,6 +7,8 @@ import { sfx } from '../app/audio';
 import { engineerNotes } from '../app/engineer';
 import { formatDelta, formatLap, formatSector, gridSlot, kmh } from '../app/format';
 import { getPlayer, type DrawSetup, type PersonalBest } from '../app/store';
+import type { Coach } from '../app/coach-client';
+import { bestTips, tipAction, tipSeconds, type CoachReport } from '../app/coach';
 import { TUTORIAL_COPY } from '../app/tutorial-copy';
 import { promptAfterLap } from './prompts';
 import { worldBoard } from './world-board';
@@ -48,6 +50,10 @@ export interface ResultsInput {
   kept?: { rank: number | null; total: number } | null;
   /** The time of the saved line this lap was edited from. */
   editedFrom?: number | null;
+  /** Laid section by section: off the leaderboard, compared with the best lap laid that way. */
+  sections?: boolean;
+  /** Section by section: where the lap lost time, being worked out. */
+  coach?: Coach | null;
 }
 
 /** How many circuits make up the season (the tutorial circuit is not a round). */
@@ -64,6 +70,8 @@ export class ResultsScreen implements Screen {
   private confetti: Particle[] | null = null;
   private promptTimer = 0;
   private fit: CamSnapshot = { cx: 0, cy: 0, zoom: 1, angle: 0, ay: 0.5 };
+  private coachNote: HTMLElement | null = null;
+  private unwatch: (() => void) | null = null;
 
   constructor(
     private app: App,
@@ -86,7 +94,7 @@ export class ResultsScreen implements Screen {
     const meta = track.meta;
     const slot = gridSlot(lap.timeMs, meta.poleRef);
     const prev = input.previous;
-    const deltaText = !prev ? 'First timed lap here' : input.isPb ? `New personal best, ${formatDelta(lap.timeMs - prev.timeMs)}` : `${formatDelta(lap.timeMs - prev.timeMs)} to your best ${formatLap(prev.timeMs)}`;
+    const deltaText = !prev ? (input.sections ? 'First lap laid section by section here' : 'First timed lap here') : input.isPb ? `New personal best, ${formatDelta(lap.timeMs - prev.timeMs)}` : `${formatDelta(lap.timeMs - prev.timeMs)} to your best ${formatLap(prev.timeMs)}`;
     // An edit of a line other than your best also says how the edit went.
     const edited = input.editedFrom;
     const editText = edited != null && edited !== prev?.timeMs ? `${formatDelta(lap.timeMs - edited)} to the line you edited` : null;
@@ -128,7 +136,8 @@ export class ResultsScreen implements Screen {
       editText ? h('p', { class: 'res-delta res-edit' }, editText) : null,
       sectors,
       // The engineer's most useful note leads; the numbers wait under Lap details.
-      notes.length ? h('div', { class: 'res-notes' }, h('p', null, notes[0])) : null,
+      // Laid section by section, the note is where the lap lost time.
+      input.coach ? h('div', { class: 'res-notes' }, (this.coachNote = h('p', null, 'Working out where this lap lost time.'))) : notes.length ? h('div', { class: 'res-notes' }, h('p', null, notes[0])) : null,
       h('details', { class: 'res-details' }, h('summary', null, h('span', null, 'Lap details'), h('span', { class: 'res-details-icon', html: ICONS.chevron })), facts),
       this.world,
       this.actions.continueGame
@@ -153,7 +162,7 @@ export class ResultsScreen implements Screen {
               'div',
               { class: 'res-main' },
               h('button', { class: 'btn-primary', onclick: () => this.actions.again() }, 'Draw again'),
-              this.actions.edit ? h('button', { class: 'btn-outline', onclick: () => this.actions.edit!() }, 'Edit line') : null,
+              this.actions.edit ? h('button', { class: 'btn-outline', onclick: () => this.actions.edit!() }, input.sections ? 'Edit sections' : 'Edit line') : null,
             ),
             h(
               'div',
@@ -172,12 +181,14 @@ export class ResultsScreen implements Screen {
       sfx.finish(true);
       this.confetti = makeConfetti(app.w, slot.tier === 'pole' ? 170 : 90);
     }
-    if (LOCAL_ONLY) this.ownTimesBlock();
+    if (input.coach) this.unwatch = input.coach.watch((r) => this.showCoach(r));
+    if (input.sections) this.world.append(h('p', { class: 'res-world-status' }, LOCAL_ONLY ? 'Laps laid section by section keep their own best, apart from Your times, for now.' : 'Laps laid section by section stay off the leaderboard for now.'));
+    else if (LOCAL_ONLY) this.ownTimesBlock();
     else worldBoard({ track, input, world: this.world, posted: () => void (!input.walkthrough && this.queuePrompts(1200)) });
     // Install and lap alert prompts wait for the result to land. A first lap
     // waits for the name form, so they follow the lap reaching the board.
     // The walkthrough's ending stays uncluttered; the prompts follow the next lap.
-    if (!LOCAL_ONLY && !input.walkthrough && !(input.isPb && !getPlayer().name)) this.queuePrompts(2400);
+    if (!LOCAL_ONLY && !input.walkthrough && !input.sections && !(input.isPb && !getPlayer().name)) this.queuePrompts(2400);
   }
 
   /** Toybox edition: where this lap sits among the quickest laps kept on the device. */
@@ -294,8 +305,28 @@ export class ResultsScreen implements Screen {
     }
   }
 
+  /** Section by section: the biggest single change, and what perfect pedals give on this line. */
+  private showCoach(r: CoachReport): void {
+    const p = this.coachNote;
+    if (!p) return;
+    if (!r.done) {
+      p.textContent = `Working out where this lap lost time (${r.checked} of ${r.tips.length} sections).`;
+      return;
+    }
+    const tips = bestTips(r);
+    const perfect = r.perfectMs !== null && r.perfectMs < r.timeMs - 5 ? ` With perfect pedals this line runs ${formatLap(r.perfectMs)}.` : '';
+    if (!tips.length) {
+      p.textContent = `No single change makes this lap quicker.${perfect}`;
+      return;
+    }
+    const top = tips[0];
+    const rest = tips.length > 1 ? ` Edit sections marks ${tips.length - 1} more.` : '';
+    p.textContent = `Biggest gain: ${tipAction(top)} in section ${top.section + 1}, ${tipSeconds(top)} s quicker.${rest}${perfect}`;
+  }
+
   destroy(): void {
     clearTimeout(this.promptTimer);
+    this.unwatch?.();
     this.el.remove();
   }
 }

@@ -2945,3 +2945,245 @@ button:disabled {
   border-color: var(--purple);
   box-shadow: 0 0 0 3px var(--purple-tint);
 }
+
+/* Section by section ------------------------------------------------------ */
+
+/* The pad: Gas and Brake set the section, Left and Right pick its gate. */
+.sec-pad {
+  pointer-events: auto;
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: calc(12px + var(--safe-bottom));
+  max-width: 420px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1fr 1.3fr 1fr;
+  grid-template-rows: 56px 56px 56px;
+  grid-template-areas:
+    'count gas done'
+    'left lanes right'
+    'undo brake restart';
+  gap: 6px;
+  padding: 8px;
+  background: var(--sheet);
+  border: 1.5px solid var(--ink);
+  border-radius: 10px;
+}
+
+.sec-pad[hidden],
+.sec-done[hidden] {
+  display: none;
+}
+
+.sec-key {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 8px;
+  font-size: 17px;
+  font-weight: 850;
+  font-stretch: 118%;
+  letter-spacing: -0.01em;
+  transition: transform 0.06s ease, opacity 0.15s ease;
+  touch-action: manipulation;
+}
+
+.sec-key:active {
+  transform: scale(0.96);
+}
+
+.sec-arrow {
+  display: grid;
+  place-items: center;
+}
+
+.sec-gas {
+  grid-area: gas;
+  background: var(--ink);
+  color: #fff;
+}
+
+.sec-brake {
+  grid-area: brake;
+  background: var(--red);
+  color: #fff;
+}
+
+.sec-left,
+.sec-right {
+  flex-direction: column;
+  gap: 0;
+  box-shadow: inset 0 0 0 2px var(--ink);
+  color: var(--ink);
+  line-height: 1.05;
+}
+
+.sec-left {
+  grid-area: left;
+}
+
+.sec-right {
+  grid-area: right;
+}
+
+.sec-left .sec-arrow,
+.sec-right .sec-arrow {
+  display: none;
+}
+
+.sec-left b::before {
+  content: '◀ ';
+  font-size: 13px;
+}
+
+.sec-right b::after {
+  content: ' ▶';
+  font-size: 13px;
+}
+
+.sec-left small,
+.sec-right small {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--ink-2);
+  font-stretch: 100%;
+  min-height: 1em;
+}
+
+.sec-key.is-off {
+  opacity: 0.3;
+}
+
+/* Changing a laid section: its current pedal is ringed. */
+.sec-key.is-picked {
+  box-shadow:
+    0 0 0 3px var(--sheet),
+    0 0 0 5px var(--purple);
+}
+
+.sec-key.is-shake {
+  animation: sec-shake 0.3s ease;
+}
+
+@keyframes sec-shake {
+  25% {
+    transform: translateX(-4px);
+  }
+  75% {
+    transform: translateX(4px);
+  }
+}
+
+/* The three gates across the road, the armed one purple, and a dot where the line comes from. */
+.sec-lanes {
+  grid-area: lanes;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: #3b4048;
+  box-shadow:
+    inset 3px 0 0 #fff,
+    inset -3px 0 0 #fff;
+}
+
+.sec-lanes i {
+  position: relative;
+  align-self: start;
+  height: 9px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.sec-lanes i.is-open {
+  background: #fff;
+}
+
+.sec-lanes i.is-armed {
+  background: var(--purple);
+  box-shadow: 0 0 0 2px #fff;
+}
+
+.sec-lanes i.is-from::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 26px;
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: inset 0 0 0 3px var(--purple);
+}
+
+.sec-count {
+  grid-area: count;
+  align-self: center;
+  justify-self: center;
+  font-size: 15px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+}
+
+.sec-done {
+  grid-area: done;
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 2px var(--purple-ink);
+  color: var(--purple-ink);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.sec-undo {
+  grid-area: undo;
+  justify-self: center;
+  align-self: center;
+}
+
+.sec-restart {
+  grid-area: restart;
+  justify-self: center;
+  align-self: center;
+}
+
+.sec-pad .icon-btn:disabled,
+.sec-review .icon-btn:disabled {
+  opacity: 0.3;
+}
+
+.sec-hud .draw-hint {
+  bottom: calc(232px + var(--safe-bottom));
+}
+
+.sec-review {
+  gap: 6px;
+}
+
+.sec-review[hidden] {
+  display: none;
+}
+
+.sec-tyres {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.sec-race {
+  min-height: 46px;
+  padding: 0 24px;
+}
+
+.set-level.is-new {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.sec-hud.is-review .draw-hint {
+  bottom: calc(80px + var(--safe-bottom));
+}

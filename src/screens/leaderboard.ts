@@ -6,7 +6,7 @@ import { sfx } from '../app/audio';
 import { CORNER_DAMPING_OPTIONS } from '../app/damping';
 import { drawModeText } from '../app/draw-mode';
 import { formatDelta, formatLap } from '../app/format';
-import { applySetup, currentSetup, getPlayer, getTyre, sameSetup, setPlayerName, setTyre, type DrawSetup } from '../app/store';
+import { applySetup, getPlayer, getTyre, setPlayerName, setTyre, setupInUse, type DrawSetup } from '../app/store';
 import { flushUnsubmitted } from '../app/sync';
 import { COMPOUND_SPECS } from '../sim/car';
 import type { Compound } from '../sim/types';
@@ -148,7 +148,7 @@ function entryRow(e: BoardEntry, lead: number, slug: string, opts: BoardOptions)
   const id = `board-setup-${++rowIds}`;
   const copy = h('button', { class: 'board-copy' }, 'Copy setup') as HTMLButtonElement;
   const sync = () => {
-    const same = sameSetup(currentSetup(), setup) && getTyre(slug) === e.compound;
+    const same = setupInUse(setup) && getTyre(slug) === e.compound;
     copy.disabled = same;
     copy.textContent = same ? 'In use' : 'Copy setup';
   };

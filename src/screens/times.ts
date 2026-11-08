@@ -10,7 +10,7 @@ import { CORNER_DAMPING_OPTIONS } from '../app/damping';
 import { drawModeText } from '../app/draw-mode';
 import { formatDelta, formatLap, gridSlot } from '../app/format';
 import { getLaps, LAPS_KEPT, whenText, type SavedLap } from '../app/laps';
-import { applySetup, currentSetup, getTyre, sameSetup, setTyre, type DrawSetup } from '../app/store';
+import { applySetup, getTyre, setTyre, setupInUse, type DrawSetup } from '../app/store';
 import { COMPOUND_SPECS } from '../sim/car';
 import type { Compound } from '../sim/types';
 import { ICONS, h, tyreBadge } from '../ui/dom';
@@ -169,7 +169,7 @@ function lapRow(lap: SavedLap, index: number, best: number, poleRef: number, slu
   const id = `times-setup-${++rowIds}`;
   const copy = h('button', { class: 'board-copy' }, 'Use setup') as HTMLButtonElement;
   const sync = () => {
-    const same = sameSetup(currentSetup(), setup) && getTyre(slug) === lap.compound;
+    const same = setupInUse(setup) && getTyre(slug) === lap.compound;
     copy.disabled = same;
     copy.textContent = same ? 'In use' : 'Use setup';
   };
