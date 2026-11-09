@@ -89,7 +89,7 @@ interface CamState {
 const LESSONS = {
   gas: 'Tap Gas to drive this segment.',
   brake: 'Tap Brake where you want to slow down.',
-  lane: 'Left and Right pick your gate.',
+  lane: 'Tap Left or Right to move your line.',
   review: 'Tap any segment to change it.',
 } as const;
 type Lesson = keyof typeof LESSONS;

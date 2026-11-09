@@ -135,7 +135,7 @@ console.log('lessons seen:', hints);
 const order = ['Tap Gas', ...(brakeBeforeBoard ? [] : ['Tap Brake']), ...(lanesBeforeBrake ? [] : ['Left and Right']), 'Tap any segment'];
 const seen = order.map((o) => hints.findIndex((t) => t.startsWith(o)));
 check(seen.every((i) => i >= 0) && seen.every((i, j) => j === 0 || i > seen[j - 1]), `every lesson due shows, one at a time, in order (${order.join(' / ')}: ${seen.join(', ')})`);
-check(!lanesBeforeBrake || !hints.some((t) => t.startsWith('Left and Right')), 'the gate lesson is skipped when Left or Right was already used');
+check(!lanesBeforeBrake || !hints.some((t) => t.startsWith('Tap Left or Right')), 'the gate lesson is skipped when Left or Right was already used');
 check((await page.getByRole('button', { name: 'Race' }).isVisible()) && !(await page.getByRole('button', { name: 'Gas', exact: true }).isVisible()), 'the laid lap shows Race and hides the pad');
 
 // Enter on a focused button presses that button; it does not start the race.
@@ -223,7 +223,7 @@ const coachMs = await page.evaluate(
   [slug, encodePicks(plan)] as const,
 );
 console.log(`analysis took ${(coachMs / 1000).toFixed(1)} s: ${coachNote}`);
-check(/^(Biggest gain: (Brake|Gas|Left gate|Middle gate|Right gate) in segment \d+ \([^)]+, sector [123]\), \d+\.\d\d s quicker\.|No single change makes this lap quicker\.)/.test(coachNote), 'the result names the biggest single change, where it is (turn and sector) and what it wins');
+check(/^(Biggest gain: (Brake|Gas|Left side|Middle of the road|Right side) in segment \d+ \([^)]+, sector [123]\), \d+\.\d\d s quicker\.|No single change makes this lap quicker\.)/.test(coachNote), 'the result names the biggest single change, where it is (turn and sector) and what it wins');
 await page.screenshot({ path: join(out, '5-results-coached.png') });
 
 // Edit segments opens the plan again, whole, with the segments that lost time marked.
@@ -442,7 +442,7 @@ if (s.tips.length) {
   // Changing a laid lap solves the whole lap on every press.
   await p2.evaluate(() => (window as unknown as { __pl: { app: { current: { openSegment(k: number): void } } } }).__pl.app.current.openSegment(4));
   const edits = [await timed('left'), await timed('right'), await timed('gas')];
-  check(seen2.some((x) => x.startsWith('Left and Right')), `a player who has not used Left or Right gets the gate lesson at the first corner (${seen2.join(' / ')})`);
+  check(seen2.some((x) => x.startsWith('Tap Left or Right')), `a player who has not used Left or Right gets the gate lesson at the first corner (${seen2.join(' / ')})`);
   times.sort((a, b) => a - b);
   const p50 = times[Math.floor(times.length / 2)];
   const worst = times[times.length - 1];

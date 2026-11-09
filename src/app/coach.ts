@@ -98,10 +98,10 @@ export function bestTips(report: CoachReport | null, count = Infinity): Tip[] {
   return report.tips.filter((t): t is Tip => !!t).sort((a, b) => b.gain - a.gain).slice(0, count);
 }
 
-/** The change in the words on the pad: "Brake", "Gas", "Left gate", "Middle gate", "Right gate". */
+/** The change in plain words: "Brake", "Gas" (the pad's buttons), or the side of the road: "Left side", "Middle of the road", "Right side". */
 export function tipAction(tip: Tip): string {
   if (tip.pedal) return tip.pedal === 'brake' ? 'Brake' : 'Gas';
-  return `${tip.lane === -1 ? 'Left' : tip.lane === 1 ? 'Right' : 'Middle'} gate`;
+  return tip.lane === -1 ? 'Left side' : tip.lane === 1 ? 'Right side' : 'Middle of the road';
 }
 
 /** Seconds a tip wins, to two places: "0.42". */

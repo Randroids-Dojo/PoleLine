@@ -78,7 +78,7 @@ const screenOf = (p: import('playwright-core').Page) => p.evaluate(() => {
       await note();
     }
   }
-  check('the lessons come in order as the corner needs them', hints.indexOf('Tap Brake where you want to slow down.') >= 0 && hints.indexOf('Left and Right pick your gate.') > hints.indexOf('Tap Brake where you want to slow down.'), hints.join(' / '));
+  check('the lessons come in order as the corner needs them', hints.indexOf('Tap Brake where you want to slow down.') >= 0 && hints.indexOf('Tap Left or Right to move your line.') > hints.indexOf('Tap Brake where you want to slow down.'), hints.join(' / '));
   await p.getByText('Pick your tyres, then Race').waitFor({ timeout: 10000 });
   check('then the tyre, beside Race', true);
   await p.screenshot({ path: join(out, '1-easy-tyres.png') });

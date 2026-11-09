@@ -1,7 +1,7 @@
 # Core interaction
 
 Genre and intended pace: precision drawing puzzle with a real-time payoff. Deliberate while drawing, spectator while the lap runs.
-Intended input and accessible alternatives: segment by segment (easy, the default) lays the lap with a pad: Left or Right picks a gate, Gas or Brake sets the segment (arrow keys or WASD on a keyboard). The other three draw with one finger (or mouse) on the map: tap and bend (medium: the line is laid from taps and bends), tidy my strokes (hard: freehand, corrected into a racing line each time the finger lifts) and freehand (expert). Lift and resume at the tip. Undo stroke and restart are buttons. Settings, How you draw, picks the mode; the tutorial's welcome card and pause menu do too.
+Intended input and accessible alternatives: segment by segment (easy, the default) lays the lap with a pad: Left or Right moves the line across the road, Gas or Brake sets the segment (arrow keys or WASD on a keyboard). The other three draw with one finger (or mouse) on the map: tap and bend (medium: the line is laid from taps and bends), tidy my strokes (hard: freehand, corrected into a racing line each time the finger lifts) and freehand (expert). Lift and resume at the tip. Undo stroke and restart are buttons. Settings, How you draw, picks the mode; the tutorial's welcome card and pause menu do too.
 Viewing mode: overhead map, zoomed so the legal track is about 52 CSS px wide, rotated so the road ahead points up.
 Representative starting state: any circuit, `Draw a lap` from home, fresh line.
 

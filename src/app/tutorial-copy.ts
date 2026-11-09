@@ -22,13 +22,13 @@ export interface TutorialCopy {
 
 export const TUTORIAL_COPY: Record<DrawMode, TutorialCopy> = {
   segments: {
-    turn: 'The last corner comes a segment at a time. Tap Left or Right to pick the gate the line passes, then Gas or Brake to set the segment. The dotted line is one fast way round.',
+    turn: 'The last corner comes a segment at a time. Tap Left or Right to move your line across the road, then Gas or Brake to set the segment. The dotted line is one fast way round.',
     start: 'Lay the last corner a segment at a time.',
     going: 'Gas or Brake sets each segment.',
     tips: [
-      'Keep to the outside gate as the corner comes up.',
+      'Stay on the outside as the corner comes up.',
       'Brake at a board before the turn-in.',
-      'Pick the inside gate at the apex.',
+      'Move to the inside at the apex.',
       'Back on the gas, out wide on the exit.',
     ],
     yourCorner: 'Now the corner you laid out.',

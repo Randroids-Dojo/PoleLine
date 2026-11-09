@@ -22,8 +22,8 @@ export const DRAW_MODES: { id: DrawMode; level: DrawLevel; label: string; short:
     id: 'segments',
     level: 'easy',
     label: 'Segment by segment',
-    short: 'Gas or Brake, and a gate, for each segment.',
-    detail: 'The lap comes a segment at a time. Tap Left or Right to pick which third of the road the line passes, then Gas or Brake. The line takes the smoothest way through your gates.',
+    short: 'Gas or Brake, Left or Right, for each segment.',
+    detail: 'The lap comes a segment at a time. Tap Left or Right to move your line across the road, then Gas or Brake. The line takes the smoothest way through your picks.',
   },
   { id: 'curves', level: 'medium', label: 'Tap and bend', short: 'Tap the track and bend the curves.', detail: 'Tap the track ahead to lay the line in smooth curves. Drag the dot in the middle of a curve to bend it.' },
   {
