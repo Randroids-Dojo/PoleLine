@@ -31,6 +31,7 @@ const edition = process.env.VITE_EDITION === 'toybox' ? 'toybox' : 'web';
 const toyboxAliases = [
   { find: /\/data\/catalog$/, replacement: '/data/toybox/catalog' },
   { find: /\/data\/geometry-loaders$/, replacement: '/data/toybox/geometry-loaders' },
+  { find: /\/data\/turns$/, replacement: '/data/toybox/turns' },
 ];
 
 /** The app shell needs no manifest, icons, share image or install metadata, and its copy names no real series. */

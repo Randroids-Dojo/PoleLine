@@ -51,7 +51,7 @@ export interface Tidied {
 }
 
 /** Signed curvature through three points (1/m) and the spacing it stands for. */
-function menger(ax: number, ay: number, bx: number, by: number, cx: number, cy: number): { k: number; h: number } {
+export function menger(ax: number, ay: number, bx: number, by: number, cx: number, cy: number): { k: number; h: number } {
   const ab = Math.hypot(bx - ax, by - ay);
   const bc = Math.hypot(cx - bx, cy - by);
   const ca = Math.hypot(ax - cx, ay - cy);
@@ -61,7 +61,7 @@ function menger(ax: number, ay: number, bx: number, by: number, cx: number, cy: 
 }
 
 /** Solve a symmetric positive definite pentadiagonal system in place (banded Cholesky). */
-function solveBanded(d0: Float64Array, d1: Float64Array, d2: Float64Array, b: Float64Array): void {
+export function solveBanded(d0: Float64Array, d1: Float64Array, d2: Float64Array, b: Float64Array): void {
   const n = d0.length;
   const l0 = new Float64Array(n);
   const l1 = new Float64Array(n);

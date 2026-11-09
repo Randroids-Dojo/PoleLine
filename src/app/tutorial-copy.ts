@@ -21,6 +21,19 @@ export interface TutorialCopy {
 }
 
 export const TUTORIAL_COPY: Record<DrawMode, TutorialCopy> = {
+  segments: {
+    turn: 'The last corner comes a segment at a time. Tap Left or Right to move your line across the road, then Gas or Brake to set the segment. The dotted line is one fast way round.',
+    start: 'Lay the last corner a segment at a time.',
+    going: 'Gas or Brake sets each segment.',
+    tips: [
+      'Stay on the outside as the corner comes up.',
+      'Brake at a board before the turn-in.',
+      'Move to the inside at the apex.',
+      'Back on the gas, out wide on the exit.',
+    ],
+    yourCorner: 'Now the corner you laid out.',
+    wholeGame: 'That is the whole game: pick each segment, watch it run, find time.',
+  },
   curves: {
     turn: 'Tap the track ahead of the purple tip to lay a curve, drag its middle dot to bend it, and carry on to the chequered line. The dotted line is one fast way round.',
     start: 'Tap the track ahead of the purple tip, through the last corner to the finish line.',

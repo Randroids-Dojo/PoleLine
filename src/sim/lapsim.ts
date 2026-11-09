@@ -271,7 +271,8 @@ function cornerLimits(geo: Geo, env: Env, grip: Float64Array): Float64Array {
   return vLat;
 }
 
-function speedProfile(geo: Geo, env: Env, grip: Float64Array, vLat: Float64Array): Float64Array {
+function speedProfile(geo: Geo, env: Env, grip: Float64Array, vLat: Float64Array, plan?: Uint8Array): Float64Array {
+  if (plan) return plannedProfile(geo, env, grip, vLat, plan);
   const n = geo.n;
   let i0 = 0;
   for (let i = 1; i < n; i++) if (vLat[i] < vLat[i0]) i0 = i;
@@ -325,6 +326,102 @@ function speedProfile(geo: Geo, env: Env, grip: Float64Array, vLat: Float64Array
     const v2 = v * v + 2 * a * geo.ds[i];
     const vn = Math.sqrt(v2);
     vb[i] = vn < vLat[i] ? vn : vLat[i];
+  }
+  const out = new Float64Array(n);
+  for (let i = 0; i < n; i++) out[i] = vf[i] < vb[i] ? vf[i] : vb[i];
+  return out;
+}
+
+/**
+ * The speed profile when the player has called the pedals (segment by
+ * segment): `brake[i]` is 1 where the plan has the driver on the brakes and 0
+ * where it has them on the gas. On the gas the car accelerates as hard as it
+ * can and, if a corner comes up too fast, can only lift (drag and rolling
+ * resistance with the wings closed), never brake. On the brakes it brakes as
+ * hard as it needs to but never gets back on the throttle, so it coasts once it
+ * is slow enough. Both passes go round twice so the speed where they start is
+ * the one the lap arrives back with.
+ */
+function plannedProfile(geo: Geo, env: Env, grip: Float64Array, vLat: Float64Array, brake: Uint8Array): Float64Array {
+  const n = geo.n;
+  let i0 = 0;
+  for (let i = 1; i < n; i++) if (vLat[i] < vLat[i0]) i0 = i;
+  const m = CAR.mass;
+  /** Deceleration (m/s^2, positive) off the throttle with no brakes: drag in corner mode and rolling resistance. */
+  const coast = (k: number, v: number): number => {
+    const va = airspeed(v, env.windPar[k]);
+    const fz = m * G + 0.5 * env.rho * env.claBrk[k] * va * va;
+    return (0.5 * env.rho * env.cdaBrk[k] * va * va + CAR.crr * fz) / m;
+  };
+  const vf = new Float64Array(n);
+  let start = vLat[i0];
+  for (let lap = 0; lap < 2; lap++) {
+    vf[i0] = start;
+    for (let s = 0; s < n; s++) {
+      let i = i0 + s;
+      if (i >= n) i -= n;
+      const j = i + 1 === n ? 0 : i + 1;
+      const v = vf[i];
+      let a: number;
+      if (brake[i]) {
+        a = -coast(i, v);
+      } else {
+        const va = airspeed(v, env.windPar[i]);
+        const fz = m * G + 0.5 * env.rho * env.claFwd[i] * va * va;
+        const nl = fz / (m * G);
+        const mu = env.mu * grip[i] * (1 - CAR.loadSensitivity * (nl - 1));
+        const cap = mu * G * nl;
+        const kAbs = geo.k[i] < 0 ? -geo.k[i] : geo.k[i];
+        let u = (v * v * kAbs) / cap;
+        if (u > 1) u = 1;
+        const avail = Math.sqrt(1 - u * u);
+        const fTrac = mu * CAR.tractionShare * fz * avail;
+        const fPow = (env.ice + electric(env, v) - superClip(env, v)) / (v > 10 ? v : 10);
+        const fDrive = fTrac < fPow ? fTrac : fPow;
+        const fDrag = 0.5 * env.rho * env.cdaFwd[i] * va * va;
+        const fRoll = CAR.crr * fz;
+        a = (fDrive - fDrag - fRoll) / m;
+      }
+      const v2 = v * v + 2 * a * geo.ds[i];
+      const vn = v2 > 1 ? Math.sqrt(v2) : 1;
+      const next = vn < vLat[j] ? vn : vLat[j];
+      if (j === i0) start = next;
+      else vf[j] = next;
+    }
+  }
+  const vb = new Float64Array(n);
+  start = vLat[i0];
+  for (let lap = 0; lap < 2; lap++) {
+    vb[i0] = start;
+    for (let s = 0; s < n; s++) {
+      let j = i0 - s;
+      if (j < 0) j += n;
+      const i = j === 0 ? n - 1 : j - 1;
+      const v = vb[j];
+      let a: number;
+      if (brake[i]) {
+        const va = airspeed(v, env.windPar[j]);
+        const fz = m * G + 0.5 * env.rho * env.claBrk[j] * va * va;
+        const nl = fz / (m * G);
+        const mu = env.mu * grip[j] * (1 - CAR.loadSensitivity * (nl - 1));
+        const cap = mu * G * nl;
+        const kAbs = geo.k[j] < 0 ? -geo.k[j] : geo.k[j];
+        let u = (v * v * kAbs) / cap;
+        if (u > 1) u = 1;
+        const avail = Math.sqrt(1 - u * u);
+        const fBrake = mu * CAR.brakeShare * fz * avail;
+        const fDrag = 0.5 * env.rho * env.cdaBrk[j] * va * va;
+        const fRoll = CAR.crr * fz;
+        a = (fBrake + fDrag + fRoll) / m;
+      } else {
+        a = coast(j, v);
+      }
+      const v2 = v * v + 2 * a * geo.ds[i];
+      const vn = Math.sqrt(v2);
+      const prev = vn < vLat[i] ? vn : vLat[i];
+      if (i === i0) start = prev;
+      else vb[i] = prev;
+    }
   }
   const out = new Float64Array(n);
   for (let i = 0; i < n; i++) out[i] = vf[i] < vb[i] ? vf[i] : vb[i];
@@ -452,10 +549,10 @@ function energy(geo: Geo, env: Env, v: Float64Array, prog: Float64Array): Energy
  * Energy management: pick the highest deployment cut-off speed the battery can
  * sustain for the whole lap (never dipping below empty), by bisection.
  */
-function solveDeployment(geo: Geo, env: Env, grip: Float64Array, vLat: Float64Array, prog: Float64Array, hint = NO_CLIP): { v: Float64Array; en: Energy } {
+function solveDeployment(geo: Geo, env: Env, grip: Float64Array, vLat: Float64Array, prog: Float64Array, hint = NO_CLIP, plan?: Uint8Array): { v: Float64Array; en: Energy } {
   const feasible = (cut: number): { v: Float64Array; en: Energy; ok: boolean } => {
     env.vCut = cut;
-    const pv = speedProfile(geo, env, grip, vLat);
+    const pv = speedProfile(geo, env, grip, vLat, plan);
     const pe = energy(geo, env, pv, prog);
     return { v: pv, en: pe, ok: pe.min >= 0 };
   };
@@ -478,13 +575,13 @@ function solveDeployment(geo: Geo, env: Env, grip: Float64Array, vLat: Float64Ar
   let en = free.en;
   for (let it = 0; it < steps; it++) {
     env.vCut = (lo + hi) * 0.5;
-    v = speedProfile(geo, env, grip, vLat);
+    v = speedProfile(geo, env, grip, vLat, plan);
     en = energy(geo, env, v, prog);
     if (en.min >= 0) lo = env.vCut;
     else hi = env.vCut;
   }
   env.vCut = lo;
-  v = speedProfile(geo, env, grip, vLat);
+  v = speedProfile(geo, env, grip, vLat, plan);
   en = energy(geo, env, v, prog);
   return { v, en };
 }
@@ -492,6 +589,14 @@ function solveDeployment(geo: Geo, env: Env, grip: Float64Array, vLat: Float64Ar
 export interface SimOptions {
   /** Override the calibrated surface grip (used by the calibration script). */
   surfaceGrip?: number;
+  /**
+   * Segment by segment: the stretches of the lap where the player called the
+   * brakes, flat [from, to, ...] in whole decimetres of lap progress along the
+   * centreline (integers, like the line, so every engine reads them alike).
+   * Everywhere else they called the gas. An empty list is all gas. Without it
+   * the car takes the quickest speed for the line, as it always has.
+   */
+  brakes?: readonly number[];
 }
 
 export function simulateLap(track: Track, pts: Float64Array, compound: Compound, opts: SimOptions = {}): LapResult {
@@ -529,6 +634,22 @@ export function simulateLap(track: Track, pts: Float64Array, compound: Compound,
       sRaw = proj.s;
       hint = proj.seg;
       prog[i] = sUn;
+    }
+  }
+
+  // Segment by segment: which samples the player put on the brakes.
+  let plan: Uint8Array | undefined;
+  if (opts.brakes) {
+    const z = opts.brakes.map((dm) => dm / 10);
+    plan = new Uint8Array(n);
+    for (let i = 0; i < n; i++) {
+      const s = prog[i];
+      for (let k = 0; k + 1 < z.length; k += 2) {
+        if (s >= z[k] && s < z[k + 1]) {
+          plan[i] = 1;
+          break;
+        }
+      }
     }
   }
 
@@ -574,7 +695,7 @@ export function simulateLap(track: Track, pts: Float64Array, compound: Compound,
   setAero();
   let grip: Float64Array = new Float64Array(n);
   grip.fill(surface * spec.grip);
-  let v = speedProfile(geo, env, grip, cornerLimits(geo, env, grip));
+  let v = speedProfile(geo, env, grip, cornerLimits(geo, env, grip), plan);
 
   // Pass 2: speed-dependent smoothing, then tyre and battery feedback.
   for (let i = 0; i < n; i++) {
@@ -585,11 +706,11 @@ export function simulateLap(track: Track, pts: Float64Array, compound: Compound,
   geo = geometry(path.x, path.y);
   setAero();
   let th: Thermal = { temp: new Float64Array(n), grip };
-  let solved = solveDeployment(geo, env, grip, cornerLimits(geo, env, grip), prog);
+  let solved = solveDeployment(geo, env, grip, cornerLimits(geo, env, grip), prog, NO_CLIP, plan);
   for (let it = 0; it < FEEDBACK_ITERATIONS; it++) {
     th = thermal(geo, env, solved.v, grip, compound, track, surface);
     grip = th.grip;
-    solved = solveDeployment(geo, env, grip, cornerLimits(geo, env, grip), prog, env.vCut);
+    solved = solveDeployment(geo, env, grip, cornerLimits(geo, env, grip), prog, env.vCut, plan);
   }
   v = solved.v;
   const en = solved.en;
@@ -666,8 +787,13 @@ export function simulateLap(track: Track, pts: Float64Array, compound: Compound,
     if (aLon > 0.3) out.throttle[i] = 1;
     else if (aLon > -drag - 1.5) out.throttle[i] = aLon > -1 ? 0.55 : 0.1;
     else out.brake[i] = Math.min(1, (-aLon - drag) / 35);
+    // Segment by segment: off the throttle wherever the brakes were called, and never braking where the gas was.
+    if (plan) {
+      if (plan[i]) out.throttle[i] = 0;
+      else out.brake[i] = 0;
+    }
     // The wings are flat only while the car is not braking.
-    out.straight[i] = zone[i] && out.brake[i] === 0 ? 1 : 0;
+    out.straight[i] = zone[i] && out.brake[i] === 0 && !(plan && plan[i]) ? 1 : 0;
     const gr = gearFor(vi);
     out.gear[i] = gr.gear;
     out.rpm[i] = gr.rpm;
@@ -684,4 +810,17 @@ export function simulateLap(track: Track, pts: Float64Array, compound: Compound,
   out.stats.distance = dist;
   out.stats.avgSpeed = dist / lap;
   return out;
+}
+
+/**
+ * A lap laid segment by segment: the line driven to its brake zones
+ * (SimOptions.brakes, decimetres). Calling the pedals never beats letting the
+ * car choose them, so if the plan comes out quicker than the same line driven
+ * freely (coasting can save a little battery), the free lap is the one that
+ * counts. The browser and the leaderboard both score a plan through here.
+ */
+export function simulatePlan(track: Track, pts: Float64Array, compound: Compound, brakes: readonly number[]): LapResult {
+  const planned = simulateLap(track, pts, compound, { brakes });
+  const free = simulateLap(track, pts, compound);
+  return planned.timeMs < free.timeMs ? free : planned;
 }

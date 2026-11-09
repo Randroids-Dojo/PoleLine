@@ -73,6 +73,9 @@ export interface PersonalBest {
   submitted?: boolean;
   /** Drawing settings the lap was drawn with (shared on the leaderboard). */
   setup?: DrawSetup;
+  /** Laid segment by segment: its brake zones (decimetres; src/sim/lapsim.ts SimOptions.brakes) and picks (src/app/segments.ts encodePicks). */
+  brakes?: number[];
+  picks?: string;
 }
 
 export function getBest(slug: string): PersonalBest | null {
@@ -115,7 +118,7 @@ export type ScrollMode = 'pause' | 'continuous';
 
 export interface Settings {
   sound: boolean;
-  /** Tap and bend (easy), tidy my strokes (medium) or freehand (hard); see src/app/draw-mode.ts. */
+  /** Segment by segment (easy), tap and bend (medium), tidy my strokes (hard) or freehand (expert); see src/app/draw-mode.ts. */
   drawMode: DrawMode;
   tutorialDone: boolean;
   lastTrack: string;
@@ -140,6 +143,8 @@ export interface Settings {
   alerts: boolean;
   /** The tutorial walkthrough: '' until the player finishes or skips it. */
   tutorial: '' | 'done' | 'skipped';
+  /** Segment by segment: the lessons the player has done (bits). */
+  segmentLessons: number;
 }
 
 export const SCROLL_SPEED_MIN = 0.25;
@@ -183,8 +188,12 @@ export function getSettings(): Settings {
     alertsPrompted: false,
     alerts: false,
     tutorial: '',
+    segmentLessons: 0,
     ...stored,
   };
+  // Before segment by segment was a drawing mode it was a setting of its own.
+  if ((stored as { segments?: unknown }).segments === true && !('drawMode' in stored)) s.drawMode = 'segments';
+  if (typeof s.segmentLessons !== 'number' || !Number.isFinite(s.segmentLessons)) s.segmentLessons = 0;
   if (s.scrollMode !== 'pause' && s.scrollMode !== 'continuous') s.scrollMode = 'pause';
   if (!isDrawMode(s.drawMode)) s.drawMode = DEFAULT_DRAW_MODE;
   if (!['off', 'gentle', 'early', 'hold', 'pace'].includes(s.cornerDamping)) s.cornerDamping = 'off';
@@ -215,6 +224,11 @@ export function currentSetup(): DrawSetup {
 
 export function sameSetup(a: DrawSetup, b: DrawSetup): boolean {
   return (a.drawMode ?? 'freehand') === (b.drawMode ?? 'freehand') && a.scrollMode === b.scrollMode && Math.abs(a.scrollSpeed - b.scrollSpeed) < 0.005 && a.cornerDamping === b.cornerDamping && a.autoRotate === b.autoRotate;
+}
+
+/** Is this the setup the next lap will be drawn with? */
+export function setupInUse(setup: DrawSetup): boolean {
+  return sameSetup(currentSetup(), setup);
 }
 
 export function applySetup(setup: DrawSetup): Settings {

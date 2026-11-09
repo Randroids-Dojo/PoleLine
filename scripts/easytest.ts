@@ -87,14 +87,15 @@ function roughness(line: number[]): number {
   return (sum / Math.max(1, turns.length - 1)) * (180 / Math.PI);
 }
 
-// 1. Settings: three ways to draw, and tap and bend hides the scroll options.
+// 1. Settings: four ways to lay a line, easy to expert, and the two that never scroll under the finger hide the scroll options.
 {
   const page = await open('freehand');
   await page.getByRole('button', { name: 'Settings' }).click();
   await page.waitForTimeout(400);
   await page.screenshot({ path: join(out, '1-settings.png') });
   const modes = await page.locator('input[name="draw-mode"]').count();
-  check('settings offer three ways to draw', modes === 3, `${modes}`);
+  const ids = await page.locator('input[name="draw-mode"]').evaluateAll((els) => els.map((e) => (e as HTMLInputElement).value));
+  check('settings offer four ways, segment by segment first', modes === 4 && ids.join(',') === 'segments,curves,smooth,freehand', ids.join(','));
   await page.getByText('Tap and bend').click();
   await page.waitForTimeout(150);
   const scrollShown = await page.getByText('When the map scrolls while you draw').isVisible();
@@ -103,14 +104,15 @@ function roughness(line: number[]): number {
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('poleline:v1:settings') ?? '{}').drawMode);
   check('the choice is saved', saved === 'curves', saved);
   await page.context().close();
-  // A player who never chose starts on tap and bend, the easy mode.
+  // A player who never chose starts on segment by segment, the easy mode, which hides the scroll settings too.
   const fresh = await open(undefined);
   await fresh.getByRole('button', { name: 'Settings' }).click();
   await fresh.waitForTimeout(300);
   const chosen = await fresh.locator('input[name="draw-mode"]:checked').getAttribute('value');
-  check('tap and bend is the default', chosen === 'curves', chosen ?? 'none');
+  check('segment by segment is the default', chosen === 'segments', chosen ?? 'none');
+  check('and hides the scroll settings', !(await fresh.getByText('When the map scrolls while you draw').isVisible()));
   const levels = await fresh.locator('.set-level').allTextContents();
-  check('the modes read easy, medium, hard', levels.join(',') === 'Easy,Medium,Hard', levels.join(','));
+  check('the modes read easy, medium, hard, expert', levels.join(',') === 'Easy,Medium,Hard,Expert', levels.join(','));
   await fresh.context().close();
 }
 

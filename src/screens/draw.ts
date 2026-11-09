@@ -48,7 +48,7 @@ import { COMPOUNDS, type Compound } from '../sim/types';
 import { ICONS, h, setText, tyreBadge } from '../ui/dom';
 import { Compass, angleForBearing, bearingAtTop, nextCardinal } from '../ui/compass';
 import { CornerDamper, type CornerDamping } from '../app/damping';
-import type { DrawMode } from '../app/draw-mode';
+import { drawnMode, type DrawMode, type DrawnMode } from '../app/draw-mode';
 import { TUTORIAL_COPY } from '../app/tutorial-copy';
 import { difficultyPicker, openPauseMenu } from './pause';
 import { blend, tidyStroke, type Tidied } from '../app/tidy';
@@ -60,6 +60,8 @@ export interface DrawActions {
   exit(): void;
   /** The player skipped the tutorial walkthrough. */
   skip?(): void;
+  /** The tutorial: carry on segment by segment instead (picked on the welcome card or the pause menu). */
+  switchMode?(mode: DrawMode): void;
 }
 
 /** The tutorial circuit: most of the lap is drawn for the player. */
@@ -72,6 +74,8 @@ export interface DrawTutorial {
   cornerOut: number;
   /** First run: a guided walkthrough with coaching. */
   walkthrough: boolean;
+  /** Carry on straight to the tyre and the player's turn (they switched here from segment by segment). */
+  skipIntro?: boolean;
 }
 
 interface CamState {
@@ -266,7 +270,7 @@ export class DrawScreen implements Screen {
   private recenterLabel!: HTMLElement;
   private recenterShown = false;
   private hintTimer: ReturnType<typeof setTimeout> | null = null;
-  private drawMode: DrawMode;
+  private drawMode: DrawnMode;
   /** Tidy strokes: the stroke easing from as drawn to tidied, after a lift. */
   private morph: { tidied: Tidied; to: Vec[]; anchor: Vec; t0: number } | null = null;
   /** Tap and bend: the curve laid but not set yet, its points, and how far they get. */
@@ -332,7 +336,7 @@ export class DrawScreen implements Screen {
     this.scrollSpeed = settings.scrollSpeed;
     this.autoRotate = settings.autoRotate;
     this.damping = settings.cornerDamping;
-    this.drawMode = settings.drawMode;
+    this.drawMode = drawnMode(settings.drawMode);
     this.compass = new Compass({
       tap: () => this.compassTap(),
       dragStart: () => this.compassDragStart(),
@@ -432,9 +436,16 @@ export class DrawScreen implements Screen {
   }
 
   private applySettings(s: Settings): void {
+    // Easy picked in Settings: lay the lap segment by segment instead. Not
+    // while editing a saved line (which has no such hand-over) or over a lap
+    // half drawn, except on the tutorial, whose pause menu switches the same way.
+    if (s.drawMode === 'segments' && this.actions.switchMode && !this.closed && (this.tutorial || !this.holdsWork)) {
+      this.setDrawMode('segments');
+      return;
+    }
     const was = this.mode;
-    if (s.drawMode !== this.drawMode) {
-      this.drawMode = s.drawMode;
+    if (drawnMode(s.drawMode) !== this.drawMode) {
+      this.drawMode = drawnMode(s.drawMode);
       this.dropPending();
       this.endMorph();
       // The card spoke about a freehand stroke; in another mode the player carries on from the tip.
@@ -447,7 +458,7 @@ export class DrawScreen implements Screen {
         if (this.reviewing) this.showHint(this.overview ? HINTS.editPick : HINTS.editTouch);
         else if (this.builder.status === 'idle') this.showHint(this.startHint);
         else if (this.tutorial && this.fresh) this.showHint(this.tutorialHint);
-        else if (s.drawMode === 'curves') this.showHint(HINTS.curveFirst);
+        else if (this.drawMode === 'curves') this.showHint(HINTS.curveFirst);
       }
     }
     this.mode = s.scrollMode;
@@ -470,8 +481,14 @@ export class DrawScreen implements Screen {
     return TUTORIAL_COPY[this.drawMode].start;
   }
 
-  /** Switch how the line goes down (the tutorial's welcome card and pause menu). */
+  /** Switch how the line goes down (the tutorial's welcome card and pause menu). Segment by segment has its own screen. */
   private setDrawMode(mode: DrawMode): void {
+    if (mode === 'segments' && this.actions.switchMode) {
+      this.closeCoach();
+      this.closed = true;
+      this.actions.switchMode(mode);
+      return;
+    }
     this.applySettings(saveSettings({ drawMode: mode }));
   }
 
@@ -2114,6 +2131,7 @@ export class DrawScreen implements Screen {
    */
   private async walkthrough(): Promise<void> {
     this.locked = true;
+    if (!this.tutorial?.skipIntro) {
     const welcome = await this.coachStep({
       title: 'Welcome to PoleLine',
       body: `You draw the racing line, and a ${REAL_CIRCUITS ? '2026 F1 car' : 'modern single-seater'} drives it flat out. We have drawn this lap for you as far as the last corner. You finish it.`,
@@ -2127,9 +2145,11 @@ export class DrawScreen implements Screen {
         h('small', null, 'Change it any time from the pause button.'),
       ),
     });
+    if (this.closed) return;
     if (welcome === 'skip') return this.skipWalkthrough();
     await this.tour();
     if (this.closed) return;
+    }
     await this.paused;
     const tyres = this.coachStep({
       step: 'Step 1 of 2',

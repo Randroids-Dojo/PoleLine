@@ -7,6 +7,10 @@ import { sfx } from '../app/audio';
 import { engineerNotes } from '../app/engineer';
 import { formatDelta, formatLap, formatSector, gridSlot, kmh } from '../app/format';
 import { getPlayer, type DrawSetup, type PersonalBest } from '../app/store';
+import type { Coach } from '../app/coach-client';
+import { bestTips, tipAction, tipSeconds, type CoachReport } from '../app/coach';
+import { courseFor, segmentText, turnOfSegment } from '../app/segments';
+import { drawSectorMarks, drawTurnLabels, sectorAt, turnsOf } from '../render/map-labels';
 import { TUTORIAL_COPY } from '../app/tutorial-copy';
 import { promptAfterLap } from './prompts';
 import { worldBoard } from './world-board';
@@ -19,7 +23,7 @@ import { speedPaths } from '../render/line-art';
 import type { TrackArt } from '../render/track-art';
 import { COMPOUND_SPECS } from '../sim/car';
 import type { LapResult } from '../sim/lapsim';
-import { frameAt, type Track } from '../sim/track';
+import type { Track } from '../sim/track';
 import { ICONS, h, tyreBadge } from '../ui/dom';
 import { sectorColour, type CamSnapshot } from './race';
 
@@ -37,6 +41,8 @@ export interface ResultsInput {
   lap: LapResult;
   points: Float64Array;
   code: number[];
+  /** Laid segment by segment: the brake zones it was raced with (decimetres), posted with the line. */
+  brakes?: number[];
   previous: PersonalBest | null;
   bestSectorsBefore: [number, number, number] | null;
   isPb: boolean;
@@ -48,6 +54,10 @@ export interface ResultsInput {
   kept?: { rank: number | null; total: number } | null;
   /** The time of the saved line this lap was edited from. */
   editedFrom?: number | null;
+  /** Laid segment by segment (its edit button reopens the segments). */
+  segments?: boolean;
+  /** Segment by segment: where the lap lost time, being worked out. */
+  coach?: Coach | null;
 }
 
 /** How many circuits make up the season (the tutorial circuit is not a round). */
@@ -64,6 +74,8 @@ export class ResultsScreen implements Screen {
   private confetti: Particle[] | null = null;
   private promptTimer = 0;
   private fit: CamSnapshot = { cx: 0, cy: 0, zoom: 1, angle: 0, ay: 0.5 };
+  private coachNote: HTMLElement | null = null;
+  private unwatch: (() => void) | null = null;
 
   constructor(
     private app: App,
@@ -128,7 +140,8 @@ export class ResultsScreen implements Screen {
       editText ? h('p', { class: 'res-delta res-edit' }, editText) : null,
       sectors,
       // The engineer's most useful note leads; the numbers wait under Lap details.
-      notes.length ? h('div', { class: 'res-notes' }, h('p', null, notes[0])) : null,
+      // Laid segment by segment, the note is where the lap lost time.
+      input.coach ? h('div', { class: 'res-notes' }, (this.coachNote = h('p', null, 'Working out where this lap lost time.'))) : notes.length ? h('div', { class: 'res-notes' }, h('p', null, notes[0])) : null,
       h('details', { class: 'res-details' }, h('summary', null, h('span', null, 'Lap details'), h('span', { class: 'res-details-icon', html: ICONS.chevron })), facts),
       this.world,
       this.actions.continueGame
@@ -153,7 +166,7 @@ export class ResultsScreen implements Screen {
               'div',
               { class: 'res-main' },
               h('button', { class: 'btn-primary', onclick: () => this.actions.again() }, 'Draw again'),
-              this.actions.edit ? h('button', { class: 'btn-outline', onclick: () => this.actions.edit!() }, 'Edit line') : null,
+              this.actions.edit ? h('button', { class: 'btn-outline', onclick: () => this.actions.edit!() }, input.segments ? 'Edit segments' : 'Edit line') : null,
             ),
             h(
               'div',
@@ -172,6 +185,7 @@ export class ResultsScreen implements Screen {
       sfx.finish(true);
       this.confetti = makeConfetti(app.w, slot.tier === 'pole' ? 170 : 90);
     }
+    if (input.coach) this.unwatch = input.coach.watch((r) => this.showCoach(r));
     if (LOCAL_ONLY) this.ownTimesBlock();
     else worldBoard({ track, input, world: this.world, posted: () => void (!input.walkthrough && this.queuePrompts(1200)) });
     // Install and lap alert prompts wait for the result to land. A first lap
@@ -277,25 +291,46 @@ export class ResultsScreen implements Screen {
       ctx.stroke(p.path);
     }
     ctx.restore();
-    // Sector boundaries.
-    for (const f of [1 / 3, 2 / 3]) {
-      const fr = frameAt(this.track, this.track.length * f);
-      const s = this.track.limit + 8;
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 2 / z;
-      ctx.beginPath();
-      ctx.moveTo(fr.x + fr.nx * s, fr.y + fr.ny * s);
-      ctx.lineTo(fr.x - fr.nx * s, fr.y - fr.ny * s);
-      ctx.stroke();
-    }
+    // Where each timing sector starts, and the turn numbers.
+    ctx.setTransform(this.app.dpr, 0, 0, this.app.dpr, 0, 0);
+    drawSectorMarks(ctx, this.cam, this.track, { size: 10 });
+    drawTurnLabels(ctx, this.cam, this.track, { size: 9, alpha: 0.9 });
     if (this.confetti) {
       ctx.setTransform(this.app.dpr, 0, 0, this.app.dpr, 0, 0);
       if (!drawConfetti(ctx, this.confetti, dt, this.app.h)) this.confetti = null;
     }
   }
 
+  /** Segment by segment: the biggest single change, and what perfect pedals give on this line. */
+  private showCoach(r: CoachReport): void {
+    const p = this.coachNote;
+    if (!p) return;
+    if (!r.done) {
+      p.textContent = `Working out where this lap lost time (${r.checked} of ${r.tips.length} segments).`;
+      return;
+    }
+    if (r.failed) {
+      p.textContent = 'Could not work out where this lap lost time.';
+      return;
+    }
+    const tips = bestTips(r);
+    const perfect = r.perfectMs !== null && r.perfectMs < r.timeMs - 5 ? ` With perfect pedals this line runs ${formatLap(r.perfectMs)}.` : '';
+    if (!tips.length) {
+      p.textContent = `No single change makes this lap quicker.${perfect}`;
+      return;
+    }
+    const top = tips[0];
+    const rest = tips.length > 1 ? ` Edit segments marks ${tips.length - 1} more.` : '';
+    // Where it is, in the names on the map: the turn and the timing sector.
+    const course = courseFor(this.track);
+    const seg = course.segments[top.segment];
+    const where = [segmentText(seg, turnOfSegment(course, top.segment, turnsOf(this.track))), `sector ${sectorAt(this.track, (seg.from + seg.to) / 2)}`].join(', ');
+    p.textContent = `Biggest gain: ${tipAction(top)} in segment ${top.segment + 1} (${where}), ${tipSeconds(top)} s quicker.${rest}${perfect}`;
+  }
+
   destroy(): void {
     clearTimeout(this.promptTimer);
+    this.unwatch?.();
     this.el.remove();
   }
 }

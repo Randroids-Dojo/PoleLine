@@ -18,7 +18,7 @@ export async function flushUnsubmitted(skip?: string): Promise<void> {
       const pb = getBest(m.slug);
       if (!pb || pb.submitted) continue;
       try {
-        await submitLap({ track: m.slug, compound: pb.compound, line: pb.code, playerId: p.id, name: p.name, setup: pb.setup });
+        await submitLap({ track: m.slug, compound: pb.compound, line: pb.code, brakes: pb.brakes, playerId: p.id, name: p.name, setup: pb.setup });
         markSubmitted(m.slug);
       } catch (err) {
         // A lap the server refuses will never post (say, a tutorial lap from an older opening):

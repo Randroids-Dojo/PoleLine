@@ -3,11 +3,12 @@
 // GET  /api/leaderboard?track=<slug>&player=<id>&limit=50  -> board for a circuit
 // GET  /api/leaderboard?summary=1                          -> fastest lap per circuit
 // GET  /api/leaderboard?track=<slug>&lap=<rank>            -> that lap's line, to replay
-// POST /api/leaderboard {track, compound, line, playerId, name, setup?}
+// POST /api/leaderboard {track, compound, line, brakes?, playerId, name, setup?}
 // PATCH /api/leaderboard {playerId, name}                   -> rename everywhere
 //
 // A submission carries the drawn line itself (decimetre integer deltas), never
-// a claimed time. The server re-validates track limits and re-runs the same
+// a claimed time. A lap laid segment by segment also carries its brake zones
+// (whole decimetres of lap progress), which the simulation drives to. The server re-validates track limits and re-runs the same
 // deterministic simulation the browser ran, so the time on the board is the
 // server's. Each player keeps only their best lap per circuit, along with the
 // drawing setup it was drawn with (tap and bend, tidy strokes or freehand,
@@ -28,7 +29,7 @@ import { waitUntil } from '@vercel/functions';
 import { z } from 'zod';
 import { CATALOG } from '../src/data/catalog.js';
 import { GEOMETRY } from '../src/data/geometry-all.js';
-import { simulateLap } from '../src/sim/lapsim.js';
+import { simulateLap, simulatePlan } from '../src/sim/lapsim.js';
 import { packLine } from '../src/sim/pack.js';
 import { MAX_POINTS, decodePath, validatePath } from '../src/sim/path.js';
 import { buildTrack, type Track } from '../src/sim/track.js';
@@ -68,6 +69,9 @@ export function cleanName(raw: string): string | null {
   return name;
 }
 
+/** Most brake zones a lap can carry (a lap has under a hundred segments). */
+const MAX_BRAKE_ZONES = 200;
+
 const submitSchema = z.object({
   track: z.enum(SLUGS),
   compound: z.enum(['soft', 'medium', 'hard']),
@@ -76,6 +80,12 @@ const submitSchema = z.object({
     .min(40)
     .max(MAX_POINTS * 2)
     .refine((a) => a.length % 2 === 0, 'line must have x,y pairs'),
+  /** Segment by segment: brake zones, flat [from, to, ...] in whole decimetres, in order along the lap. */
+  brakes: z
+    .array(z.number().int().min(-1000).max(2_000_000))
+    .max(MAX_BRAKE_ZONES * 2)
+    .refine((a) => a.length % 2 === 0 && a.every((v, i) => i === 0 || v >= a[i - 1]), 'brake zones must be ordered from, to pairs')
+    .optional(),
   playerId: z.string().regex(/^[a-f0-9-]{16,40}$/),
   name: z.string().max(64),
   setup: z.unknown().optional(),
@@ -83,7 +93,7 @@ const submitSchema = z.object({
 
 /** Drawing settings a lap was drawn with. A malformed setup is dropped, never the lap. */
 const setupSchema = z.object({
-  drawMode: z.enum(['freehand', 'smooth', 'curves']).optional(),
+  drawMode: z.enum(['freehand', 'smooth', 'curves', 'segments']).optional(),
   scrollMode: z.enum(['pause', 'continuous']),
   scrollSpeed: z.number().min(0.25).max(2),
   cornerDamping: z.enum(['off', 'gentle', 'early', 'hold', 'pace']),
@@ -110,14 +120,17 @@ function track(slug: string): Track {
   return t;
 }
 
-/** Pure scoring step, exported for tests: line in, server-authoritative lap out. */
-export function scoreLine(slug: string, line: number[], compound: 'soft' | 'medium' | 'hard'): { ok: true; timeMs: number } | { ok: false; error: string } {
+/**
+ * Pure scoring step, exported for tests: line in (and, for a lap laid segment
+ * by segment, its brake zones), server-authoritative lap out.
+ */
+export function scoreLine(slug: string, line: number[], compound: 'soft' | 'medium' | 'hard', brakes?: number[]): { ok: true; timeMs: number } | { ok: false; error: string } {
   const t = track(slug);
   if (slug === TUTORIAL.slug && !startsWithTutorialPrefix(line)) return { ok: false, error: 'line rejected (tutorial laps start from the drawn line)' };
   const pts = decodePath(line);
   const v = validatePath(t, pts);
   if (!v.ok) return { ok: false, error: `line rejected (${v.error})` };
-  const lap = simulateLap(t, pts, compound);
+  const lap = brakes ? simulatePlan(t, pts, compound, brakes) : simulateLap(t, pts, compound);
   if (!Number.isFinite(lap.timeMs) || lap.timeMs < t.meta.poleRef * 1000 * 0.8) return { ok: false, error: 'lap time out of range' };
   return { ok: true, timeMs: lap.timeMs };
 }
@@ -147,6 +160,8 @@ interface Meta {
   setup?: Setup;
   /** Posted with its line stored for replays. */
   replay?: boolean;
+  /** Laid segment by segment: the brake zones it was scored with, for replays. */
+  brakes?: number[];
 }
 
 function parseMeta(v: unknown): Meta | null {
@@ -219,7 +234,7 @@ async function post(req: Req, res: Res): Promise<Res> {
   if (hits === 1) await kv.expire(rlKey, RATE_WINDOW);
   if (hits > RATE_MAX) return res.status(429).json({ error: 'too many laps, take a breather' });
 
-  const scored = scoreLine(body.track, body.line, body.compound);
+  const scored = scoreLine(body.track, body.line, body.compound, body.brakes);
   if (!scored.ok) return res.status(422).json({ error: scored.error });
   const timeMs = scored.timeMs;
 
@@ -228,7 +243,7 @@ async function post(req: Req, res: Res): Promise<Res> {
   const changed = (await kv.zadd(key, { lt: true, ch: true }, { score: timeMs, member: body.playerId })) as number | null;
   const improved = Number(changed ?? 0) > 0;
   const setup = setupSchema.safeParse(body.setup);
-  const meta: Meta = { name, compound: body.compound, timeMs, date: new Date().toISOString(), ...(setup.success ? { setup: setup.data } : {}), replay: true };
+  const meta: Meta = { name, compound: body.compound, timeMs, date: new Date().toISOString(), ...(setup.success ? { setup: setup.data } : {}), replay: true, ...(body.brakes ? { brakes: body.brakes } : {}) };
   const p = kv.pipeline();
   if (improved) p.hset(`${PREFIX}meta:${body.track}`, { [body.playerId]: JSON.stringify(meta) });
   else p.hget(`${PREFIX}meta:${body.track}`, body.playerId);
@@ -247,7 +262,7 @@ async function post(req: Req, res: Res): Promise<Res> {
   if (improved) await keepReplay(key, body.track, body.playerId, rank, body.line);
   if (improved && rank === 1) {
     await kv.hset(`${PREFIX}records`, { [body.track]: JSON.stringify(meta) });
-    await kv.set(`${PREFIX}wr:${body.track}`, JSON.stringify({ playerId: body.playerId, compound: body.compound, timeMs, line: body.line }));
+    await kv.set(`${PREFIX}wr:${body.track}`, JSON.stringify({ playerId: body.playerId, compound: body.compound, timeMs, line: body.line, ...(body.brakes ? { brakes: body.brakes } : {}) }));
   }
   if (improved) {
     const short = CATALOG.find((m) => m.slug === body.track)!.short;
@@ -286,15 +301,20 @@ async function getLap(req: Req, res: Res): Promise<Res> {
   p.hget(`${PREFIX}meta:${slug}`, id);
   const [packed, rawMeta] = (await p.exec()) as unknown[];
   let line = typeof packed === 'string' && packed ? packed : null;
+  const m = parseMeta(rawMeta);
+  let brakes = Array.isArray(m?.brakes) ? m.brakes : undefined;
   if (!line && rank === 1) {
     const wr = (await kv.get(`${PREFIX}wr:${slug}`)) as unknown;
-    const rec = typeof wr === 'string' ? (JSON.parse(wr) as { playerId?: string; line?: number[] }) : (wr as { playerId?: string; line?: number[] } | null);
-    if (rec?.playerId === id && Array.isArray(rec.line)) line = packLine(rec.line);
+    type Rec = { playerId?: string; line?: number[]; brakes?: number[] };
+    const rec = typeof wr === 'string' ? (JSON.parse(wr) as Rec) : (wr as Rec | null);
+    if (rec?.playerId === id && Array.isArray(rec.line)) {
+      line = packLine(rec.line);
+      if (Array.isArray(rec.brakes)) brakes = rec.brakes;
+    }
   }
   if (!line) return res.status(404).json({ error: 'no replay for this lap' });
-  const m = parseMeta(rawMeta);
   res.setHeader('Cache-Control', 'public, s-maxage=15, stale-while-revalidate=60');
-  return res.status(200).json({ rank, name: m?.name ?? 'Driver', compound: m?.compound ?? 'soft', timeMs, line });
+  return res.status(200).json({ rank, name: m?.name ?? 'Driver', compound: m?.compound ?? 'soft', timeMs, line, ...(brakes ? { brakes } : {}) });
 }
 
 const renameSchema = z.object({ playerId: z.string().regex(/^[a-f0-9-]{16,40}$/), name: z.string().max(64) });

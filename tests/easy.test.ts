@@ -300,11 +300,18 @@ describe('line builder for tidy strokes and tap and bend', () => {
 describe('draw mode setting', () => {
   beforeEach(() => mem.clear());
 
-  it('defaults to tap and bend (easy) and ignores junk', () => {
-    expect(getSettings().drawMode).toBe('curves');
+  it('defaults to segment by segment (easy) and ignores junk', () => {
+    expect(getSettings().drawMode).toBe('segments');
     localStorage.setItem('poleline:v1:settings', JSON.stringify({ v: 2, drawMode: 'sideways' }));
-    expect(getSettings().drawMode).toBe('curves');
+    expect(getSettings().drawMode).toBe('segments');
     expect(saveSettings({ drawMode: 'freehand' }).drawMode).toBe('freehand');
+  });
+
+  it('keeps a mode the player picked, and reads the old segment by segment switch as the mode', () => {
+    localStorage.setItem('poleline:v1:settings', JSON.stringify({ v: 2, drawMode: 'curves' }));
+    expect(getSettings().drawMode).toBe('curves');
+    localStorage.setItem('poleline:v1:settings', JSON.stringify({ v: 2, segments: true }));
+    expect(getSettings().drawMode).toBe('segments');
   });
 
   it('travels with the setup, and an old setup without it reads as freehand', () => {
@@ -314,9 +321,10 @@ describe('draw mode setting', () => {
     const old = { scrollMode: setup.scrollMode, scrollSpeed: setup.scrollSpeed, cornerDamping: setup.cornerDamping, autoRotate: setup.autoRotate };
     expect(sameSetup(old, { ...setup, drawMode: 'freehand' })).toBe(true);
     expect(sameSetup(old, setup)).toBe(false);
-    expect(drawModeText(undefined)).toBe('Freehand (hard)');
-    expect(drawModeText('smooth')).toBe('Tidy my strokes (medium)');
-    expect(drawModeText('curves')).toBe('Tap and bend (easy)');
+    expect(drawModeText(undefined)).toBe('Freehand (expert)');
+    expect(drawModeText('smooth')).toBe('Tidy my strokes (hard)');
+    expect(drawModeText('curves')).toBe('Tap and bend (medium)');
+    expect(drawModeText('segments')).toBe('Segment by segment (easy)');
   });
 });
 

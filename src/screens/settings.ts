@@ -97,10 +97,10 @@ export function openSettings(app: App, onChange?: (s: Settings) => void): void {
   modeGroup.append(keepOptions);
   syncSpeed(s.scrollMode);
 
-  // Tap and bend never scrolls under the finger, so its scroll settings are hidden.
+  // Segment by segment and tap and bend never scroll under the finger, so their scroll settings are hidden.
   const scrollHead = h('h3', null, 'When the map scrolls while you draw');
   const syncScroll = (mode: DrawMode) => {
-    scrollHead.hidden = modeGroup.hidden = mode === 'curves';
+    scrollHead.hidden = modeGroup.hidden = mode === 'curves' || mode === 'segments';
   };
   const drawGroup = h('div', { class: 'set-group', role: 'radiogroup', 'aria-label': 'How you draw' });
   for (const m of DRAW_MODES) {
