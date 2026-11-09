@@ -68,15 +68,16 @@ export function improve(track: Track, course: Course, picks: Pick[], compound: '
     else cur[k].pedal = was;
   }
   for (let k = 0; k < cur.length; k++) {
-    const was = cur[k].lane;
     for (const l of laneOptions(course, cur, k)) {
-      if (l === was) continue;
+      // Restore the lane kept so far (not the one before the search), so the picks returned run the time returned.
+      const kept = cur[k].lane;
+      if (l === kept) continue;
       const next = course.segments[(k + 1) % cur.length];
       if (Math.abs(cur[(k + 1) % cur.length].lane - l) > next.reach) continue;
       cur[k].lane = l;
       const t = lapTime(track, course, cur, compound) ?? Infinity;
       if (t < best) best = t;
-      else cur[k].lane = was;
+      else cur[k].lane = kept;
     }
   }
   return { picks: cur, time: best };

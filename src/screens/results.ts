@@ -309,6 +309,10 @@ export class ResultsScreen implements Screen {
       p.textContent = `Working out where this lap lost time (${r.checked} of ${r.tips.length} segments).`;
       return;
     }
+    if (r.failed) {
+      p.textContent = 'Could not work out where this lap lost time.';
+      return;
+    }
     const tips = bestTips(r);
     const perfect = r.perfectMs !== null && r.perfectMs < r.timeMs - 5 ? ` With perfect pedals this line runs ${formatLap(r.perfectMs)}.` : '';
     if (!tips.length) {

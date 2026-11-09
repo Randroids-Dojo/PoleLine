@@ -9,7 +9,7 @@
 
 import type { App, Screen } from '../app/app';
 import { buzz, sfx, unlockAudio } from '../app/audio';
-import { getSettings, saveSettings, setTyre } from '../app/store';
+import { getSettings, saveSettings, setTyre, type Settings } from '../app/store';
 import {
   courseFor,
   decodePicks,
@@ -291,7 +291,7 @@ export class SegmentScreen implements Screen {
         h('div', { class: 'draw-title' }, h('strong', null, track.meta.short), this.subtitle),
         tutorial
           ? h('button', { class: 'icon-btn', 'aria-label': 'Pause', html: ICONS.pause, onclick: () => this.openPause() })
-          : h('button', { class: 'icon-btn', 'aria-label': 'Settings', html: ICONS.gear, onclick: () => openSettings(this.app, () => {}) }),
+          : h('button', { class: 'icon-btn', 'aria-label': 'Settings', html: ICONS.gear, onclick: () => openSettings(this.app, (s) => this.settingsChanged(s)) }),
       ),
       h('div', { class: 'draw-progress', role: 'progressbar', 'aria-label': 'Lap laid' }, this.bar),
       this.hint,
@@ -460,10 +460,19 @@ export class SegmentScreen implements Screen {
   }
 
   private switchMode(m: DrawMode): void {
-    if (m === 'segments') return;
+    if (m === 'segments' || !this.actions.switchMode) return;
     this.closeCoach();
     this.leaving = true;
     this.actions.switchMode?.(m);
+  }
+
+  /**
+   * A drawing level picked in Settings draws the lap instead. Not while
+   * editing a saved lap (which has no such hand-over) or over a lap half
+   * laid, except on the tutorial, whose pause menu switches the same way.
+   */
+  private settingsChanged(s: Settings): void {
+    if (s.drawMode !== 'segments' && !this.leaving && (this.tutorial || !this.holdsWork)) this.switchMode(s.drawMode);
   }
 
   /** The tutorial's pause menu: difficulty, resume, every setting, or skip the walkthrough. */
@@ -471,7 +480,7 @@ export class SegmentScreen implements Screen {
     openPauseMenu(this.app, {
       mode: 'segments',
       pick: (m) => this.switchMode(m),
-      settings: () => openSettings(this.app, () => {}),
+      settings: () => openSettings(this.app, (s) => this.settingsChanged(s)),
       skip: this.tutorial?.walkthrough ? () => this.skipWalkthrough() : undefined,
     });
   }
@@ -536,7 +545,7 @@ export class SegmentScreen implements Screen {
     this.coach = coach;
     this.unwatch = coach.watch((r) => {
       this.report = r;
-      if (r.done) this.lastDone = r;
+      if (r.done && !r.failed) this.lastDone = r;
       this.sync();
     });
   }
@@ -909,7 +918,9 @@ export class SegmentScreen implements Screen {
               : 'Finding where it loses time'
             : shown.length
               ? 'Tap an orange segment to find time'
-              : 'No single change makes it quicker'
+              : this.report?.failed
+                ? 'Lap laid. Tap a segment to change it'
+                : 'No single change makes it quicker'
         : sec
           ? `Segment ${this.cursor + 1} of ${total}: ${segmentText(sec, turnOfSegment(this.course, this.cursor, turnsOf(this.track)))}`
           : '',
@@ -953,7 +964,12 @@ export class SegmentScreen implements Screen {
     const fx = ROAD_LANE_X[from];
     const ax = ROAD_LANE_X[this.armed];
     const d = `M${fx} 70 C${fx} 50 ${ax} 42 ${ax} 22`;
-    for (const r of this.roadRoute) r.style.setProperty('d', `path("${d}")`);
+    // Attributes for every browser (Safari has no CSS d); the CSS properties too, which animate where supported.
+    for (const r of this.roadRoute) {
+      r.setAttribute('d', d);
+      r.style.setProperty('d', `path("${d}")`);
+    }
+    this.roadFrom.setAttribute('cx', String(fx));
     this.roadFrom.style.setProperty('cx', `${fx}px`);
   }
 

@@ -3243,6 +3243,14 @@ button:disabled {
   color: #fff;
   transform: skewX(-10deg);
   touch-action: manipulation;
+  position: relative;
+}
+
+/* A taller hit area than the decal (32 to 35px on phones): at least 44px. */
+.sec-allgas::before {
+  content: '';
+  position: absolute;
+  inset: -7px 0;
 }
 
 .sec-allgas[hidden] {

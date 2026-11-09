@@ -100,7 +100,7 @@ const screenOf = (p: import('playwright-core').Page) => p.evaluate(() => {
   const prefix = TUTORIAL.prefixPoints * 2;
   const starts = !!pb && pb.code.length > prefix && pb.code.slice(0, prefix).every((v: number, i: number) => v === TUTORIAL.line[i]);
   const track = buildTrack(CATALOG.find((m) => m.slug === 'rookie-ring')!, rookie);
-  check('the lap starts with the laid line point for point (the tutorial board\'s rule), is legal and carries its brake zones', starts && validatePath(track, decodePath(pb.code)).ok && Array.isArray(pb.brakes) && pb.brakes.length > 0 && typeof pb.picks === 'string');
+  check('the lap starts with the laid line point for point (the tutorial board\'s rule), is legal, carries its brake zones and is recorded as laid segment by segment', starts && validatePath(track, decodePath(pb.code)).ok && Array.isArray(pb.brakes) && pb.brakes.length > 0 && typeof pb.picks === 'string' && pb.setup?.drawMode === 'segments');
   await p.context().close();
 }
 
@@ -125,6 +125,21 @@ const screenOf = (p: import('playwright-core').Page) => p.evaluate(() => {
   await p.locator('.pause-sheet .diff-opt[data-mode="smooth"]').click();
   await p.waitForTimeout(800);
   check('hard from the segment screen\'s pause menu switches to drawing', (await screenOf(p)) === 'draw' && (await saved(p)) === 'smooth');
+  // All settings, from the pause menu, switch the same way.
+  await p.getByText('Pick your tyres').waitFor({ timeout: 8000 });
+  await p.locator('.draw-tyre-pick[data-c="medium"]').click();
+  await p.getByText('Your turn').waitFor({ timeout: 10000 });
+  const viaSettings = async (mode: string) => {
+    await p.getByRole('button', { name: 'Pause' }).click();
+    await p.getByRole('button', { name: 'All settings' }).click();
+    await p.locator(`label.set-mode:has(input[value="${mode}"])`).click();
+    await p.waitForTimeout(800);
+  };
+  await viaSettings('segments');
+  check('easy in Settings switches the drawing screen to laying', (await screenOf(p)) === 'segments' && (await saved(p)) === 'segments' && (await p.locator('.settings-sheet').count()) === 0);
+  await p.getByText('Your turn').waitFor({ timeout: 8000 });
+  await viaSettings('curves');
+  check('medium in Settings switches the segment screen to drawing', (await screenOf(p)) === 'draw' && (await saved(p)) === 'curves' && (await p.locator('.settings-sheet').count()) === 0);
   await p.context().close();
 }
 

@@ -443,7 +443,7 @@ export function solveOffsets(t: Track, course: Course, picks: readonly Pick[], p
   const out = alpha.slice(0, N);
   // A re-solve of the end that folded the line across the road (a local
   // minimum the whole solve does not fall into): solve it all instead.
-  if (from > 0 && maxStep(out) > FOLD) return solveOffsets(t, course, picks);
+  if (from > 0 && maxStep(out) > FOLD) return solveOffsets(t, course, picks, null, fixed);
   return out;
 }
 

@@ -5,7 +5,7 @@ import { setSoundEnabled } from './app/audio';
 import { setKeepAwake } from './app/wake';
 import { bumpAttempts, currentSetup, getBest, getBestSectors, getSettings, getTyre, saveSettings, setBest, updateBestSectors } from './app/store';
 import { SegmentScreen, type SegmentTutorial } from './screens/segments';
-import type { DrawMode } from './app/draw-mode';
+import { drawnMode, type DrawMode } from './app/draw-mode';
 import { brakeZones, courseFor, decodePicks, encodePicks, type Pick } from './app/segments';
 import { coachFor, startCoach } from './app/coach-client';
 import { HomeScreen } from './screens/home';
@@ -271,7 +271,11 @@ function race(track: Track, compound: Compound, pts: number[], walkthrough = fal
   const bestSectorsBefore = getBestSectors(slug);
   const attempt = bumpAttempts(slug);
   const isPb = !previous || lap.timeMs < previous.timeMs;
-  const setup = currentSetup();
+  // The mode the lap was made in, which the saved setting need not be: a lap
+  // carried on after a change in Settings, or a drawn line edited while easy
+  // (segment by segment) is picked, which draws in tap and bend.
+  const saved = currentSetup();
+  const setup = { ...saved, drawMode: picks ? 'segments' : drawnMode(saved.drawMode ?? 'freehand') } satisfies typeof saved;
   const date = new Date().toISOString();
   // Your quickest laps stay on the device with their lines, to edit later. The
   // Toybox edition shows them where the web edition shows the leaderboard.
@@ -320,7 +324,7 @@ async function editSegments(slug: string, picks: Pick[], compound: Compound): Pr
   if (!track.meta.tutorial) saveSettings({ lastTrack: slug });
   if (history.state?.screen !== 'session') history.pushState({ screen: 'session' }, '');
   // The analysis of the lap just raced marks where this plan lost time.
-  const coach = coachFor(slug, encodePicks(picks));
+  const coach = coachFor(slug, encodePicks(picks), compound);
   app.show(new SegmentScreen(app, track, app.art(track), compound, { complete: (pts, tyre, p) => race(track, tyre, pts, false, null, p), exit: () => home(slug) }, picks, coach));
 }
 

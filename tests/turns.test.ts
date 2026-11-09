@@ -21,7 +21,7 @@ function bend(t: Track, s: number): number {
 
 const all: [string, TrackMeta, Record<string, () => Promise<{ default: number[] }>>, Record<string, number[]>][] = [
   ...CATALOG.map((m) => ['web', m, GEOMETRY_LOADERS, TURNS] as [string, TrackMeta, typeof GEOMETRY_LOADERS, Record<string, number[]>]),
-  ...TOYBOX.filter((m) => !m.tutorial).map((m) => ['toybox', m, TOYBOX_LOADERS, TOYBOX_TURNS] as [string, TrackMeta, typeof TOYBOX_LOADERS, Record<string, number[]>]),
+  ...TOYBOX.map((m) => ['toybox', m, TOYBOX_LOADERS, TOYBOX_TURNS] as [string, TrackMeta, typeof TOYBOX_LOADERS, Record<string, number[]>]),
 ];
 
 describe('turn numbers', () => {

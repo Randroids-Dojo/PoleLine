@@ -1,13 +1,15 @@
 // Turn numbers for the made-up circuits, from their own corner lists: each
 // corner the layout counts as a turn (scripts/toybox/plan.ts: at least 12
 // degrees, and the two halves of a split hairpin count once) has its apex in
-// the middle of its arc, numbered in lap order from the start line. Written to
-// src/data/toybox/turns.ts. Run by `npm run toybox:tracks`; check one with
+// the middle of its arc, numbered in lap order from the start line. The Rookie
+// Ring, the tutorial both editions share, keeps the web edition's turns (from
+// its plan). Written to src/data/toybox/turns.ts. Run by `npm run toybox:tracks`; check one with
 // `EDITION=toybox npx tsx scripts/turnmap.ts <slug> out.png --data`.
 
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { CATALOG } from '../../src/data/toybox/catalog.js';
+import { TURNS as WEB_TURNS } from '../../src/data/turns.js';
 import { CIRCUITS } from './circuits.js';
 import { layout } from './plan.js';
 
@@ -54,6 +56,8 @@ function turnApexes(corners: [number, number, number][], scale: number): number[
 }
 
 const turns: Record<string, number[]> = {};
+// The shared tutorial circuit: only its own entry, so no real circuit's slug reaches this edition.
+for (const m of CATALOG.filter((c) => c.tutorial)) turns[m.slug] = WEB_TURNS[m.slug];
 for (const c of CIRCUITS) {
   const meta = CATALOG.find((m) => m.slug === c.slug);
   if (!meta) continue;

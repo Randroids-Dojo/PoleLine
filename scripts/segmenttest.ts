@@ -10,7 +10,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium, type Page } from 'playwright-core';
 import { formatLap } from '../src/shared/time.js';
-import { buildCourse, encodePicks } from '../src/app/segments.js';
+import { buildCourse, decodePicks, encodePicks } from '../src/app/segments.js';
 import { buildTrack } from '../src/sim/track.js';
 import { carefulPlan, lapTime } from './segmentplan.js';
 
@@ -219,7 +219,7 @@ for (let i = 0; i < 120; i++) {
   await page.waitForTimeout(500);
 }
 const coachMs = await page.evaluate(
-  ([sl, pk]) => (window as unknown as { __pl: { coachFor(s: string, p: string): { ms: number } | null } }).__pl.coachFor(sl, pk)?.ms ?? -1,
+  ([sl, pk]) => (window as unknown as { __pl: { coachFor(s: string, p: string, c: string): { ms: number } | null } }).__pl.coachFor(sl, pk, 'soft')?.ms ?? -1,
   [slug, encodePicks(plan)] as const,
 );
 console.log(`analysis took ${(coachMs / 1000).toFixed(1)} s: ${coachNote}`);
@@ -391,18 +391,40 @@ if (s.tips.length) {
 }
 
 // A lap laid segment by segment is a saved lap like any other: home's Edit a
-// saved line opens it as its segments again.
+// saved line opens it as its segments again, even with a drawing mode picked
+// in Settings, and a lap raced from there is recorded as laid segment by segment.
 {
   // From the results of the last lap.
   await page.getByRole('button', { name: 'Circuits', exact: true }).click();
   await page.waitForTimeout(800);
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.locator('label.set-mode:has(input[value="freehand"])').click();
+  await page.getByRole('button', { name: 'Close settings' }).click();
+  await page.waitForTimeout(400);
   await page.getByRole('button', { name: 'Edit a saved line' }).click();
   await page.waitForTimeout(500);
   await page.locator('.board-open').first().click();
   await page.waitForTimeout(1200);
   const best = await page.evaluate((sl) => JSON.parse(localStorage.getItem(`poleline:v1:pb:${sl}`) ?? 'null'), slug);
   const reopened = await state().catch(() => null);
-  check(!!best?.picks && !!reopened && reopened.review && reopened.picks === best.picks, `a saved segment lap opens as its segments from Edit a saved line (${reopened?.picks?.slice(0, 12)} vs ${best?.picks?.slice(0, 12)})`);
+  check(!!best?.picks && !!reopened && reopened.review && reopened.picks === best.picks, `a saved segment lap opens as its segments from Edit a saved line, with Expert picked in Settings (${reopened?.picks?.slice(0, 12)} vs ${best?.picks?.slice(0, 12)})`);
+  // A new plan (one pedal changed, so it is a new saved lap), raced from the segment screen.
+  const changed = decodePicks(best.picks)!.map((p, i) => (i === 2 ? { ...p, pedal: p.pedal === 'gas' ? 'brake' : 'gas' } : p));
+  await page.evaluate(([sl, p]) => (window as unknown as { __pl: { editSegments(s: string, p: unknown, c: string): Promise<void> } }).__pl.editSegments(sl, p, 'soft'), [slug, changed] as const);
+  await page.waitForTimeout(1200);
+  await tap('Race');
+  await page.waitForTimeout(1500);
+  await page.getByRole('button', { name: /skip/i }).click();
+  await page.waitForTimeout(4500);
+  // The saved laps on this circuit, as stored: laid or drawn, and the mode each records.
+  const modes = await page.evaluate((sl) => {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i)!;
+      if (k.includes(':laps:') && k.endsWith(`:${sl}`)) return (JSON.parse(localStorage.getItem(k)!) as { picks?: string; setup?: { drawMode?: string } }[]).map((l) => `${l.picks ? 'laid' : 'drawn'} ${l.setup?.drawMode}`);
+    }
+    return [];
+  }, slug);
+  check(modes.length >= 3 && modes.every((m) => m === 'laid segments'), `every lap laid segment by segment is recorded so, whatever Settings says (${modes.join(', ')})`);
 }
 
 // A fresh player who keeps to the middle until they first brake is shown the

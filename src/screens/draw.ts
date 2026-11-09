@@ -436,6 +436,13 @@ export class DrawScreen implements Screen {
   }
 
   private applySettings(s: Settings): void {
+    // Easy picked in Settings: lay the lap segment by segment instead. Not
+    // while editing a saved line (which has no such hand-over) or over a lap
+    // half drawn, except on the tutorial, whose pause menu switches the same way.
+    if (s.drawMode === 'segments' && this.actions.switchMode && !this.closed && (this.tutorial || !this.holdsWork)) {
+      this.setDrawMode('segments');
+      return;
+    }
     const was = this.mode;
     if (drawnMode(s.drawMode) !== this.drawMode) {
       this.drawMode = drawnMode(s.drawMode);

@@ -52,6 +52,8 @@ describe('placing the time labels on the whole track', () => {
       for (let i = 0; i < placed.length; i++) {
         expect(within(placed[i], screen)).toBe(true);
         for (let j = i + 1; j < placed.length; j++) expect(overlap(placed[i], placed[j])).toBe(false);
+        // Nor over a badge: a label with no clear spot is left out.
+        for (const b of badges) expect(overlap(placed[i], b)).toBe(false);
       }
       // Three labels always find room on a phone screen.
       if (count <= 3) expect(placed.length).toBe(count);

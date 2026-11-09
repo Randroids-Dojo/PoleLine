@@ -55,13 +55,21 @@ export class Coach {
       };
       this.worker.onerror = (e) => {
         console.error('coach worker failed', e.message);
-        this.stop();
+        this.fail();
       };
       this.worker.postMessage(req);
     } catch (err) {
       console.error('coach worker could not start', err);
-      this.worker = null;
+      this.fail();
     }
+  }
+
+  /** The worker failed: a last report with no tips, so nothing waits on it. Not kept, so the plan is tried again next time. */
+  private fail(): void {
+    this.stop();
+    const r: CoachReport = { picks: this.picks, compound: this.compound, timeMs: 0, perfectMs: null, tips: [], checked: 0, done: true, failed: true };
+    this.report = r;
+    for (const fn of this.listeners) fn(r);
   }
 
   get running(): boolean {
@@ -86,7 +94,7 @@ let latest: Coach | null = null;
 /** Analyse a plan on a tyre. The analysis running for another plan stops; one already running for this plan carries on. */
 export function startCoach(track: Track, course: Course, picks: Pick[], compound: Compound): Coach {
   const p = encodePicks(picks);
-  if (latest && latest.slug === track.meta.slug && latest.picks === p && latest.compound === compound && (latest.running || latest.report?.done)) return latest;
+  if (latest && latest.slug === track.meta.slug && latest.picks === p && latest.compound === compound && (latest.running || (latest.report?.done && !latest.report.failed))) return latest;
   latest?.stop();
   // Typed arrays and plain objects only: the track goes over as a copy.
   latest = new Coach(track.meta.slug, { track, course, picks: picks.map((q) => ({ ...q })), compound });
@@ -98,7 +106,7 @@ export function analysed(slug: string, picks: Pick[], compound: Compound): boole
   return done.has(keyOf(slug, encodePicks(picks), compound));
 }
 
-/** The analysis of the latest lap on a circuit, if it was this plan. */
-export function coachFor(slug: string, picks: string): Coach | null {
-  return latest && latest.slug === slug && latest.picks === picks ? latest : null;
+/** The analysis of the latest lap on a circuit, if it was this plan on this tyre. */
+export function coachFor(slug: string, picks: string, compound: Compound): Coach | null {
+  return latest && latest.slug === slug && latest.picks === picks && latest.compound === compound ? latest : null;
 }

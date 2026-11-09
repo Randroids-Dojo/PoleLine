@@ -35,6 +35,8 @@ export interface CoachReport {
   /** Segments whose pedal and gates have all been tried. */
   checked: number;
   done: boolean;
+  /** The worker could not run: no tips, and none coming. */
+  failed?: boolean;
 }
 
 /** A change has to win at least this much (ms) to be worth a tip. */
